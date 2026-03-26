@@ -1,3 +1,5 @@
+© 2026 Shawn Sammartano. All rights reserved. BubbleFish™ is a trademark of Shawn Sammartano.
+
 # BubbleFish (Private Work in Progress)
 
 This repository contains **private, unpublished work** on an AI routing and governance daemon called BubbleFish.
