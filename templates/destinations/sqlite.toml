@@ -1,0 +1,7 @@
+name     = "local_sqlite"
+type     = "sqlite"
+filepath = "./bubblefish.db"
+table    = "events"
+
+[schema]
+required_fields = ["content", "metadata"]

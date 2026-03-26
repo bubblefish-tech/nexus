@@ -1,0 +1,80 @@
+1) COMMUNITY vs. ENTERPRISE FEATURE SPLIT
+A) BubbleFish Community
+i. TUI dashboard (Bubble Tea) - Included (Yes) - Basic real-time TUI showing queues, sources, destinations, errors
+ii. Web UI dashboard - Included (Yes) - Simple read-only dashboard (status, recent events, basic metrics)
+iii. Apply Outbound Presenter Layer (the "Context Tax" fix -- declarative outbound TOML mappings that filter, strip metadata, redact PII before returning data to AI clients).
+iv. Multi-destination routing - Included (Yes) - Map sources to one or more destinations via config (simple routing rules)
+v. Destination templates/Plugins - (basic writes/reads) - for SQLite, ChromaDB, OpenBrain, Postgres (basic writes/reads), any others that you recommend for community adoption
+vi. Source Apps - Include Starter TOML templates for ChatGPT, Claude, Perplexity, Ollama, LM Studio
+vii. RBAC with per-source read/write - ONLY simple can_read/can_write flags in config
+viii. NO - NOT INCLUDED - SSO/SAML/Entra ID/Okta integration
+iv. single queue per destination
+x. Load shedding (HTTP 429 backpressure) - Included (Yes) - Simple threshold-based 429 when queue/backlog exceeds configured limit
+xi. Retention policies/WAL rotation/audit export - manual or simple rotation only
+xii. Encrypted WAL at rest - ONLY rely on OS/disk encryption only
+xiii. Agentic chaining (Source A → Source B) - Community - Included (Yes) - Very simple static one-step chaining (e.g., A then B then write)
+xiv. Hot-reload configs - Community - Included (Yes) - Watch config directory, rebuild/reload without daemon restart (best-effort)
+xv. Systemd units/Helm charts/deploy story - Community - Included (Yes) - Basic systemd unit and simple Helm chart for single-node deployment
+xvi. SLAs and commercial support - Community - Included (No) - None (best-effort GitHub issues only)
+
+B) BubbleFish Enterprise
+i. TUI dashboard (Bubble Tea) - Enterprise - Included (Yes) - Advanced panels (multi-node/cluster view, RBAC-aware views, enterprise metrics)
+ii. Web UI dashboard - Enterprise - Included (Yes) - Advanced Web UI (multi-tenant views, admin screens, export/report tooling)
+iii. Outbound Presenter Layer - Enterprise - Included (Yes) - Full declarative outbound TOML mappings, field allow/deny lists, PII redaction, schema shaping
+iv. Multi-destination routing - Enterprise - Included (Yes) - Advanced routing policies (per-tenant, conditional routing, weighted/failover routing)
+v. PostgreSQL destination plugin - Enterprise - Included (Yes) - Full Postgres support (pooling, SSL, HA, read replicas, tuning options)
+vi. Destination templates/Plugins - Configurable for all with pooling, SSL, HA, read replicas, tuning options, advanced queries, bulk export, fine-grained schemas, etc
+vii. RBAC with per-source read/write - Enterprise - Included (Yes) - Full RBAC: roles, policies, per-source/per-destination read/write enforcement
+viii. SSO/SAML/Entra ID/Okta integration - Enterprise - Included (Yes) - SSO, SAML, OIDC, Entra ID, Okta integration for daemon and UI access
+iv. Advanced WAL (lock-free, group commit, compaction) - Enterprise - Included (Yes) - Lock-minimized WAL, group commit flushing, compaction/segment rotation
+x. Sharded queues for high-core environments - Enterprise - Included (Yes) - Sharded queues/workers per destination for multi-core scaling
+xi. Raft consensus clustering for HA - Enterprise - Included (Yes) - Multi-node cluster, leader election, replication, zero-downtime failover
+xii. Retention policies/WAL rotation/audit export - Enterprise - Included (Yes) - Policy engine for retention, automatic rotation, CSV/JSON/Parquet exports
+xiii. Encrypted WAL at rest - Enterprise - Included (Yes) - Built-in WAL encryption with key management hooks
+xiv. Agentic chaining (Source A → Source B) - Enterprise - Included (Yes) - Complex multi-step/DAG chaining, conditionals, retries, per-tenant flows
+xv. Hot-reload configs - Enterprise - Included (Yes) - Safe/validated hot-reload, cluster-wide rolling reload, dry-run validation
+xvi. Systemd units/Helm charts/deploy story - Enterprise - Included (Yes) - Hardened multi-node Helm charts, Terraform modules, security-hardening guides
+xvii. SLAs and commercial support - Enterprise - Included (Yes) - Contractual SLAs, support tiers, priority bug fixes and onboarding assistance
+
+2) OPEN-SOURCE DEPENDENCY ANALYSIS: Can We Code It Ourselves?
+A) BurntSushi/toml (MIT): If this poses ANY risk of them making financial claims if this grows massively, then write own TOML parser in Go.
+B) tidwall/gjson (MIT): write our own
+C) charmbracelet/bubbletea + lipgloss (MIT): KEEP for Enterprise only, unless this poses ANY risk of them making financial claims if this grows massively, then write own.
+D) mattn/go-sqlite3 (MIT): SWITCH to modernc.org/sqlite for pure-Go compilation
+E) google/uuid (Apache 2.0): Replace and Implement with Go stdlib
+
+3) REVISED INVENTION RECORD
+A) EXECUTIVE SUMMARY: Modify and Enhance according to revised "COMMUNITY vs. ENTERPRISE FEATURE SPLIT" above
+B) DATES & DEVELOPMENT TIMELINE: Expand according to your memory.
+C) DESCRIPTION OF THE INVENTION: Modify and Enhance according to revised "COMMUNITY vs. ENTERPRISE FEATURE SPLIT" above
+D) PRIOR ART ANALYSIS: Revise according to revised "COMMUNITY vs. ENTERPRISE FEATURE SPLIT" above
+E) TECHNICAL ADVANTAGES & ECONOMIC MOAT: Revise according to impact of revised "COMMUNITY vs. ENTERPRISE FEATURE SPLIT" above
+F) FREEDOM TO OPERATE (PRELIMINARY): 
+G) OPEN-SOURCE & THIRD-PARTY DEPENDENCIES: Revise according to revised "COMMUNITY vs. ENTERPRISE FEATURE SPLIT" above
+H) AI TOOLS & ASSISTANCE: 
+Modify to:
+Foundational models were used as tools for architecture critique, planning, and drafting of code and wording, under the inventor’s direction and control. The inventor conceived the BubbleFish concept and use cases and made all final decisions about what functionality, code, and text were included. The architecture, design decisions, implementation choices, and business model are original to the inventor. All intellectual property rights in the human‑authored aspects of BubbleFish (including its architecture, code, and documentation) are claimed by the inventor; any purely machine‑generated material is not claimed as authored by the inventor except to the extent protected by law in the inventor’s selection, editing, and integration of such material.
+
+
+I) PUBLIC DISCLOSURES TO DATE: 
+Modify to:
+LinkedIn posts about OpenBrain and “context tax” discuss the general problem space but do not disclose the BubbleFish build plan, code, or internal design.
+No code or detailed architecture diagrams for BubbleFish have been publicly posted.
+As of this record, BubbleFish remains a trade secret.
+
+J) INTENDED COMMERCIAL PATH: Intention to go Commercial EULA, annual subscription (enterprise B2B) 
+K) INVENTOR CONTRIBUTIONS: Leave as is.
+L) DEVELOPMENT STAGE & ROADMAP: Leave as is.
+M) COMPETITIVE LANDSCAPE & VALIDATION: Leave as is.
+N) LIMITATIONS & RISKS (HONEST ASSESSMENT): 
+i. Revise according to revised "COMMUNITY vs. ENTERPRISE FEATURE SPLIT" above
+O) SUPPORTING MATERIALS & ATTACHMENTS: 
+
+P) DECLARATION & CHAIN OF TITLE
+Modify to: 
+I hereby declare that:
+1.	I am the sole inventor and current owner of BubbleFish as described in this document.
+2.	I have full authority to assign or license this invention.
+3.	This document is a true and accurate description of the invention to the best of my knowledge as of the date below.
+4.	I intend to assign all rights in BubbleFish to a future company entity (e.g., Delaware C-Corp / Arizona foreign corporation), via a formal IP Assignment Agreement, using this record as evidence of pre-incorporation ownership.
+5.	I understand this document is confidential and will treat it accordingly.
