@@ -1,0 +1,36 @@
+# Remove duplicate templates
+Remove-Item "D:\Bubblefish\Projects\Nexus\internal\config\templates\ollama (1).toml" -Force
+Remove-Item "D:\Bubblefish\Projects\Nexus\internal\config\templates\openbrain (1).toml" -Force
+
+# Create .gitignore
+@'
+# Binaries
+*.exe
+dist/
+
+# Environment secrets
+.env
+
+# Load test scripts
+loadtest.ps1
+
+# Go build cache
+vendor/
+
+# Editor
+.vscode/
+.idea/
+'@ | Out-File -FilePath D:\Bubblefish\Projects\Nexus\.gitignore -Encoding UTF8
+
+# Amend commit with cleanup
+git rm --cached "internal/config/templates/ollama (1).toml"
+git rm --cached "internal/config/templates/openbrain (1).toml"
+git rm --cached bubblefish.exe
+git rm --cached .env
+git rm --cached loadtest.ps1
+git rm --cached dist/bubblefish-v1.0.0-darwin-amd64
+git rm --cached dist/bubblefish-v1.0.0-linux-amd64
+git rm --cached dist/bubblefish-v1.0.0-windows-amd64.exe
+git add .gitignore
+git commit --amend -m "Release v1.0.0 — BubbleFish Nexus"
+git tag -f v1.0.0
