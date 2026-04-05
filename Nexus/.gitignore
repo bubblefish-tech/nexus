@@ -1,36 +1,43 @@
-# Remove duplicate templates
-Remove-Item "D:\Bubblefish\Projects\Nexus\internal\config\templates\ollama (1).toml" -Force
-Remove-Item "D:\Bubblefish\Projects\Nexus\internal\config\templates\openbrain (1).toml" -Force
-
-# Create .gitignore
-@'
 # Binaries
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+__debug_bin*
+
+# Build output
 dist/
+compiled/
 
-# Environment secrets
-.env
-
-# Load test scripts
-loadtest.ps1
-
-# Go build cache
+# Go toolchain
 vendor/
+*.test
+*.out
+coverage.*
 
-# Editor
+# Logs and WAL data
+*.log
+*.jsonl
+backups/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Load test artifacts
+loadtest*
+
+# Editor / IDE
 .vscode/
 .idea/
-'@ | Out-File -FilePath D:\Bubblefish\Projects\Nexus\.gitignore -Encoding UTF8
+*.swp
+*.swo
+*~
 
-# Amend commit with cleanup
-git rm --cached "internal/config/templates/ollama (1).toml"
-git rm --cached "internal/config/templates/openbrain (1).toml"
-git rm --cached bubblefish.exe
-git rm --cached .env
-git rm --cached loadtest.ps1
-git rm --cached dist/bubblefish-v1.0.0-darwin-amd64
-git rm --cached dist/bubblefish-v1.0.0-linux-amd64
-git rm --cached dist/bubblefish-v1.0.0-windows-amd64.exe
-git add .gitignore
-git commit --amend -m "Release v1.0.0 — BubbleFish Nexus"
-git tag -f v1.0.0
+# OS
+.DS_Store
+Thumbs.db
