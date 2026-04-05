@@ -1,0 +1,349 @@
+// Copyright © 2026 BubbleFish Technologies, Inc.
+//
+// This file is part of BubbleFish Nexus.
+//
+// BubbleFish Nexus is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// BubbleFish Nexus is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
+
+package config
+
+import (
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+
+	"github.com/BurntSushi/toml"
+)
+
+const (
+	// defaultPort is used when daemon.toml omits the port field.
+	defaultPort = 8080
+
+	// defaultQueueSize is the in-memory queue channel length.
+	defaultQueueSize = 10_000
+
+	// defaultMaxSegmentSizeMB is the WAL rotation threshold.
+	defaultMaxSegmentSizeMB = 50
+
+	// defaultDrainTimeoutSeconds is the graceful shutdown drain window.
+	defaultDrainTimeoutSeconds = 30
+
+	// defaultRequestsPerMinute is the per-source fallback rate limit.
+	defaultRequestsPerMinute = 2_000
+
+	// defaultMaxBytes is the per-source payload size limit when unset.
+	defaultMaxBytes int64 = 10 * 1024 * 1024 // 10 MiB
+)
+
+// ConfigDir returns the canonical configuration directory for BubbleFish Nexus.
+// Returns an error if os.UserHomeDir() fails; callers must treat this as fatal.
+func ConfigDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("config: resolve home directory: %w", err)
+	}
+	return filepath.Join(home, ".bubblefish", "Nexus"), nil
+}
+
+// Load reads daemon.toml, sources/*.toml, and destinations/*.toml from
+// configDir, validates and resolves all secret references, then returns the
+// fully initialised Config.
+//
+// Validation failures are returned as errors with the "SCHEMA_ERROR:" prefix
+// so callers can format them consistently. Any SCHEMA_ERROR means the daemon
+// must not start.
+//
+// Reference: Tech Spec Section 9, Section 6.1.
+func Load(configDir string, logger *slog.Logger) (*Config, error) {
+	cfg, err := loadDaemonTOML(filepath.Join(configDir, "daemon.toml"), logger)
+	if err != nil {
+		return nil, err
+	}
+
+	sources, err := loadSources(filepath.Join(configDir, "sources"), logger)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Sources = sources
+
+	dests, err := loadDestinations(filepath.Join(configDir, "destinations"), logger)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Destinations = dests
+
+	if err := resolveAndValidate(cfg, logger); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+// loadDaemonTOML decodes daemon.toml and applies defaults.
+func loadDaemonTOML(path string, logger *slog.Logger) (*Config, error) {
+	// daemonTOML mirrors the file layout for BurntSushi/toml decoding.
+	type daemonTOML struct {
+		Daemon         DaemonConfig         `toml:"daemon"`
+		Retrieval      RetrievalConfig      `toml:"retrieval"`
+		Consistency    ConsistencyConfig    `toml:"consistency"`
+		SecurityEvents SecurityEventsConfig `toml:"security_events"`
+	}
+
+	var raw daemonTOML
+	if _, err := toml.DecodeFile(path, &raw); err != nil {
+		return nil, fmt.Errorf("config: decode %q: %w", path, err)
+	}
+
+	// Apply defaults for zero-value fields.
+	if raw.Daemon.Port == 0 {
+		raw.Daemon.Port = defaultPort
+	}
+	if raw.Daemon.QueueSize <= 0 {
+		raw.Daemon.QueueSize = defaultQueueSize
+	}
+	if raw.Daemon.WAL.MaxSegmentSizeMB <= 0 {
+		raw.Daemon.WAL.MaxSegmentSizeMB = defaultMaxSegmentSizeMB
+	}
+	if raw.Daemon.Shutdown.DrainTimeoutSeconds <= 0 {
+		raw.Daemon.Shutdown.DrainTimeoutSeconds = defaultDrainTimeoutSeconds
+	}
+	if raw.Daemon.RateLimit.GlobalRequestsPerMinute <= 0 {
+		raw.Daemon.RateLimit.GlobalRequestsPerMinute = defaultRequestsPerMinute
+	}
+	if raw.Daemon.WAL.Integrity.Mode == "" {
+		raw.Daemon.WAL.Integrity.Mode = "crc32"
+	}
+	if raw.Retrieval.DefaultProfile == "" {
+		raw.Retrieval.DefaultProfile = "balanced"
+	}
+	if raw.Retrieval.HalfLifeDays == 0 {
+		raw.Retrieval.HalfLifeDays = 7
+	}
+	if raw.Retrieval.OverSampleFactor == 0 {
+		raw.Retrieval.OverSampleFactor = 100
+	}
+	if raw.Retrieval.DecayMode == "" {
+		raw.Retrieval.DecayMode = "exponential"
+	}
+
+	cfg := &Config{
+		Daemon:         raw.Daemon,
+		Retrieval:      raw.Retrieval,
+		Consistency:    raw.Consistency,
+		SecurityEvents: raw.SecurityEvents,
+	}
+
+	if logger != nil {
+		logger.Debug("config: daemon.toml loaded",
+			"component", "config",
+			"path", path,
+		)
+	}
+
+	return cfg, nil
+}
+
+// loadSources discovers and decodes all *.toml files under sourcesDir.
+// Returns an empty slice if the directory does not exist.
+func loadSources(sourcesDir string, logger *slog.Logger) ([]*Source, error) {
+	pattern := filepath.Join(sourcesDir, "*.toml")
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("config: glob sources %q: %w", pattern, err)
+	}
+
+	sources := make([]*Source, 0, len(paths))
+	for _, p := range paths {
+		src, err := loadSourceFile(p, logger)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, src)
+	}
+	return sources, nil
+}
+
+// loadSourceFile decodes a single source TOML file.
+func loadSourceFile(path string, logger *slog.Logger) (*Source, error) {
+	var raw sourceFile
+	if _, err := toml.DecodeFile(path, &raw); err != nil {
+		return nil, fmt.Errorf("config: decode source %q: %w", path, err)
+	}
+	b := raw.Source
+
+	if b.Name == "" {
+		return nil, fmt.Errorf("SCHEMA_ERROR: source file %q: name is required", path)
+	}
+	if b.APIKey == "" {
+		return nil, fmt.Errorf("SCHEMA_ERROR: source %q: api_key is required", b.Name)
+	}
+
+	// Apply source defaults.
+	if b.PayloadLimits.MaxBytes <= 0 {
+		b.PayloadLimits.MaxBytes = defaultMaxBytes
+	}
+	if b.RateLimit.RequestsPerMinute <= 0 {
+		b.RateLimit.RequestsPerMinute = defaultRequestsPerMinute
+	}
+	if b.DefaultProfile == "" {
+		b.DefaultProfile = "balanced"
+	}
+	if b.DefaultActorType == "" {
+		b.DefaultActorType = "user"
+	}
+	if b.Namespace == "" {
+		b.Namespace = b.Name
+	}
+
+	src := &Source{
+		Name:             b.Name,
+		APIKey:           b.APIKey,
+		Namespace:        b.Namespace,
+		CanRead:          b.CanRead,
+		CanWrite:         b.CanWrite,
+		TargetDest:       b.TargetDest,
+		DefaultActorType: b.DefaultActorType,
+		DefaultActorID:   b.DefaultActorID,
+		DefaultProfile:   b.DefaultProfile,
+		RateLimit:        b.RateLimit,
+		PayloadLimits:    b.PayloadLimits,
+		Mapping:          b.Mapping,
+		Transform:        b.Transform,
+		Idempotency:      b.Idempotency,
+		Policy:           b.Policy,
+	}
+
+	if logger != nil {
+		logger.Debug("config: source loaded",
+			"component", "config",
+			"source", src.Name,
+			"path", path,
+		)
+	}
+
+	return src, nil
+}
+
+// loadDestinations discovers and decodes all *.toml files under destsDir.
+// Returns an empty slice if the directory does not exist.
+func loadDestinations(destsDir string, logger *slog.Logger) ([]*Destination, error) {
+	pattern := filepath.Join(destsDir, "*.toml")
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("config: glob destinations %q: %w", pattern, err)
+	}
+
+	dests := make([]*Destination, 0, len(paths))
+	for _, p := range paths {
+		dst, err := loadDestinationFile(p, logger)
+		if err != nil {
+			return nil, err
+		}
+		dests = append(dests, dst)
+	}
+	return dests, nil
+}
+
+// loadDestinationFile decodes a single destination TOML file.
+func loadDestinationFile(path string, logger *slog.Logger) (*Destination, error) {
+	var raw destinationFile
+	if _, err := toml.DecodeFile(path, &raw); err != nil {
+		return nil, fmt.Errorf("config: decode destination %q: %w", path, err)
+	}
+	b := raw.Destination
+
+	if b.Name == "" {
+		return nil, fmt.Errorf("SCHEMA_ERROR: destination file %q: name is required", path)
+	}
+	if b.Type == "" {
+		return nil, fmt.Errorf("SCHEMA_ERROR: destination %q: type is required", b.Name)
+	}
+
+	dst := &Destination{
+		Name:   b.Name,
+		Type:   b.Type,
+		DBPath: b.DBPath,
+		DSN:    b.DSN,
+		URL:    b.URL,
+		APIKey: b.APIKey,
+		Decay:  b.Decay,
+	}
+
+	if logger != nil {
+		logger.Debug("config: destination loaded",
+			"component", "config",
+			"destination", dst.Name,
+			"type", dst.Type,
+			"path", path,
+		)
+	}
+
+	return dst, nil
+}
+
+// resolveAndValidate resolves all secret references and validates the full
+// configuration. Any empty resolved key or duplicate resolved key across
+// sources is a SCHEMA_ERROR.
+//
+// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract items 3–6.
+func resolveAndValidate(cfg *Config, logger *slog.Logger) error {
+	// Resolve admin token.
+	adminKey, err := ResolveEnv(cfg.Daemon.AdminToken, logger)
+	if err != nil {
+		return fmt.Errorf("SCHEMA_ERROR: admin_token: %w", err)
+	}
+	if adminKey == "" {
+		return fmt.Errorf("SCHEMA_ERROR: admin_token resolved to empty string")
+	}
+	cfg.ResolvedAdminKey = []byte(adminKey)
+
+	// Resolve source keys and check for empties and duplicates.
+	// Resolved values are compared — NOT the raw references.
+	cfg.ResolvedSourceKeys = make(map[string][]byte, len(cfg.Sources))
+	// seen maps resolved key (as string) → source name, for duplicate detection.
+	seen := make(map[string]string, len(cfg.Sources))
+
+	for _, src := range cfg.Sources {
+		resolved, err := ResolveEnv(src.APIKey, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: source %q api_key: %w", src.Name, err)
+		}
+		if resolved == "" {
+			return fmt.Errorf("SCHEMA_ERROR: source %q api_key resolved to empty string", src.Name)
+		}
+		if prev, dup := seen[resolved]; dup {
+			return fmt.Errorf("SCHEMA_ERROR: sources %q and %q share the same resolved api_key", prev, src.Name)
+		}
+		seen[resolved] = src.Name
+		cfg.ResolvedSourceKeys[src.Name] = []byte(resolved)
+	}
+
+	// Validate source→destination references.
+	destNames := make(map[string]bool, len(cfg.Destinations))
+	for _, d := range cfg.Destinations {
+		destNames[d.Name] = true
+	}
+	for _, src := range cfg.Sources {
+		if src.TargetDest != "" && !destNames[src.TargetDest] {
+			return fmt.Errorf("SCHEMA_ERROR: source %q references unknown destination %q", src.Name, src.TargetDest)
+		}
+	}
+
+	// Validate WAL path is set (default to config dir if empty).
+	if cfg.Daemon.WAL.Path == "" {
+		cfg.Daemon.WAL.Path = "~/.bubblefish/Nexus/wal"
+	}
+
+	return nil
+}

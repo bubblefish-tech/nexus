@@ -1,0 +1,161 @@
+// Copyright © 2026 BubbleFish Technologies, Inc.
+//
+// This file is part of BubbleFish Nexus.
+//
+// BubbleFish Nexus is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// BubbleFish Nexus is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
+
+package daemon
+
+import (
+	"context"
+	"crypto/subtle"
+	"net/http"
+	"strings"
+
+	"github.com/BubbleFish-Nexus/internal/config"
+)
+
+// contextKey is used for type-safe context values within the daemon package.
+type contextKey int
+
+const (
+	// ctxSource is the context key for the authenticated *config.Source.
+	ctxSource contextKey = iota
+)
+
+// authResult carries the outcome of authentication for a single request.
+type authResult struct {
+	source    *config.Source
+	isAdmin   bool
+	provided  []byte // the raw token bytes — never log
+}
+
+// authenticate extracts the Bearer token from the Authorization header and
+// performs a constant-time comparison against all known keys (source keys and
+// admin key). Returns the matched source (or isAdmin=true) on success.
+//
+// Invariants:
+//   - NEVER uses == for token comparison.
+//   - NEVER calls os.Getenv — all keys resolved at startup.
+//   - Iterates ALL source keys to avoid timing side-channels from early exit.
+//
+// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract items 1–6.
+func (d *Daemon) authenticate(r *http.Request) (authResult, bool) {
+	token := extractBearerToken(r)
+	if token == "" {
+		return authResult{}, false
+	}
+	provided := []byte(token)
+
+	// Compare against admin key using constant-time comparison.
+	// We must still compare ALL source keys to avoid timing leaks.
+	adminMatch := subtle.ConstantTimeCompare(provided, d.cfg.ResolvedAdminKey) == 1
+
+	// Compare against every source key. Continue through ALL entries so that
+	// timing does not reveal which key matched.
+	var matchedSource *config.Source
+	for _, src := range d.cfg.Sources {
+		key := d.cfg.ResolvedSourceKeys[src.Name]
+		if subtle.ConstantTimeCompare(provided, key) == 1 {
+			matchedSource = src
+		}
+	}
+
+	if matchedSource != nil {
+		return authResult{source: matchedSource, provided: provided}, true
+	}
+	if adminMatch {
+		return authResult{isAdmin: true, provided: provided}, true
+	}
+	return authResult{}, false
+}
+
+// extractBearerToken parses the Authorization header and returns the Bearer
+// token value. Returns "" if the header is absent or not a Bearer scheme.
+func extractBearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if h == "" {
+		return ""
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(h, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(h[len(prefix):])
+}
+
+// requireDataToken is an HTTP middleware that requires a valid data-plane
+// token (source key). Admin tokens are rejected on data endpoints with
+// 401 wrong_token_class. Unauthenticated requests get 401 unauthorized.
+//
+// On success the authenticated *config.Source is stored in the request context
+// under ctxSource.
+//
+// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract item 5.
+func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result, ok := d.authenticate(r)
+		if !ok {
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
+				"invalid or missing API key", 0)
+			return
+		}
+		if result.isAdmin {
+			// Admin tokens must not be used on data endpoints.
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
+				"admin token not accepted on data endpoints; use a source API key", 0)
+			return
+		}
+		// Embed source in context for downstream handlers.
+		ctx := setSourceInContext(r.Context(), result.source)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// requireAdminToken is an HTTP middleware that requires the admin token.
+// Data-plane tokens are rejected with 401 wrong_token_class.
+//
+// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract item 5.
+func (d *Daemon) requireAdminToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result, ok := d.authenticate(r)
+		if !ok {
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
+				"invalid or missing admin token", 0)
+			return
+		}
+		if !result.isAdmin {
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
+				"source API key not accepted on admin endpoints; use the admin token", 0)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// setSourceInContext stores the authenticated *config.Source in ctx.
+func setSourceInContext(ctx context.Context, src *config.Source) context.Context {
+	return context.WithValue(ctx, ctxSource, src)
+}
+
+// sourceFromContext retrieves the authenticated *config.Source from ctx.
+// Returns nil if not present (should not happen after requireDataToken).
+func sourceFromContext(ctx context.Context) *config.Source {
+	v := ctx.Value(ctxSource)
+	if v == nil {
+		return nil
+	}
+	s, _ := v.(*config.Source)
+	return s
+}

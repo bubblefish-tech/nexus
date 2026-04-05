@@ -24,7 +24,13 @@
 // produce a duplicate record.
 package destination
 
-import "time"
+import (
+	"encoding/base64"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // TranslatedPayload is the canonical write envelope produced by the field
 // mapping and transform stages of the write path. It is stored in the WAL
@@ -74,4 +80,85 @@ type DestinationWriter interface {
 
 	// Close releases all resources held by the destination. Safe to call once.
 	Close() error
+}
+
+// QueryParams are the input parameters for a basic structured query.
+// The full 6-stage retrieval cascade (Phase 3+) builds on top of this.
+//
+// Reference: Tech Spec Section 3.3, Section 3.8.
+type QueryParams struct {
+	// Destination is the target destination name.
+	Destination string
+	// Namespace filters results to a specific namespace.
+	Namespace string
+	// Subject filters results to a specific subject. Empty means all subjects.
+	Subject string
+	// Q is a text substring filter applied to the content field. Empty means no filter.
+	Q string
+	// Limit is the maximum number of records to return. Callers must cap at 200.
+	Limit int
+	// Cursor is the opaque pagination cursor from a previous QueryResult.NextCursor.
+	Cursor string
+	// Profile is the retrieval profile (fast, balanced, deep). Used by later phases.
+	Profile string
+}
+
+// QueryResult holds one page of query results and pagination state.
+//
+// Reference: Tech Spec Section 3.8.
+type QueryResult struct {
+	Records    []TranslatedPayload
+	NextCursor string
+	HasMore    bool
+}
+
+// Querier is the read interface satisfied by memory backends. It is separate
+// from DestinationWriter to allow read-only facade implementations and to
+// keep the write-path interface minimal.
+//
+// Reference: Tech Spec Section 3.3, Section 12.
+type Querier interface {
+	// Query returns a page of memories matching params.
+	Query(params QueryParams) (QueryResult, error)
+}
+
+const (
+	// DefaultQueryLimit is applied when the client sends limit=0 or omits it.
+	DefaultQueryLimit = 20
+	// MaxQueryLimit is the hard cap regardless of what the client requests.
+	MaxQueryLimit = 200
+)
+
+// ClampLimit enforces the default and maximum query limits.
+// Reference: Tech Spec Phase 0C Behavioral Contract item 16.
+func ClampLimit(requested int) int {
+	if requested <= 0 {
+		return DefaultQueryLimit
+	}
+	if requested > MaxQueryLimit {
+		return MaxQueryLimit
+	}
+	return requested
+}
+
+// EncodeCursor encodes an integer offset as a URL-safe base64 cursor string.
+func EncodeCursor(offset int) string {
+	return base64.URLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// DecodeCursor decodes a cursor string back to an integer offset.
+// Returns 0 and no error for an empty cursor (first page).
+func DecodeCursor(cursor string) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	b, err := base64.URLEncoding.DecodeString(cursor)
+	if err != nil {
+		return 0, fmt.Errorf("destination: invalid cursor: %w", err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0, fmt.Errorf("destination: invalid cursor value: %w", err)
+	}
+	return n, nil
 }

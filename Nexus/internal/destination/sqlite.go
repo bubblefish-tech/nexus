@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	// Pure-Go SQLite driver (modernc.org/sqlite). No CGO required for production.
 	// Registers the "sqlite" driver name with database/sql.
@@ -222,6 +223,143 @@ func (d *SQLiteDestination) Exists(payloadID string) (bool, error) {
 		return false, fmt.Errorf("destination: sqlite: exists %q: %w", payloadID, err)
 	}
 	return true, nil
+}
+
+// Query returns a page of memories matching params using a basic structured
+// query on the memories table. It implements the Querier interface for Phase 0C.
+// The full 6-stage retrieval cascade (Phase 3+) replaces this for production reads.
+//
+// All SQL is parameterized — no string concatenation. Limit and offset are
+// computed from params.Limit (clamped) and the decoded cursor.
+//
+// Reference: Tech Spec Section 3.3, Phase 0C Behavioral Contract item 16.
+func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
+	limit := ClampLimit(params.Limit)
+	offset, err := DecodeCursor(params.Cursor)
+	if err != nil {
+		return QueryResult{}, fmt.Errorf("destination: sqlite: query: decode cursor: %w", err)
+	}
+
+	// Build parameterized WHERE conditions.
+	// NEVER use string concatenation for SQL.
+	args := make([]interface{}, 0, 5)
+	conditions := make([]string, 0, 4)
+
+	if params.Namespace != "" {
+		conditions = append(conditions, "namespace = ?")
+		args = append(args, params.Namespace)
+	}
+	if params.Destination != "" {
+		conditions = append(conditions, "destination = ?")
+		args = append(args, params.Destination)
+	}
+	if params.Subject != "" {
+		conditions = append(conditions, "subject = ?")
+		args = append(args, params.Subject)
+	}
+	if params.Q != "" {
+		conditions = append(conditions, "content LIKE ?")
+		args = append(args, "%"+params.Q+"%")
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + joinConditions(conditions)
+	}
+
+	// Fetch limit+1 rows to determine HasMore without a separate COUNT query.
+	fetchLimit := limit + 1
+	args = append(args, fetchLimit, offset)
+
+	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return QueryResult{}, fmt.Errorf("destination: sqlite: query: %w", err)
+	}
+	defer rows.Close()
+
+	records := make([]TranslatedPayload, 0, limit)
+	for rows.Next() {
+		var tp TranslatedPayload
+		var timestampStr string
+		var metadataStr string
+		if err := rows.Scan(
+			&tp.PayloadID,
+			&tp.RequestID,
+			&tp.Source,
+			&tp.Subject,
+			&tp.Namespace,
+			&tp.Destination,
+			&tp.Collection,
+			&tp.Content,
+			&tp.Model,
+			&tp.Role,
+			&timestampStr,
+			&tp.IdempotencyKey,
+			&tp.SchemaVersion,
+			&tp.TransformVersion,
+			&tp.ActorType,
+			&tp.ActorID,
+			&metadataStr,
+		); err != nil {
+			return QueryResult{}, fmt.Errorf("destination: sqlite: query: scan row: %w", err)
+		}
+
+		// Parse timestamp — stored as RFC3339Nano.
+		if t, parseErr := parseTimestamp(timestampStr); parseErr == nil {
+			tp.Timestamp = t
+		}
+
+		// Parse metadata JSON back to map.
+		if metadataStr != "" && metadataStr != "{}" {
+			if err := json.Unmarshal([]byte(metadataStr), &tp.Metadata); err != nil {
+				d.logger.Warn("destination: sqlite: query: unmarshal metadata",
+					"component", "destination",
+					"payload_id", tp.PayloadID,
+					"error", err,
+				)
+			}
+		}
+
+		records = append(records, tp)
+	}
+	if err := rows.Err(); err != nil {
+		return QueryResult{}, fmt.Errorf("destination: sqlite: query: rows error: %w", err)
+	}
+
+	hasMore := len(records) > limit
+	if hasMore {
+		records = records[:limit]
+	}
+
+	var nextCursor string
+	if hasMore {
+		nextCursor = EncodeCursor(offset + limit)
+	}
+
+	return QueryResult{
+		Records:    records,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
+}
+
+// joinConditions joins SQL WHERE conditions with " AND ".
+// Inputs are fixed condition strings, never user-supplied values.
+func joinConditions(conds []string) string {
+	result := conds[0]
+	for _, c := range conds[1:] {
+		result += " AND " + c
+	}
+	return result
+}
+
+// parseTimestamp parses a stored timestamp string in RFC3339Nano or
+// "2006-01-02T15:04:05.999999999Z" format.
+func parseTimestamp(s string) (time.Time, error) {
+	return time.Parse(time.RFC3339Nano, s)
 }
 
 // Close closes the underlying database connection. Safe to call once.
