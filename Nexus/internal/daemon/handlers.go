@@ -33,6 +33,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/BubbleFish-Nexus/internal/query"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
 
@@ -459,10 +460,11 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 // Query Handler — GET /query/{destination}
 // ---------------------------------------------------------------------------
 
-// handleQuery implements the read path. For Phase 0C this is a basic
-// structured query. The full 6-stage retrieval cascade is added in Phase 3+.
+// handleQuery implements the read path via the 6-stage retrieval cascade.
+// Stage 0 (policy gate) and Stage 3 (structured lookup) are fully operational.
+// Stages 1, 2, 4, and 5 are stub pass-throughs pending later phases.
 //
-// Reference: Tech Spec Section 3.3, Phase 0C Behavioral Contract items 11, 16.
+// Reference: Tech Spec Section 3.4, Phase 0C Behavioral Contract items 11, 16.
 func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	queryStart := time.Now()
 	src := sourceFromContext(r.Context())
@@ -472,7 +474,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CanRead check.
+	// Pre-cascade CanRead guard — checked before rate limiting so that
+	// unauthorised sources do not consume rate-limit budget.
 	// Reference: Phase 0C Behavioral Contract item 12.
 	if !src.CanRead {
 		d.writeErrorResponse(w, r, http.StatusForbidden, "source_not_permitted_to_read",
@@ -503,19 +506,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	destName := chi.URLParam(r, "destination")
 
-	// Policy gate — basic for Phase 0C.
-	if len(src.Policy.AllowedDestinations) > 0 && !containsString(src.Policy.AllowedDestinations, destName) {
-		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
-			"destination not permitted for this source", 0)
-		return
-	}
-	if len(src.Policy.AllowedOperations) > 0 && !containsString(src.Policy.AllowedOperations, "read") {
-		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
-			"read operation not permitted for this source", 0)
-		return
-	}
-
-	// Parse and clamp limit.
+	// Parse limit (Normalize will clamp it).
 	// Reference: Phase 0C Behavioral Contract item 16.
 	limitStr := r.URL.Query().Get("limit")
 	limit := 0
@@ -524,10 +515,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	limit = destination.ClampLimit(limit)
 
-	cursor := r.URL.Query().Get("cursor")
-	q := r.URL.Query().Get("q")
 	profile := r.URL.Query().Get("profile")
 	if profile == "" {
 		profile = src.DefaultProfile
@@ -536,20 +524,28 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		profile = qcfg.Retrieval.DefaultProfile
 	}
 
-	// Execute query against destination.
-	params := destination.QueryParams{
+	// Normalize query params into a CanonicalQuery. Invalid cursors → 400.
+	cq, err := query.Normalize(destination.QueryParams{
 		Destination: destName,
 		Namespace:   src.Namespace,
 		Subject:     subject,
-		Q:           q,
+		Q:           r.URL.Query().Get("q"),
 		Limit:       limit,
-		Cursor:      cursor,
+		Cursor:      r.URL.Query().Get("cursor"),
 		Profile:     profile,
+	})
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_cursor",
+			"cursor is not a valid opaque pagination token", 0)
+		return
 	}
 
-	result, err := d.querier.Query(params)
+	// Execute the 6-stage retrieval cascade.
+	// Reference: Tech Spec Section 3.4.
+	runner := query.New(d.querier, d.logger)
+	cascResult, err := runner.Run(r.Context(), src, cq)
 	if err != nil {
-		d.logger.Error("daemon: query failed",
+		d.logger.Error("daemon: cascade failed",
 			"component", "daemon",
 			"source", src.Name,
 			"destination", destName,
@@ -561,15 +557,22 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stage 0 denial → 403.
+	if cascResult.Denial != nil {
+		d.writeErrorResponse(w, r, http.StatusForbidden, cascResult.Denial.Code,
+			cascResult.Denial.Reason, 0)
+		return
+	}
+
 	d.metrics.ReadLatency.WithLabelValues(src.Name, "/query").Observe(time.Since(queryStart).Seconds())
 
 	d.writeJSON(w, http.StatusOK, queryResponse{
-		Results: result.Records,
+		Results: cascResult.Records,
 		Nexus: nexusMetadata{
-			ResultCount: len(result.Records),
-			HasMore:     result.HasMore,
-			NextCursor:  result.NextCursor,
-			Profile:     profile,
+			ResultCount: len(cascResult.Records),
+			HasMore:     cascResult.HasMore,
+			NextCursor:  cascResult.NextCursor,
+			Profile:     cascResult.Profile,
 		},
 	})
 }
