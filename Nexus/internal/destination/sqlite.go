@@ -18,12 +18,16 @@
 package destination
 
 import (
+	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	// Pure-Go SQLite driver (modernc.org/sqlite). No CGO required for production.
@@ -62,6 +66,18 @@ CREATE TABLE IF NOT EXISTS memories (
 	createIdempotencyKeyIndex = `
 CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
     ON memories (idempotency_key)`
+
+	// addEmbeddingColumn migrates an existing memories table to include the
+	// embedding column. SQLite silently succeeds if the column already exists
+	// when using "IF NOT EXISTS" via the ALTER TABLE syntax, but standard SQLite
+	// does not support "ADD COLUMN IF NOT EXISTS". We execute and ignore the
+	// "duplicate column name" error code (SQLITE_ERROR, 1) to make the
+	// operation idempotent across restarts on pre-existing databases.
+	//
+	// The column is nullable (no NOT NULL) because not every write payload
+	// carries an embedding. INSERT OR IGNORE must never discard a row solely
+	// because the embedding is absent.
+	addEmbeddingColumn = `ALTER TABLE memories ADD COLUMN embedding BLOB`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -151,24 +167,36 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 	if _, err := d.db.Exec(createIdempotencyKeyIndex); err != nil {
 		return fmt.Errorf("destination: sqlite: create idempotency_key index: %w", err)
 	}
+	// Idempotent migration: add embedding column when absent.
+	// SQLite does not support "ADD COLUMN IF NOT EXISTS", so we execute and
+	// swallow the duplicate-column error on pre-existing databases.
+	if _, err := d.db.Exec(addEmbeddingColumn); err != nil {
+		// Error is expected when the column already exists. Log nothing —
+		// subsequent queries will surface any true schema problems.
+		_ = err
+	}
 	return nil
 }
 
 // Write persists p to the memories table. The operation is idempotent:
 // INSERT OR IGNORE silently discards a write whose payload_id already exists.
 // All values are bound via parameterized placeholders — no string interpolation.
+// If p.Embedding is non-empty it is serialized as a little-endian float32 BLOB
+// and stored in the embedding column for Stage 4 semantic retrieval.
 func (d *SQLiteDestination) Write(p TranslatedPayload) error {
 	metadataJSON, err := marshalMetadata(p.Metadata)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: marshal metadata: %w", err)
 	}
 
+	embeddingBlob := encodeEmbedding(p.Embedding)
+
 	const query = `
 INSERT OR IGNORE INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
     collection, content, model, role, timestamp, idempotency_key,
-    schema_version, transform_version, actor_type, actor_id, metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    schema_version, transform_version, actor_type, actor_id, metadata, embedding
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = d.db.Exec(query,
 		p.PayloadID,
@@ -188,6 +216,7 @@ INSERT OR IGNORE INTO memories (
 		p.ActorType,
 		p.ActorID,
 		metadataJSON,
+		embeddingBlob,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
@@ -199,6 +228,160 @@ INSERT OR IGNORE INTO memories (
 		"source", p.Source,
 	)
 	return nil
+}
+
+// CanSemanticSearch reports whether this SQLite destination has any rows with a
+// stored embedding. Returns false when the table is empty or no records have
+// embeddings, signalling Stage 4 to degrade gracefully.
+//
+// Reference: Tech Spec Section 3.4 — Stage 4.
+func (d *SQLiteDestination) CanSemanticSearch() bool {
+	const q = `SELECT 1 FROM memories WHERE embedding IS NOT NULL AND length(embedding) > 0 LIMIT 1`
+	var dummy int
+	err := d.db.QueryRow(q).Scan(&dummy)
+	return err == nil
+}
+
+// SemanticSearch performs application-level cosine similarity search over all
+// stored embeddings. It fetches candidate rows filtered by namespace and
+// destination, computes cosine similarity against vec in Go, and returns the
+// top-N results by score descending.
+//
+// This implementation does not use sqlite-vec (which requires CGO). It provides
+// correct cosine-ranked results using the modernc pure-Go driver.
+//
+// The over-sample factor is applied to the SQL LIMIT to increase recall before
+// in-process reranking: we fetch min(overSample * limit, totalRows) candidates.
+//
+// Reference: Tech Spec Section 3.4 — Stage 4.
+func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, params QueryParams) ([]ScoredRecord, error) {
+	limit := ClampLimit(params.Limit)
+
+	// Over-sample: fetch 10× the requested limit as candidates for reranking.
+	// This improves recall when the top-N by recency differ from top-N by cosine.
+	const overSampleFactor = 10
+	candidateLimit := limit * overSampleFactor
+	if candidateLimit < 100 {
+		candidateLimit = 100
+	}
+
+	// Build parameterized WHERE clause filtering by namespace and destination.
+	args := make([]interface{}, 0, 4)
+	conditions := []string{"embedding IS NOT NULL AND length(embedding) > 0"}
+
+	if params.Namespace != "" {
+		conditions = append(conditions, "namespace = ?")
+		args = append(args, params.Namespace)
+	}
+	if params.Destination != "" {
+		conditions = append(conditions, "destination = ?")
+		args = append(args, params.Destination)
+	}
+
+	whereClause := "WHERE " + joinConditions(conditions)
+	args = append(args, candidateLimit)
+
+	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
+	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
+
+	rows, err := d.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("destination: sqlite: semantic search: %w", err)
+	}
+	defer rows.Close()
+
+	scored := make([]ScoredRecord, 0, candidateLimit)
+	for rows.Next() {
+		var tp TranslatedPayload
+		var timestampStr, metadataStr string
+		var embeddingBlob []byte
+
+		if err := rows.Scan(
+			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
+			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
+			&timestampStr, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
+			&tp.ActorType, &tp.ActorID, &metadataStr, &embeddingBlob,
+		); err != nil {
+			return nil, fmt.Errorf("destination: sqlite: semantic search: scan row: %w", err)
+		}
+
+		rowVec := decodeEmbedding(embeddingBlob)
+		if len(rowVec) == 0 {
+			continue
+		}
+
+		score := cosineSimilarity(vec, rowVec)
+
+		if t, parseErr := parseTimestamp(timestampStr); parseErr == nil {
+			tp.Timestamp = t
+		}
+		if metadataStr != "" && metadataStr != "{}" {
+			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
+		}
+		tp.Embedding = rowVec
+
+		scored = append(scored, ScoredRecord{Payload: tp, Score: score})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("destination: sqlite: semantic search: rows error: %w", err)
+	}
+
+	// Sort by cosine similarity descending (highest similarity first).
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].Score > scored[j].Score
+	})
+
+	// Trim to the requested limit.
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+
+	return scored, nil
+}
+
+// encodeEmbedding serialises a []float32 to a little-endian byte slice for
+// storage as a BLOB. Returns nil for an empty or nil slice.
+func encodeEmbedding(v []float32) []byte {
+	if len(v) == 0 {
+		return nil
+	}
+	b := make([]byte, len(v)*4)
+	for i, f := range v {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(f))
+	}
+	return b
+}
+
+// decodeEmbedding deserialises a little-endian BLOB back to []float32.
+// Returns nil for a nil or empty or malformed blob.
+func decodeEmbedding(b []byte) []float32 {
+	if len(b) == 0 || len(b)%4 != 0 {
+		return nil
+	}
+	v := make([]float32, len(b)/4)
+	for i := range v {
+		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
+	}
+	return v
+}
+
+// cosineSimilarity computes the cosine similarity between two float32 vectors.
+// Returns 0 when either vector is zero-length or has zero norm.
+func cosineSimilarity(a, b []float32) float32 {
+	n := len(a)
+	if n == 0 || len(b) < n {
+		return 0
+	}
+	var dot, normA, normB float32
+	for i := 0; i < n; i++ {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB))))
 }
 
 // Ping verifies the database connection is alive by executing a lightweight

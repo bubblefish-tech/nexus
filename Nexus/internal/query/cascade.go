@@ -22,10 +22,13 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/BubbleFish-Nexus/internal/embedding"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // PolicyDenial is returned by Stage 0 when a query request is blocked by
@@ -59,12 +62,21 @@ type CascadeResult struct {
 	HasMore bool
 	// Profile is the retrieval profile that was used.
 	Profile string
-	// RetrievalStage is the numeric stage number that produced results (3 in
-	// this phase). Zero when Denial is set.
+	// RetrievalStage is the numeric stage number that produced results.
+	// Zero when Denial is set.
 	RetrievalStage int
 	// Denial is non-nil when Stage 0 blocked the request. The caller must
 	// return HTTP 403 with Denial.Code as the error body.
 	Denial *PolicyDenial
+	// SemanticUnavailable is true when the embedding provider was not
+	// configured or was unreachable. Callers should set
+	// _nexus.semantic_unavailable = true in the response metadata.
+	//
+	// Reference: Tech Spec Section 3.4 — Stage 4, Phase 5 Behavioral Contract 4.
+	SemanticUnavailable bool
+	// SemanticUnavailableReason is a human-readable explanation for why semantic
+	// search was skipped. Set when SemanticUnavailable is true.
+	SemanticUnavailableReason string
 }
 
 // CascadeRunner executes the 6-stage retrieval cascade. All state is held in
@@ -72,9 +84,11 @@ type CascadeResult struct {
 //
 // Reference: Tech Spec Section 3.4.
 type CascadeRunner struct {
-	querier    destination.Querier
-	logger     *slog.Logger
-	exactCache *cache.ExactCache
+	querier         destination.Querier
+	logger          *slog.Logger
+	exactCache      *cache.ExactCache
+	embeddingClient embedding.EmbeddingClient
+	embeddingLatency prometheus.Observer // optional; nil is safe
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -95,6 +109,21 @@ func New(querier destination.Querier, logger *slog.Logger) *CascadeRunner {
 // Reference: Tech Spec Section 3.4 — Stage 1.
 func (cr *CascadeRunner) WithExactCache(c *cache.ExactCache) *CascadeRunner {
 	cr.exactCache = c
+	return cr
+}
+
+// WithEmbeddingClient attaches an EmbeddingClient to the runner, enabling
+// Stage 4 (and later Stage 2) semantic retrieval. A nil client is valid and
+// results in graceful degradation: Stages 2+4 are skipped and
+// CascadeResult.SemanticUnavailable is set to true.
+//
+// embeddingLatency is an optional prometheus.Observer for recording embedding
+// call duration. Pass nil to disable metric recording.
+//
+// Reference: Tech Spec Section 3.4 — Stage 4, Phase 5 Behavioral Contract 5.
+func (cr *CascadeRunner) WithEmbeddingClient(c embedding.EmbeddingClient, embeddingLatency prometheus.Observer) *CascadeRunner {
+	cr.embeddingClient = c
+	cr.embeddingLatency = embeddingLatency
 	return cr
 }
 
@@ -175,21 +204,139 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		})
 	}
 
-	// ── Stage 4: Semantic Retrieval — stub (Phase 5) ────────────────────────
-	// Active when: embedding configured + dest.CanSemanticSearch() + profile != fast.
-	// When implemented: sqlite-vec, pgvector, or Supabase RPC.
+	// ── Stage 4: Semantic Retrieval ─────────────────────────────────────────
+	// Active when:
+	//   1. embeddingClient is configured (non-nil).
+	//   2. The querier implements SemanticSearcher and CanSemanticSearch().
+	//   3. profile != "fast".
+	//
+	// Graceful degradation: any error (including provider unreachable / timeout)
+	// sets SemanticUnavailable = true and falls through to Stage 3 results.
+	// INVARIANT: NEVER crash or return an error to the caller on embedding failure.
+	//
+	// Reference: Tech Spec Section 3.4 — Stage 4, Phase 5 Behavioral Contract 4.
+	var (
+		stage4Records   []destination.ScoredRecord
+		semanticSkipped bool
+		skipReason      string
+	)
+
+	if cr.embeddingClient == nil {
+		semanticSkipped = true
+		skipReason = "embedding not configured"
+	} else if q.Profile == "fast" {
+		semanticSkipped = true
+		skipReason = "profile=fast skips semantic retrieval"
+	} else {
+		// Check whether the destination supports semantic search.
+		searcher, ok := cr.querier.(destination.SemanticSearcher)
+		if !ok || !searcher.CanSemanticSearch() {
+			semanticSkipped = true
+			skipReason = "destination does not support semantic search"
+		} else {
+			// Compute query embedding. Respect the context so client timeouts
+			// propagate correctly. Wrap with a per-request timeout equal to the
+			// embedding client's configured timeout (enforced via http.Client).
+			t0 := time.Now()
+			queryVec, embedErr := cr.embeddingClient.Embed(ctx, q.Q)
+			elapsed := time.Since(t0)
+
+			if cr.embeddingLatency != nil {
+				cr.embeddingLatency.Observe(elapsed.Seconds())
+			}
+
+			if embedErr != nil {
+				// Provider unreachable or timed out — degrade gracefully.
+				// INVARIANT: do NOT propagate the error to the caller.
+				semanticSkipped = true
+				skipReason = "embedding provider unavailable"
+				cr.logger.Warn("query: Stage 4 embedding failed; degrading gracefully",
+					"component", "cascade",
+					"source", src.Name,
+					"error", embedErr,
+				)
+			} else if len(queryVec) == 0 {
+				semanticSkipped = true
+				skipReason = "empty embedding vector returned"
+			} else {
+				// Execute semantic search on the destination.
+				searchParams := destination.QueryParams{
+					Namespace:   q.Namespace,
+					Destination: q.Destination,
+					Limit:       q.Limit,
+					Profile:     q.Profile,
+				}
+				stage4Records, err = searcher.SemanticSearch(ctx, queryVec, searchParams)
+				if err != nil {
+					// Semantic search error — degrade gracefully.
+					semanticSkipped = true
+					skipReason = "semantic search error"
+					cr.logger.Warn("query: Stage 4 semantic search failed; degrading gracefully",
+						"component", "cascade",
+						"source", src.Name,
+						"error", err,
+					)
+					err = nil // clear; do not surface to caller
+				} else {
+					cr.logger.Debug("query: Stage 4 semantic retrieval complete",
+						"component", "cascade",
+						"source", src.Name,
+						"destination", q.Destination,
+						"results", len(stage4Records),
+					)
+				}
+			}
+		}
+	}
 
 	// ── Stage 5: Hybrid Merge + Temporal Decay — stub (Phase 6) ─────────────
 	// Active when: Stages 3 AND 4 both produced results.
-	// When implemented: dedup by payload_id, temporal decay rerank, projection.
+	// Phase 6 implements: dedup by payload_id, temporal decay rerank, projection.
+	//
+	// Phase 5 interim: when Stage 4 produced results, promote them as the
+	// primary result set (ranked by cosine similarity). Stage 3 results are
+	// included as fallback when Stage 4 is empty or skipped.
 
-	return CascadeResult{
-		Records:        records,
-		NextCursor:     nextCursor,
-		HasMore:        hasMore,
+	finalRecords := records
+	finalNextCursor := nextCursor
+	finalHasMore := hasMore
+	finalStage := 3
+
+	if !semanticSkipped && len(stage4Records) > 0 {
+		// Use Stage 4 semantic results as the primary output for Phase 5.
+		// Phase 6 will replace this with proper hybrid merge + dedup.
+		sem := make([]destination.TranslatedPayload, 0, len(stage4Records))
+		for _, sr := range stage4Records {
+			sem = append(sem, sr.Payload)
+		}
+		finalRecords = sem
+		finalNextCursor = ""
+		finalHasMore = false
+		finalStage = 4
+
+		// Write-back Stage 4 results to the exact cache when policy permits,
+		// so that an identical future query hits Stage 1 without re-embedding.
+		if useCache && cr.exactCache != nil && src.Policy.Cache.WriteToCache {
+			cr.exactCache.Put(cacheKey, q.Destination, cache.CacheEntry{
+				Records:    finalRecords,
+				NextCursor: finalNextCursor,
+				HasMore:    finalHasMore,
+			})
+		}
+	}
+
+	result := CascadeResult{
+		Records:        finalRecords,
+		NextCursor:     finalNextCursor,
+		HasMore:        finalHasMore,
 		Profile:        q.Profile,
-		RetrievalStage: 3,
-	}, nil
+		RetrievalStage: finalStage,
+	}
+	if semanticSkipped {
+		result.SemanticUnavailable = true
+		result.SemanticUnavailableReason = skipReason
+	}
+	return result, nil
 }
 
 // sourcePolicyHash derives a short digest of the policy fields that affect

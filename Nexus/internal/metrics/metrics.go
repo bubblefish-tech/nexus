@@ -117,6 +117,12 @@ type Metrics struct {
 	// ConfigLintWarnings is the number of non-fatal config lint warnings.
 	// Set after config load and after each hot reload.
 	ConfigLintWarnings prometheus.Gauge
+
+	// ── Embedding (Stage 4) ──────────────────────────────────────────────────
+	// EmbeddingLatency is the end-to-end embedding provider call duration.
+	// Observed in the cascade Stage 4 path on each Embed() call.
+	// Reference: Tech Spec Section 11.3.
+	EmbeddingLatency prometheus.Histogram
 }
 
 // New creates a Metrics with a private Prometheus registry. All metrics are
@@ -250,6 +256,13 @@ func New() *Metrics {
 		Help: "Number of config lint warnings.",
 	})
 
+	// ── Embedding ────────────────────────────────────────────────────────────
+	m.EmbeddingLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "bubblefish_embedding_latency_seconds",
+		Help:    "Embedding provider call duration.",
+		Buckets: prometheus.DefBuckets,
+	})
+
 	// Register all application metrics on the private registry.
 	reg.MustRegister(
 		m.PayloadProcessingLatency,
@@ -270,6 +283,7 @@ func New() *Metrics {
 		m.RateLimitHitsTotal,
 		m.AdminCallsTotal,
 		m.ConfigLintWarnings,
+		m.EmbeddingLatency,
 	)
 
 	return m

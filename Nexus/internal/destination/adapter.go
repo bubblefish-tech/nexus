@@ -25,6 +25,7 @@
 package destination
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"strconv"
@@ -120,6 +121,35 @@ type QueryResult struct {
 type Querier interface {
 	// Query returns a page of memories matching params.
 	Query(params QueryParams) (QueryResult, error)
+}
+
+// ScoredRecord pairs a TranslatedPayload with its cosine similarity score
+// from a semantic search. Used by Stage 4 (Semantic Retrieval).
+//
+// Reference: Tech Spec Section 3.4 — Stage 4.
+type ScoredRecord struct {
+	Payload TranslatedPayload
+	Score   float32
+}
+
+// SemanticSearcher is implemented by destination backends that support vector
+// similarity search. It is an optional extension of DestinationWriter — callers
+// must type-assert to check for support.
+//
+// CanSemanticSearch must be checked before calling SemanticSearch. Destinations
+// that have no indexed embeddings (e.g. a fresh SQLite DB with no writes) may
+// return false to skip Stage 4 gracefully.
+//
+// Reference: Tech Spec Section 3.4 — Stage 4.
+type SemanticSearcher interface {
+	// CanSemanticSearch reports whether this destination has vector index support
+	// and at least one indexed embedding. Returns false to signal graceful skip.
+	CanSemanticSearch() bool
+
+	// SemanticSearch returns up to params.Limit records nearest to vec, ranked
+	// by cosine similarity descending. Filters are applied from params
+	// (Namespace, Destination). Implementations must be safe for concurrent use.
+	SemanticSearch(ctx context.Context, vec []float32, params QueryParams) ([]ScoredRecord, error)
 }
 
 const (
