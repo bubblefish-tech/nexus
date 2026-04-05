@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -67,10 +68,17 @@ func (d *Daemon) buildRouter() http.Handler {
 	r.Get("/health", d.handleHealth)
 	r.Get("/ready", d.handleReady)
 
-	// Admin routes (minimal for Phase 0C — expanded in later phases).
+	// Admin routes — require admin token.
+	// Reference: Tech Spec Section 12, Phase 0D Behavioral Contract item 4.
 	r.Group(func(r chi.Router) {
 		r.Use(d.requireAdminToken)
 		r.Get("/api/status", d.handleAdminStatus)
+		// /metrics serves Prometheus text format from the private registry.
+		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
+		r.Get("/metrics", promhttp.HandlerFor(
+			d.metrics.Registry(),
+			promhttp.HandlerOpts{EnableOpenMetrics: false},
+		).ServeHTTP)
 	})
 
 	return r

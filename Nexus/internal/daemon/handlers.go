@@ -168,6 +168,7 @@ func newID() string {
 // 12. Queue enqueue
 // 13. Return 200 + payload_id
 func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
+	writeStart := time.Now()
 	src := sourceFromContext(r.Context())
 	if src == nil {
 		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
@@ -272,9 +273,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 	// Step 6 — Rate limit check AFTER idempotency.
 	// Reference: Phase 0C Behavioral Contract item 11, Invariant 4.
+	cfg := d.getConfig()
 	rpm := src.RateLimit.RequestsPerMinute
 	if rpm <= 0 {
-		rpm = d.cfg.Daemon.RateLimit.GlobalRequestsPerMinute
+		rpm = cfg.Daemon.RateLimit.GlobalRequestsPerMinute
 	}
 	if allowed, retryAfter := d.rl.Allow(src.Name, rpm); !allowed {
 		d.logger.Warn("daemon: rate limit exceeded",
@@ -283,6 +285,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 			"rpm", rpm,
 			"request_id", middleware.GetReqID(r.Context()),
 		)
+		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
@@ -392,6 +395,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		ActorID:        actorID,
 		Payload:        payloadBytes,
 	}
+	walStart := time.Now()
 	if err := d.wal.Append(entry); err != nil {
 		d.logger.Error("daemon: WAL append failed",
 			"component", "daemon",
@@ -400,10 +404,12 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 			"error", err,
 			"request_id", requestID,
 		)
+		d.metrics.ErrorsTotal.WithLabelValues("wal_append").Inc()
 		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
 			"durable write failed; operator: check disk", 0)
 		return
 	}
+	d.metrics.WALAppendLatency.Observe(time.Since(walStart).Seconds())
 
 	// Step 11 — Register idempotency key AFTER WAL.
 	// Reference: Tech Spec Section 3.2 Step 15.
@@ -437,6 +443,11 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		"request_id", requestID,
 	)
 
+	// Record write path metrics.
+	d.metrics.ThroughputPerSource.WithLabelValues(src.Name).Inc()
+	d.metrics.PayloadProcessingLatency.WithLabelValues(src.Name).Observe(time.Since(writeStart).Seconds())
+	d.metrics.QueueDepth.Set(float64(d.queue.Len()))
+
 	// Step 13 — Return 200 + payload_id.
 	d.writeJSON(w, http.StatusOK, writeResponse{
 		PayloadID: payloadID,
@@ -453,6 +464,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 //
 // Reference: Tech Spec Section 3.3, Phase 0C Behavioral Contract items 11, 16.
 func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
+	queryStart := time.Now()
 	src := sourceFromContext(r.Context())
 	if src == nil {
 		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
@@ -470,11 +482,13 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	// Rate limit — applies to reads too.
 	// Reference: Phase 0C Behavioral Contract item 11.
+	qcfg := d.getConfig()
 	rpm := src.RateLimit.RequestsPerMinute
 	if rpm <= 0 {
-		rpm = d.cfg.Daemon.RateLimit.GlobalRequestsPerMinute
+		rpm = qcfg.Daemon.RateLimit.GlobalRequestsPerMinute
 	}
 	if allowed, retryAfter := d.rl.Allow(src.Name+":read", rpm); !allowed {
+		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
@@ -519,7 +533,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		profile = src.DefaultProfile
 	}
 	if profile == "" {
-		profile = d.cfg.Retrieval.DefaultProfile
+		profile = qcfg.Retrieval.DefaultProfile
 	}
 
 	// Execute query against destination.
@@ -546,6 +560,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 			"query execution failed", 0)
 		return
 	}
+
+	d.metrics.ReadLatency.WithLabelValues(src.Name, "/query").Observe(time.Since(queryStart).Seconds())
 
 	d.writeJSON(w, http.StatusOK, queryResponse{
 		Results: result.Records,
@@ -595,12 +611,19 @@ func (d *Daemon) handleReady(w http.ResponseWriter, r *http.Request) {
 // Admin Handlers (minimal for Phase 0C)
 // ---------------------------------------------------------------------------
 
-// handleAdminStatus returns a minimal status response. Full metrics and
-// status fields are added in Phase 0D.
+// handleAdminStatus returns a status response including queue and WAL state.
 func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/status").Inc()
+
+	queueDepth := 0
+	if d.queue != nil {
+		queueDepth = d.queue.Len()
+	}
+
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":  "running",
-		"version": "0.1.0",
+		"status":      "running",
+		"version":     "0.1.0",
+		"queue_depth": queueDepth,
 	})
 }
 

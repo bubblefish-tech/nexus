@@ -49,24 +49,36 @@ type authResult struct {
 //   - NEVER uses == for token comparison.
 //   - NEVER calls os.Getenv — all keys resolved at startup.
 //   - Iterates ALL source keys to avoid timing side-channels from early exit.
+//   - Uses configMu.RLock() for hot-reload safety (NEVER Lock on the auth path).
 //
-// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract items 1–6.
+// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract items 1–6,
+// Phase 0D Behavioral Contract item 5.
 func (d *Daemon) authenticate(r *http.Request) (authResult, bool) {
 	token := extractBearerToken(r)
 	if token == "" {
+		d.metrics.AuthFailuresTotal.WithLabelValues("unknown").Inc()
 		return authResult{}, false
 	}
 	provided := []byte(token)
 
+	// Snapshot config under RLock. The Config struct is immutable — hot reload
+	// only swaps the pointer, never mutates fields in-place. Reading fields
+	// from the snapshot after releasing the lock is race-free.
+	//
+	// INVARIANT: NEVER use Lock() here. Only RLock().
+	d.configMu.RLock()
+	cfg := d.cfg
+	d.configMu.RUnlock()
+
 	// Compare against admin key using constant-time comparison.
 	// We must still compare ALL source keys to avoid timing leaks.
-	adminMatch := subtle.ConstantTimeCompare(provided, d.cfg.ResolvedAdminKey) == 1
+	adminMatch := subtle.ConstantTimeCompare(provided, cfg.ResolvedAdminKey) == 1
 
 	// Compare against every source key. Continue through ALL entries so that
 	// timing does not reveal which key matched.
 	var matchedSource *config.Source
-	for _, src := range d.cfg.Sources {
-		key := d.cfg.ResolvedSourceKeys[src.Name]
+	for _, src := range cfg.Sources {
+		key := cfg.ResolvedSourceKeys[src.Name]
 		if subtle.ConstantTimeCompare(provided, key) == 1 {
 			matchedSource = src
 		}
@@ -78,6 +90,7 @@ func (d *Daemon) authenticate(r *http.Request) (authResult, bool) {
 	if adminMatch {
 		return authResult{isAdmin: true, provided: provided}, true
 	}
+	d.metrics.AuthFailuresTotal.WithLabelValues("unknown").Inc()
 	return authResult{}, false
 }
 

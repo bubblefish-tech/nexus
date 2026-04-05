@@ -73,18 +73,25 @@ type Config struct {
 	// Workers is the number of goroutines draining the channel. Defaults to
 	// defaultWorkers (1).
 	Workers int
+
+	// OnProcessed is an optional callback invoked after each entry is
+	// successfully written to the destination. Used to increment the
+	// bubblefish_queue_processing_rate metric. Must be safe to call
+	// concurrently. If nil, no callback is made.
+	OnProcessed func()
 }
 
 // Queue is a bounded, concurrency-safe message queue. All state is held in
 // struct fields; there are no package-level variables.
 type Queue struct {
-	ch      chan wal.Entry
-	done    chan struct{}
-	once    sync.Once
-	wg      sync.WaitGroup
-	logger  *slog.Logger
-	dest    destination.DestinationWriter
-	updater wal.WALUpdater
+	ch          chan wal.Entry
+	done        chan struct{}
+	once        sync.Once
+	wg          sync.WaitGroup
+	logger      *slog.Logger
+	dest        destination.DestinationWriter
+	updater     wal.WALUpdater
+	onProcessed func() // optional; called after each successful write
 }
 
 // New creates a Queue with the given configuration and starts the worker
@@ -113,11 +120,12 @@ func New(cfg Config, logger *slog.Logger, dest destination.DestinationWriter, up
 	}
 
 	q := &Queue{
-		ch:      make(chan wal.Entry, size),
-		done:    make(chan struct{}),
-		logger:  logger,
-		dest:    dest,
-		updater: updater,
+		ch:          make(chan wal.Entry, size),
+		done:        make(chan struct{}),
+		logger:      logger,
+		dest:        dest,
+		updater:     updater,
+		onProcessed: cfg.OnProcessed,
 	}
 
 	for i := 0; i < workers; i++ {
@@ -125,6 +133,13 @@ func New(cfg Config, logger *slog.Logger, dest destination.DestinationWriter, up
 		go q.worker()
 	}
 	return q
+}
+
+// Len returns the current number of entries buffered in the queue channel.
+// The value is approximate — it may change between the call and any subsequent
+// use. Safe to call concurrently.
+func (q *Queue) Len() int {
+	return len(q.ch)
 }
 
 // Enqueue adds entry to the queue channel. Returns ErrLoadShed immediately if
@@ -245,6 +260,10 @@ func (q *Queue) processEntry(entry wal.Entry) {
 					"payload_id", entry.PayloadID,
 					"error", mdErr,
 				)
+			}
+			// Notify metrics observer (e.g. bubblefish_queue_processing_rate).
+			if q.onProcessed != nil {
+				q.onProcessed()
 			}
 			return
 		}

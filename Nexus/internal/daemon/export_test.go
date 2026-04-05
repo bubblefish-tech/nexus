@@ -50,6 +50,7 @@ func (f *fakeDestination) Query(params destination.QueryParams) (destination.Que
 // directory, a real idempotency store, a no-op fake destination, and a real
 // queue. It does NOT start a listening HTTP server.
 //
+// Metrics are initialised by New() so handlers can safely call them in tests.
 // The temp directory is cleaned up when the test finishes.
 func NewTestDaemon(t testing.TB, cfg *config.Config) *Daemon {
 	t.Helper()
@@ -71,10 +72,19 @@ func NewTestDaemon(t testing.TB, cfg *config.Config) *Daemon {
 
 	idem := idempotency.New()
 
-	q := queue.New(queue.Config{Size: 100}, logger, fakeDest, w)
+	d := New(cfg, logger) // metrics initialised inside New()
+
+	q := queue.New(
+		queue.Config{
+			Size:        100,
+			OnProcessed: d.metrics.QueueProcessingRate.Inc,
+		},
+		logger,
+		fakeDest,
+		w,
+	)
 	t.Cleanup(func() { q.Drain() })
 
-	d := New(cfg, logger)
 	d.wal = w
 	d.idem = idem
 	d.dest = fakeDest
