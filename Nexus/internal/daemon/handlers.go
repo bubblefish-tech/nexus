@@ -58,6 +58,25 @@ type queryResponse struct {
 	Nexus   nexusMetadata                   `json:"_nexus"`
 }
 
+// openAIMessage is a single entry in the OpenAI chat messages array.
+type openAIMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// openAIMemoriesRequest is the request body for POST /v1/memories.
+type openAIMemoriesRequest struct {
+	Messages   []openAIMessage `json:"messages"`
+	Subject    string          `json:"subject,omitempty"`
+	Collection string          `json:"collection,omitempty"`
+}
+
+// openAIMemoriesResponse is the success response for POST /v1/memories.
+type openAIMemoriesResponse struct {
+	PayloadIDs []string `json:"payload_ids"`
+	Status     string   `json:"status"`
+}
+
 // nexusMetadata is the _nexus metadata block returned on every query response.
 // Reference: Tech Spec Section 3.4, Phase 5 Behavioral Contract 4.
 type nexusMetadata struct {
@@ -571,17 +590,26 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	d.metrics.ReadLatency.WithLabelValues(src.Name, "/query").Observe(time.Since(queryStart).Seconds())
 
+	meta := nexusMetadata{
+		ResultCount:               len(cascResult.Records),
+		HasMore:                   cascResult.HasMore,
+		NextCursor:                cascResult.NextCursor,
+		Profile:                   cascResult.Profile,
+		RetrievalStage:            cascResult.RetrievalStage,
+		SemanticUnavailable:       cascResult.SemanticUnavailable,
+		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
+	}
+
+	// SSE streaming — when client sends Accept: text/event-stream.
+	// Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 8.
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		d.streamQuerySSE(w, cascResult.Records, meta)
+		return
+	}
+
 	d.writeJSON(w, http.StatusOK, queryResponse{
 		Results: cascResult.Records,
-		Nexus: nexusMetadata{
-			ResultCount:               len(cascResult.Records),
-			HasMore:                   cascResult.HasMore,
-			NextCursor:                cascResult.NextCursor,
-			Profile:                   cascResult.Profile,
-			RetrievalStage:            cascResult.RetrievalStage,
-			SemanticUnavailable:       cascResult.SemanticUnavailable,
-			SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
-		},
+		Nexus:   meta,
 	})
 }
 
@@ -635,6 +663,241 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 		"status":      "running",
 		"version":     "0.1.0",
 		"queue_depth": queueDepth,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// SSE streaming for GET /query/{destination}
+// ---------------------------------------------------------------------------
+
+// streamQuerySSE writes cascade results as a Server-Sent Events stream.
+// Each record is sent as `data: <json>\n\n`. A final event carries the
+// `_nexus` metadata envelope. The response ends when all records are sent.
+//
+// If the ResponseWriter does not support http.Flusher (e.g. in tests using
+// httptest.ResponseRecorder), this method falls back to regular JSON.
+//
+// Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 8.
+func (d *Daemon) streamQuerySSE(w http.ResponseWriter, records []destination.TranslatedPayload, meta nexusMetadata) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// Fall back to regular JSON when the writer cannot flush.
+		d.writeJSON(w, http.StatusOK, queryResponse{Results: records, Nexus: meta})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // disable nginx proxy buffering
+	w.WriteHeader(http.StatusOK)
+
+	enc := json.NewEncoder(w)
+
+	// Stream each result record.
+	for i := range records {
+		if _, err := fmt.Fprintf(w, "data: "); err != nil {
+			return
+		}
+		if err := enc.Encode(records[i]); err != nil {
+			return
+		}
+		// enc.Encode appends \n; SSE requires \n\n between events.
+		if _, err := fmt.Fprintf(w, "\n"); err != nil {
+			return
+		}
+		flusher.Flush()
+	}
+
+	// Final event: _nexus metadata envelope.
+	metaEvent := map[string]nexusMetadata{"_nexus": meta}
+	if _, err := fmt.Fprintf(w, "data: "); err != nil {
+		return
+	}
+	if err := enc.Encode(metaEvent); err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(w, "\n"); err != nil {
+		return
+	}
+	flusher.Flush()
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible write — POST /v1/memories
+// ---------------------------------------------------------------------------
+
+// handleOpenAIWrite implements the OpenAI-compatible memory write endpoint.
+// It accepts a messages array in OpenAI chat format and writes each message
+// through the same WAL → queue → destination pipeline as handleWrite.
+//
+// Request body:
+//
+//	{"messages":[{"role":"user","content":"..."}],"subject":"...","collection":"..."}
+//
+// Response:
+//
+//	{"payload_ids":["...","..."],"status":"accepted"}
+//
+// Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 7.
+func (d *Daemon) handleOpenAIWrite(w http.ResponseWriter, r *http.Request) {
+	writeStart := time.Now()
+	src := sourceFromContext(r.Context())
+	if src == nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+			"source context missing", 0)
+		return
+	}
+
+	if !src.CanWrite {
+		d.writeErrorResponse(w, r, http.StatusForbidden, "source_not_permitted_to_write",
+			"this source does not have write permission", 0)
+		return
+	}
+
+	// Apply MaxBytesReader before reading body.
+	maxBytes := src.PayloadLimits.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 10 * 1024 * 1024
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+
+	ct := r.Header.Get("Content-Type")
+	if ct != "" && !strings.HasPrefix(ct, "application/json") {
+		d.writeErrorResponse(w, r, http.StatusUnsupportedMediaType, "unsupported_media_type",
+			"Content-Type must be application/json", 0)
+		return
+	}
+
+	var req openAIMemoriesRequest
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&req); err != nil {
+		if strings.Contains(err.Error(), "request body too large") ||
+			strings.Contains(err.Error(), "http: request body too large") {
+			d.writeErrorResponse(w, r, http.StatusRequestEntityTooLarge, "payload_too_large",
+				"request body exceeds maximum allowed size", 0)
+			return
+		}
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_json",
+			"request body must be valid JSON", 0)
+		return
+	}
+
+	if len(req.Messages) == 0 {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_request",
+			"messages array must not be empty", 0)
+		return
+	}
+
+	// Policy gate.
+	dest := src.TargetDest
+	if len(src.Policy.AllowedDestinations) > 0 && !containsString(src.Policy.AllowedDestinations, dest) {
+		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
+			"destination not permitted for this source", 0)
+		return
+	}
+	if len(src.Policy.AllowedOperations) > 0 && !containsString(src.Policy.AllowedOperations, "write") {
+		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
+			"write operation not permitted for this source", 0)
+		return
+	}
+
+	// Resolve subject.
+	subject := req.Subject
+	if subject == "" {
+		subject = r.Header.Get("X-Subject")
+	}
+	if subject == "" {
+		subject = src.Namespace
+	}
+
+	cfg := d.getConfig()
+	rpm := src.RateLimit.RequestsPerMinute
+	if rpm <= 0 {
+		rpm = cfg.Daemon.RateLimit.GlobalRequestsPerMinute
+	}
+
+	payloadIDs := make([]string, 0, len(req.Messages))
+
+	for _, msg := range req.Messages {
+		if msg.Content == "" {
+			continue // skip empty messages
+		}
+
+		// Rate limit per message write.
+		if allowed, retryAfter := d.rl.Allow(src.Name, rpm); !allowed {
+			d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
+				"rate limit exceeded; back off and retry", retryAfter)
+			return
+		}
+
+		payloadID := newID()
+		requestID := newID()
+
+		tp := destination.TranslatedPayload{
+			PayloadID:        payloadID,
+			RequestID:        requestID,
+			Source:           src.Name,
+			Subject:          subject,
+			Namespace:        src.Namespace,
+			Destination:      dest,
+			Collection:       req.Collection,
+			Content:          msg.Content,
+			Role:             msg.Role,
+			Timestamp:        time.Now().UTC(),
+			SchemaVersion:    1,
+			TransformVersion: "1.0",
+			ActorType:        src.DefaultActorType,
+		}
+
+		payloadBytes, err := json.Marshal(tp)
+		if err != nil {
+			d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+				"failed to encode payload", 0)
+			return
+		}
+
+		entry := wal.Entry{
+			PayloadID:   payloadID,
+			Source:      src.Name,
+			Destination: dest,
+			Subject:     subject,
+			ActorType:   src.DefaultActorType,
+			Payload:     payloadBytes,
+		}
+		walStart := time.Now()
+		if err := d.wal.Append(entry); err != nil {
+			d.logger.Error("daemon: openai write: WAL append failed",
+				"component", "daemon",
+				"source", src.Name,
+				"payload_id", payloadID,
+				"error", err,
+			)
+			d.metrics.ErrorsTotal.WithLabelValues("wal_append").Inc()
+			d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+				"durable write failed; operator: check disk", 0)
+			return
+		}
+		d.metrics.WALAppendLatency.Observe(time.Since(walStart).Seconds())
+
+		if err := d.queue.Enqueue(entry); err != nil {
+			w.Header().Set("Retry-After", "5")
+			d.writeErrorResponse(w, r, http.StatusTooManyRequests, "queue_full",
+				"queue full; data is durable in WAL and will be replayed on restart", 5)
+			return
+		}
+
+		payloadIDs = append(payloadIDs, payloadID)
+		d.metrics.ThroughputPerSource.WithLabelValues(src.Name).Inc()
+	}
+
+	d.metrics.PayloadProcessingLatency.WithLabelValues(src.Name).Observe(time.Since(writeStart).Seconds())
+
+	d.writeJSON(w, http.StatusOK, openAIMemoriesResponse{
+		PayloadIDs: payloadIDs,
+		Status:     "accepted",
 	})
 }
 

@@ -62,6 +62,9 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Use(d.requireDataToken)
 		r.Post("/inbound/{source}", d.handleWrite)
 		r.Get("/query/{destination}", d.handleQuery)
+		// OpenAI-compatible write endpoint.
+		// Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 7.
+		r.Post("/v1/memories", d.handleOpenAIWrite)
 	})
 
 	// Health / readiness probes — no authentication required.

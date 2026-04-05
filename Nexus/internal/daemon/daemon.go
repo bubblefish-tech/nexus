@@ -47,6 +47,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/embedding"
 	"github.com/BubbleFish-Nexus/internal/hotreload"
 	"github.com/BubbleFish-Nexus/internal/idempotency"
+	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/wal"
@@ -74,6 +75,7 @@ type Daemon struct {
 	rl              *rateLimiter
 
 	reloadWatcher *hotreload.Watcher
+	mcpServer     *mcp.Server // nil when MCP is disabled or failed to start
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -208,6 +210,11 @@ func (d *Daemon) Start() error {
 	// Start hot reload watcher.
 	d.startHotReload()
 
+	// Start MCP server if configured. Failure is non-fatal — the daemon MUST
+	// continue running even if MCP cannot bind.
+	// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
+	d.startMCPServer(cfg)
+
 	// Build HTTP server.
 	router := d.buildRouter()
 	d.server = newHTTPServer(d.serverAddr(), router)
@@ -273,6 +280,17 @@ func (d *Daemon) Stop() error {
 				}
 			}
 		}
+
+		// Stop MCP server alongside HTTP (both are in stage 1 — client-facing).
+		if d.mcpServer != nil {
+			if err := d.mcpServer.Stop(); err != nil {
+				d.logger.Error("daemon: MCP server stop error",
+					"component", "daemon",
+					"error", err,
+				)
+			}
+		}
+
 		d.logger.Info("daemon: stage 1 complete — HTTP server stopped",
 			"component", "daemon",
 		)
@@ -331,6 +349,72 @@ func (d *Daemon) Stop() error {
 // Stopped returns a channel that is closed when the daemon has fully stopped.
 func (d *Daemon) Stopped() <-chan struct{} {
 	return d.stopped
+}
+
+// ---------------------------------------------------------------------------
+// MCP server startup
+// ---------------------------------------------------------------------------
+
+// startMCPServer resolves the MCP API key and starts the MCP server if
+// MCPConfig.Enabled is true. Failure is non-fatal: on any error the daemon
+// logs a WARN and continues.
+//
+// INVARIANT: MCP MUST bind to 127.0.0.1. The Server constructor enforces this.
+// Reference: Tech Spec Section 14.3.
+func (d *Daemon) startMCPServer(cfg *config.Config) {
+	if !cfg.Daemon.MCP.Enabled {
+		return
+	}
+
+	if cfg.Daemon.MCP.APIKey == "" {
+		d.logger.Warn("daemon: MCP enabled but api_key is empty — MCP disabled",
+			"component", "daemon",
+		)
+		return
+	}
+
+	resolvedKey, err := config.ResolveEnv(cfg.Daemon.MCP.APIKey, d.logger)
+	if err != nil {
+		d.logger.Warn("daemon: MCP API key resolution failed — MCP disabled",
+			"component", "daemon",
+			"error", err,
+		)
+		return
+	}
+	if resolvedKey == "" {
+		d.logger.Warn("daemon: resolved MCP API key is empty — MCP disabled",
+			"component", "daemon",
+		)
+		return
+	}
+
+	// Determine bind and port, with safe defaults.
+	bind := cfg.Daemon.MCP.Bind
+	if bind == "" {
+		bind = "127.0.0.1"
+	}
+	port := cfg.Daemon.MCP.Port
+	if port == 0 {
+		port = 7474
+	}
+
+	sourceName := cfg.Daemon.MCP.SourceName
+
+	// Daemon itself is the Pipeline implementation.
+	srv := mcp.New(bind, port, []byte(resolvedKey), sourceName, d, d.logger)
+	if err := srv.Start(); err != nil {
+		d.logger.Warn("daemon: MCP server start failed — MCP disabled, HTTP continues",
+			"component", "daemon",
+			"error", err,
+		)
+		return
+	}
+	d.mcpServer = srv
+
+	d.logger.Info("daemon: MCP server started",
+		"component", "daemon",
+		"addr", srv.Addr(),
+	)
 }
 
 // ---------------------------------------------------------------------------
