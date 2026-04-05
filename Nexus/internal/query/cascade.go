@@ -19,8 +19,11 @@ package query
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"log/slog"
 
+	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
 )
@@ -69,8 +72,9 @@ type CascadeResult struct {
 //
 // Reference: Tech Spec Section 3.4.
 type CascadeRunner struct {
-	querier destination.Querier
-	logger  *slog.Logger
+	querier    destination.Querier
+	logger     *slog.Logger
+	exactCache *cache.ExactCache
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -83,6 +87,15 @@ func New(querier destination.Querier, logger *slog.Logger) *CascadeRunner {
 		querier: querier,
 		logger:  logger,
 	}
+}
+
+// WithExactCache attaches an ExactCache to the runner, enabling Stage 1
+// retrieval. Returns the runner for method chaining.
+//
+// Reference: Tech Spec Section 3.4 — Stage 1.
+func (cr *CascadeRunner) WithExactCache(c *cache.ExactCache) *CascadeRunner {
+	cr.exactCache = c
+	return cr
 }
 
 // Run executes the 6-stage retrieval cascade for the given source policy and
@@ -108,9 +121,35 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		return CascadeResult{Denial: denial, Profile: q.Profile}, nil
 	}
 
-	// ── Stage 1: Exact Cache — stub (Phase 4) ───────────────────────────────
-	// Active when: policy.read_from_cache = true AND profile != deep.
-	// When implemented: zero-dep LRU keyed by SHA256(scope+dest+params+policy).
+	// ── Stage 1: Exact Cache ────────────────────────────────────────────────
+	// Active when: policy.read_from_cache = true AND profile != "deep".
+	// Key: SHA256(scope_hash + dest + params + policy_hash).
+	// Scope isolation: source identity is embedded in the key so source A
+	// cannot retrieve source B's cached entries.
+	// Watermark check: entries are stale when a write was delivered after they
+	// were cached; stale entries produce a miss.
+	// Reference: Tech Spec Section 3.4 — Stage 1.
+	var cacheKey [32]byte
+	useCache := cr.exactCache != nil && src.Policy.Cache.ReadFromCache && q.Profile != "deep"
+	if useCache {
+		ph := sourcePolicyHash(src.Policy.Cache)
+		cacheKey = cache.BuildKey(src.Name, q.Destination, q.Profile,
+			q.Namespace, q.Subject, q.Q, q.Limit, q.CursorOffset, ph)
+		if entry, ok := cr.exactCache.Get(cacheKey, q.Destination); ok {
+			cr.logger.Debug("query: Stage 1 cache hit",
+				"component", "cascade",
+				"source", src.Name,
+				"destination", q.Destination,
+			)
+			return CascadeResult{
+				Records:        entry.Records,
+				NextCursor:     entry.NextCursor,
+				HasMore:        entry.HasMore,
+				Profile:        q.Profile,
+				RetrievalStage: 1,
+			}, nil
+		}
+	}
 
 	// ── Stage 2: Semantic Cache — stub (Phase 6) ────────────────────────────
 	// Active when: embedding configured + policy allows + profile != fast.
@@ -123,6 +162,17 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 	records, nextCursor, hasMore, err := runStage3(ctx, cr.querier, q)
 	if err != nil {
 		return CascadeResult{}, err
+	}
+
+	// ── Stage 1 write-back ───────────────────────────────────────────────────
+	// Store Stage 3 results in the exact cache for future requests when the
+	// source policy permits caching writes.
+	if useCache && cr.exactCache != nil && src.Policy.Cache.WriteToCache {
+		cr.exactCache.Put(cacheKey, q.Destination, cache.CacheEntry{
+			Records:    records,
+			NextCursor: nextCursor,
+			HasMore:    hasMore,
+		})
 	}
 
 	// ── Stage 4: Semantic Retrieval — stub (Phase 5) ────────────────────────
@@ -140,6 +190,20 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		Profile:        q.Profile,
 		RetrievalStage: 3,
 	}, nil
+}
+
+// sourcePolicyHash derives a short digest of the policy fields that affect
+// result shape. A change in any of these fields produces a different digest,
+// causing cache misses for stale policy-shaped results.
+//
+// The hash covers fields from PolicyCacheConfig that influence what the cache
+// serves: ReadFromCache, WriteToCache, MaxTTLSeconds, and the semantic
+// similarity threshold used in Stage 2.
+func sourcePolicyHash(p config.PolicyCacheConfig) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "rfc=%v\x00wtc=%v\x00ttl=%d\x00sst=%.6f",
+		p.ReadFromCache, p.WriteToCache, p.MaxTTLSeconds, p.SemanticSimilarityThreshold)
+	return fmt.Sprintf("%x", h.Sum(nil))[:16] // first 8 bytes (16 hex chars) is sufficient
 }
 
 // runStage0 enforces the policy gate. It returns a *PolicyDenial when the
