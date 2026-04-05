@@ -28,11 +28,13 @@ import (
 )
 
 // WALUpdater is implemented by WAL and consumed by the queue worker to mark
-// entries as delivered after a successful destination write. Callers MUST log
-// errors from MarkDelivered at WARN level (not ERROR): a failure here is
-// non-fatal because destination idempotency prevents duplicate writes on replay.
+// entries after a destination write attempt. Callers MUST log errors from
+// MarkDelivered at WARN level (not ERROR): a failure is non-fatal because
+// destination idempotency prevents duplicate writes on replay. Callers MUST
+// log errors from MarkPermanentFailure at ERROR level.
 type WALUpdater interface {
 	MarkDelivered(payloadID string) error
+	MarkPermanentFailure(payloadID string) error
 }
 
 // MarkDelivered atomically rewrites the WAL entry for payloadID with
@@ -43,12 +45,25 @@ type WALUpdater interface {
 // serialised. This is intentional: correctness over throughput. MarkDelivered
 // is called off the hot write path (after destination I/O completes).
 func (w *WAL) MarkDelivered(payloadID string) error {
+	return w.markStatus(payloadID, StatusDelivered)
+}
+
+// MarkPermanentFailure atomically rewrites the WAL entry for payloadID with
+// status=PERMANENT_FAILURE. Called by the queue worker when all retries are
+// exhausted. The entry will never be re-enqueued on replay.
+func (w *WAL) MarkPermanentFailure(payloadID string) error {
+	return w.markStatus(payloadID, StatusPermanentFailure)
+}
+
+// markStatus is the shared implementation for MarkDelivered and
+// MarkPermanentFailure. It holds the WAL mutex for the full operation.
+func (w *WAL) markStatus(payloadID, status string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	segs, err := w.segments()
 	if err != nil {
-		return fmt.Errorf("wal: mark delivered: list segments: %w", err)
+		return fmt.Errorf("wal: mark %s: list segments: %w", status, err)
 	}
 
 	for _, seg := range segs {
@@ -63,7 +78,7 @@ func (w *WAL) MarkDelivered(payloadID string) error {
 			w.current = nil
 		}
 
-		found, markErr := w.markDeliveredInSegment(seg, payloadID)
+		found, markErr := w.markStatusInSegment(seg, payloadID, status)
 
 		if isActive {
 			// Always reopen the active segment so Append continues to work.
@@ -91,10 +106,10 @@ func (w *WAL) MarkDelivered(payloadID string) error {
 	return fmt.Errorf("wal: payload_id %q not found in any segment", payloadID)
 }
 
-// markDeliveredInSegment scans segPath for an entry matching payloadID, rewrites
-// it with status=DELIVERED and a fresh CRC32, and atomically replaces the segment
-// via a temp file + rename on the same filesystem.
-func (w *WAL) markDeliveredInSegment(segPath, payloadID string) (bool, error) {
+// markStatusInSegment scans segPath for an entry matching payloadID, rewrites
+// it with the given status and a fresh CRC32, and atomically replaces the
+// segment via a temp file + rename on the same filesystem.
+func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, error) {
 	f, err := os.Open(segPath)
 	if err != nil {
 		return false, fmt.Errorf("wal: open segment %q: %w", segPath, err)
@@ -124,7 +139,7 @@ func (w *WAL) markDeliveredInSegment(segPath, payloadID string) (bool, error) {
 		}
 
 		if entry.PayloadID == payloadID && !found {
-			entry.Status = StatusDelivered
+			entry.Status = status
 			updated, marshalErr := json.Marshal(entry)
 			if marshalErr != nil {
 				// Abort before any write — close file and surface error.

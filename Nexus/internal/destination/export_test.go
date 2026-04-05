@@ -15,21 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
-// Command bubblefish is the entry point for BubbleFish Nexus.
-package main
+// This file is compiled only during tests (build tag: _test suffix on package
+// name in the external test file). It exposes internal state needed by the
+// black-box tests in sqlite_test.go.
 
-import (
-	"fmt"
-	"os"
+package destination
 
-	"github.com/BubbleFish-Nexus/internal/version"
-)
+import "database/sql"
 
-func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
-		return
-	}
-
-	fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
+// ExposeDB returns the underlying *sql.DB for use in tests only.
+// It allows external test packages to run PRAGMA queries for verification.
+func ExposeDB(d *SQLiteDestination) *sql.DB {
+	return d.db
 }
