@@ -44,6 +44,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/doctor"
+	"github.com/BubbleFish-Nexus/internal/embedding"
 	"github.com/BubbleFish-Nexus/internal/hotreload"
 	"github.com/BubbleFish-Nexus/internal/idempotency"
 	"github.com/BubbleFish-Nexus/internal/metrics"
@@ -63,13 +64,14 @@ type Daemon struct {
 	logger  *slog.Logger
 	metrics *metrics.Metrics
 
-	wal     *wal.WAL
-	queue   *queue.Queue
-	idem    *idempotency.Store
-	dest    destination.DestinationWriter
-	querier destination.Querier
-	server  *http.Server
-	rl      *rateLimiter
+	wal             *wal.WAL
+	queue           *queue.Queue
+	idem            *idempotency.Store
+	dest            destination.DestinationWriter
+	querier         destination.Querier
+	embeddingClient embedding.EmbeddingClient // nil when embedding disabled
+	server          *http.Server
+	rl              *rateLimiter
 
 	reloadWatcher *hotreload.Watcher
 
@@ -153,6 +155,28 @@ func (d *Daemon) Start() error {
 	}
 	d.dest = sqliteDest
 	d.querier = sqliteDest
+
+	// Create embedding client from config. Returns nil when disabled.
+	// INVARIANT: resolved API key is never logged.
+	if cfg.Daemon.Embedding.Enabled {
+		resolvedEmbedKey, resolveErr := config.ResolveEnv(cfg.Daemon.Embedding.APIKey, d.logger)
+		if resolveErr != nil {
+			d.logger.Warn("daemon: embedding API key resolve failed; semantic retrieval disabled",
+				"component", "daemon",
+				"error", resolveErr,
+			)
+		} else {
+			ec, ecErr := embedding.NewClient(cfg.Daemon.Embedding, resolvedEmbedKey, d.logger)
+			if ecErr != nil {
+				d.logger.Warn("daemon: embedding client creation failed; semantic retrieval disabled",
+					"component", "daemon",
+					"error", ecErr,
+				)
+			} else {
+				d.embeddingClient = ec
+			}
+		}
+	}
 
 	// Initialise idempotency store.
 	d.idem = idempotency.New()

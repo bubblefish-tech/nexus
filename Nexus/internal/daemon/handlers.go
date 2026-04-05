@@ -58,12 +58,16 @@ type queryResponse struct {
 	Nexus   nexusMetadata                   `json:"_nexus"`
 }
 
-// nexusMetadata is a subset of the full _nexus metadata for Phase 0C reads.
+// nexusMetadata is the _nexus metadata block returned on every query response.
+// Reference: Tech Spec Section 3.4, Phase 5 Behavioral Contract 4.
 type nexusMetadata struct {
-	ResultCount int    `json:"result_count"`
-	HasMore     bool   `json:"has_more"`
-	NextCursor  string `json:"next_cursor,omitempty"`
-	Profile     string `json:"profile"`
+	ResultCount              int    `json:"result_count"`
+	HasMore                  bool   `json:"has_more"`
+	NextCursor               string `json:"next_cursor,omitempty"`
+	Profile                  string `json:"profile"`
+	RetrievalStage           int    `json:"retrieval_stage"`
+	SemanticUnavailable      bool   `json:"semantic_unavailable,omitempty"`
+	SemanticUnavailableReason string `json:"semantic_unavailable_reason,omitempty"`
 }
 
 // healthResponse is returned by /health and /ready.
@@ -542,7 +546,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	// Execute the 6-stage retrieval cascade.
 	// Reference: Tech Spec Section 3.4.
-	runner := query.New(d.querier, d.logger)
+	runner := query.New(d.querier, d.logger).
+		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency)
 	cascResult, err := runner.Run(r.Context(), src, cq)
 	if err != nil {
 		d.logger.Error("daemon: cascade failed",
@@ -569,10 +574,13 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	d.writeJSON(w, http.StatusOK, queryResponse{
 		Results: cascResult.Records,
 		Nexus: nexusMetadata{
-			ResultCount: len(cascResult.Records),
-			HasMore:     cascResult.HasMore,
-			NextCursor:  cascResult.NextCursor,
-			Profile:     cascResult.Profile,
+			ResultCount:               len(cascResult.Records),
+			HasMore:                   cascResult.HasMore,
+			NextCursor:                cascResult.NextCursor,
+			Profile:                   cascResult.Profile,
+			RetrievalStage:            cascResult.RetrievalStage,
+			SemanticUnavailable:       cascResult.SemanticUnavailable,
+			SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
 		},
 	})
 }
