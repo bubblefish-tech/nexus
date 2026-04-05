@@ -123,6 +123,12 @@ type Metrics struct {
 	// Observed in the cascade Stage 4 path on each Embed() call.
 	// Reference: Tech Spec Section 11.3.
 	EmbeddingLatency prometheus.Histogram
+
+	// ── Temporal Decay (Stage 5) ─────────────────────────────────────────────
+	// TemporalDecayApplied counts the number of times temporal decay reranking
+	// was applied in Stage 5 (Hybrid Merge + Temporal Decay).
+	// Reference: Tech Spec Section 11.3.
+	TemporalDecayApplied prometheus.Counter
 }
 
 // New creates a Metrics with a private Prometheus registry. All metrics are
@@ -263,6 +269,12 @@ func New() *Metrics {
 		Buckets: prometheus.DefBuckets,
 	})
 
+	// ── Temporal Decay ───────────────────────────────────────────────────────
+	m.TemporalDecayApplied = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_temporal_decay_applied_total",
+		Help: "Number of times temporal decay reranking was applied in Stage 5.",
+	})
+
 	// Register all application metrics on the private registry.
 	reg.MustRegister(
 		m.PayloadProcessingLatency,
@@ -284,6 +296,7 @@ func New() *Metrics {
 		m.AdminCallsTotal,
 		m.ConfigLintWarnings,
 		m.EmbeddingLatency,
+		m.TemporalDecayApplied,
 	)
 
 	return m

@@ -84,11 +84,14 @@ type CascadeResult struct {
 //
 // Reference: Tech Spec Section 3.4.
 type CascadeRunner struct {
-	querier         destination.Querier
-	logger          *slog.Logger
-	exactCache      *cache.ExactCache
-	embeddingClient embedding.EmbeddingClient
-	embeddingLatency prometheus.Observer // optional; nil is safe
+	querier          destination.Querier
+	logger           *slog.Logger
+	exactCache       *cache.ExactCache
+	semanticCache    *cache.SemanticCache  // Stage 2 — Phase 6
+	embeddingClient  embedding.EmbeddingClient
+	embeddingLatency prometheus.Observer   // optional; nil is safe
+	retrieval        config.RetrievalConfig // Phase 6: over-sample factor + decay
+	decayCounter     prometheus.Counter    // Phase 6: bubblefish_temporal_decay_applied_total
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -112,9 +115,18 @@ func (cr *CascadeRunner) WithExactCache(c *cache.ExactCache) *CascadeRunner {
 	return cr
 }
 
+// WithSemanticCache attaches a SemanticCache to the runner, enabling Stage 2
+// semantic cache retrieval. Returns the runner for method chaining.
+//
+// Reference: Tech Spec Section 3.4 — Stage 2.
+func (cr *CascadeRunner) WithSemanticCache(c *cache.SemanticCache) *CascadeRunner {
+	cr.semanticCache = c
+	return cr
+}
+
 // WithEmbeddingClient attaches an EmbeddingClient to the runner, enabling
-// Stage 4 (and later Stage 2) semantic retrieval. A nil client is valid and
-// results in graceful degradation: Stages 2+4 are skipped and
+// Stage 2 (semantic cache) and Stage 4 (semantic retrieval). A nil client is
+// valid and results in graceful degradation: Stages 2+4 are skipped and
 // CascadeResult.SemanticUnavailable is set to true.
 //
 // embeddingLatency is an optional prometheus.Observer for recording embedding
@@ -127,13 +139,29 @@ func (cr *CascadeRunner) WithEmbeddingClient(c embedding.EmbeddingClient, embedd
 	return cr
 }
 
+// WithRetrievalConfig injects the global retrieval configuration used to
+// determine the over-sample factor and default temporal decay parameters.
+// Returns the runner for method chaining.
+//
+// Reference: Tech Spec Section 3.5, Section 3.6.
+func (cr *CascadeRunner) WithRetrievalConfig(cfg config.RetrievalConfig) *CascadeRunner {
+	cr.retrieval = cfg
+	return cr
+}
+
+// WithDecayCounter attaches a Prometheus counter that is incremented each time
+// temporal decay reranking is applied in Stage 5. Pass nil to disable.
+//
+// Reference: Tech Spec Section 11.3 — bubblefish_temporal_decay_applied_total.
+func (cr *CascadeRunner) WithDecayCounter(c prometheus.Counter) *CascadeRunner {
+	cr.decayCounter = c
+	return cr
+}
+
 // Run executes the 6-stage retrieval cascade for the given source policy and
 // canonical query. Stages execute strictly in order 0 → 5. Each stage may
 // produce results and short-circuit, pass through to the next stage, or block
 // the request entirely (Stage 0 only).
-//
-// Stages 1, 2, 4, and 5 are stub pass-throughs in this phase. They are
-// implemented in Phases 4, 5, and 6 respectively.
 //
 // Reference: Tech Spec Section 3.4.
 func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q CanonicalQuery) (CascadeResult, error) {
@@ -180,45 +208,21 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		}
 	}
 
-	// ── Stage 2: Semantic Cache — stub (Phase 6) ────────────────────────────
-	// Active when: embedding configured + policy allows + profile != fast.
-	// When implemented: cosine similarity >= threshold (default 0.92).
-
-	// ── Stage 3: Structured Lookup ──────────────────────────────────────────
-	// Active when: metadata filters present OR exact-subject fast path.
-	// Uses parameterized WHERE clauses — no SQL string concatenation ever.
-	// Reference: Tech Spec Section 3.4 — Stage 3.
-	records, nextCursor, hasMore, err := runStage3(ctx, cr.querier, q)
-	if err != nil {
-		return CascadeResult{}, err
-	}
-
-	// ── Stage 1 write-back ───────────────────────────────────────────────────
-	// Store Stage 3 results in the exact cache for future requests when the
-	// source policy permits caching writes.
-	if useCache && cr.exactCache != nil && src.Policy.Cache.WriteToCache {
-		cr.exactCache.Put(cacheKey, q.Destination, cache.CacheEntry{
-			Records:    records,
-			NextCursor: nextCursor,
-			HasMore:    hasMore,
-		})
-	}
-
-	// ── Stage 4: Semantic Retrieval ─────────────────────────────────────────
-	// Active when:
-	//   1. embeddingClient is configured (non-nil).
-	//   2. The querier implements SemanticSearcher and CanSemanticSearch().
-	//   3. profile != "fast".
+	// ── Pre-Semantic: Eligibility check and embedding computation ────────────
+	// Embedding is computed once and shared by Stage 2 (semantic cache lookup)
+	// and Stage 4 (semantic vector search). If computation fails, both stages
+	// degrade gracefully.
 	//
-	// Graceful degradation: any error (including provider unreachable / timeout)
-	// sets SemanticUnavailable = true and falls through to Stage 3 results.
-	// INVARIANT: NEVER crash or return an error to the caller on embedding failure.
+	// INVARIANT: NEVER propagate embedding errors to the caller. Set
+	// semanticSkipped = true and continue with Stage 3 results.
 	//
-	// Reference: Tech Spec Section 3.4 — Stage 4, Phase 5 Behavioral Contract 4.
+	// Reference: Tech Spec Section 3.4 — Stages 2 + 4.
 	var (
-		stage4Records   []destination.ScoredRecord
+		queryVec        []float32
+		queryVecOK      bool // true when queryVec is populated and usable
 		semanticSkipped bool
 		skipReason      string
+		semanticSearcher destination.SemanticSearcher // non-nil when Stage 4 can run
 	)
 
 	if cr.embeddingClient == nil {
@@ -228,29 +232,25 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		semanticSkipped = true
 		skipReason = "profile=fast skips semantic retrieval"
 	} else {
-		// Check whether the destination supports semantic search.
-		searcher, ok := cr.querier.(destination.SemanticSearcher)
-		if !ok || !searcher.CanSemanticSearch() {
+		// Check destination semantic search capability before computing embedding.
+		ss, isSearcher := cr.querier.(destination.SemanticSearcher)
+		if !isSearcher || !ss.CanSemanticSearch() {
 			semanticSkipped = true
 			skipReason = "destination does not support semantic search"
 		} else {
-			// Compute query embedding. Respect the context so client timeouts
-			// propagate correctly. Wrap with a per-request timeout equal to the
-			// embedding client's configured timeout (enforced via http.Client).
+			semanticSearcher = ss
+			// Compute embedding (shared by Stage 2 and Stage 4).
 			t0 := time.Now()
-			queryVec, embedErr := cr.embeddingClient.Embed(ctx, q.Q)
+			var embedErr error
+			queryVec, embedErr = cr.embeddingClient.Embed(ctx, q.Q)
 			elapsed := time.Since(t0)
-
 			if cr.embeddingLatency != nil {
 				cr.embeddingLatency.Observe(elapsed.Seconds())
 			}
-
 			if embedErr != nil {
-				// Provider unreachable or timed out — degrade gracefully.
-				// INVARIANT: do NOT propagate the error to the caller.
 				semanticSkipped = true
 				skipReason = "embedding provider unavailable"
-				cr.logger.Warn("query: Stage 4 embedding failed; degrading gracefully",
+				cr.logger.Warn("query: embedding failed; degrading gracefully",
 					"component", "cascade",
 					"source", src.Name,
 					"error", embedErr,
@@ -259,70 +259,192 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 				semanticSkipped = true
 				skipReason = "empty embedding vector returned"
 			} else {
-				// Execute semantic search on the destination.
-				searchParams := destination.QueryParams{
-					Namespace:   q.Namespace,
-					Destination: q.Destination,
-					Limit:       q.Limit,
-					Profile:     q.Profile,
-				}
-				stage4Records, err = searcher.SemanticSearch(ctx, queryVec, searchParams)
-				if err != nil {
-					// Semantic search error — degrade gracefully.
-					semanticSkipped = true
-					skipReason = "semantic search error"
-					cr.logger.Warn("query: Stage 4 semantic search failed; degrading gracefully",
-						"component", "cascade",
-						"source", src.Name,
-						"error", err,
-					)
-					err = nil // clear; do not surface to caller
-				} else {
-					cr.logger.Debug("query: Stage 4 semantic retrieval complete",
-						"component", "cascade",
-						"source", src.Name,
-						"destination", q.Destination,
-						"results", len(stage4Records),
-					)
-				}
+				queryVecOK = true
 			}
 		}
 	}
 
-	// ── Stage 5: Hybrid Merge + Temporal Decay — stub (Phase 6) ─────────────
-	// Active when: Stages 3 AND 4 both produced results.
-	// Phase 6 implements: dedup by payload_id, temporal decay rerank, projection.
+	// ── Stage 2: Semantic Cache ─────────────────────────────────────────────
+	// Active when: embedding computed + semantic cache configured + policy
+	// allows reads from cache + profile != fast (already checked above).
 	//
-	// Phase 5 interim: when Stage 4 produced results, promote them as the
-	// primary result set (ranked by cosine similarity). Stage 3 results are
-	// included as fallback when Stage 4 is empty or skipped.
+	// On a hit: short-circuit and return cached results (skipping Stages 3–5).
+	// On a miss: continue to Stage 3.
+	//
+	// Reference: Tech Spec Section 3.4 — Stage 2, Section 3.7.
+	if queryVecOK && cr.semanticCache != nil && src.Policy.Cache.ReadFromCache {
+		scopeKey := cache.SemanticScopeKey(src.Name, q.Destination, q.Profile, q.Namespace)
+		threshold := src.Policy.Cache.SemanticSimilarityThreshold
+		if threshold <= 0 {
+			threshold = 0.92 // default per Tech Spec Section 3.4 — Stage 2
+		}
+		if entry, ok := cr.semanticCache.Get(scopeKey, queryVec, q.Destination, threshold); ok {
+			cr.logger.Debug("query: Stage 2 semantic cache hit",
+				"component", "cascade",
+				"source", src.Name,
+				"destination", q.Destination,
+			)
+			return CascadeResult{
+				Records:        entry.Records,
+				NextCursor:     entry.NextCursor,
+				HasMore:        entry.HasMore,
+				Profile:        q.Profile,
+				RetrievalStage: 2,
+			}, nil
+		}
+	}
 
-	finalRecords := records
-	finalNextCursor := nextCursor
-	finalHasMore := hasMore
-	finalStage := 3
+	// ── Stage 3: Structured Lookup ──────────────────────────────────────────
+	// Active when: metadata filters present OR exact-subject fast path.
+	// Uses parameterized WHERE clauses — no SQL string concatenation ever.
+	//
+	// Over-sampling: when Stage 5 may run (Stages 3 and 4 both active), fetch
+	// more than max_results so temporal decay reranking has a larger candidate
+	// pool. The result is trimmed to q.Limit by Stage 5.
+	//
+	// Reference: Tech Spec Section 3.4 — Stage 3.
+	fetchLimit := q.Limit
+	if queryVecOK {
+		// Over-sample for hybrid merge (Stage 5).
+		overSample := cr.retrieval.OverSampleFactor
+		if overSample <= 0 {
+			overSample = profileOverSample(q.Profile)
+		}
+		if overSample > fetchLimit {
+			fetchLimit = overSample
+		}
+		if fetchLimit > destination.MaxQueryLimit {
+			fetchLimit = destination.MaxQueryLimit
+		}
+	}
 
-	if !semanticSkipped && len(stage4Records) > 0 {
-		// Use Stage 4 semantic results as the primary output for Phase 5.
-		// Phase 6 will replace this with proper hybrid merge + dedup.
-		sem := make([]destination.TranslatedPayload, 0, len(stage4Records))
-		for _, sr := range stage4Records {
-			sem = append(sem, sr.Payload)
+	overSampledQ := q
+	overSampledQ.Limit = fetchLimit
+	records, nextCursor, hasMore, err := runStage3(ctx, cr.querier, overSampledQ)
+	if err != nil {
+		return CascadeResult{}, err
+	}
+
+	// ── Stage 4: Semantic Retrieval ─────────────────────────────────────────
+	// Active when: embedding computed + destination supports semantic search.
+	// Uses the pre-computed queryVec from the Pre-Semantic block above.
+	//
+	// Graceful degradation: any error sets semanticSkipped = true and falls
+	// through to Stage 3 results.
+	// INVARIANT: NEVER crash or return an error to the caller on Stage 4 failure.
+	//
+	// Reference: Tech Spec Section 3.4 — Stage 4.
+	var stage4Records []destination.ScoredRecord
+
+	if queryVecOK && semanticSearcher != nil {
+		searchParams := destination.QueryParams{
+			Namespace:   q.Namespace,
+			Destination: q.Destination,
+			Limit:       fetchLimit, // over-sampled
+			Profile:     q.Profile,
+		}
+		var searchErr error
+		stage4Records, searchErr = semanticSearcher.SemanticSearch(ctx, queryVec, searchParams)
+		if searchErr != nil {
+			semanticSkipped = true
+			skipReason = "semantic search error"
+			cr.logger.Warn("query: Stage 4 semantic search failed; degrading gracefully",
+				"component", "cascade",
+				"source", src.Name,
+				"error", searchErr,
+			)
+			// err was set inside; clear so it doesn't surface to caller.
+		} else {
+			cr.logger.Debug("query: Stage 4 semantic retrieval complete",
+				"component", "cascade",
+				"source", src.Name,
+				"destination", q.Destination,
+				"results", len(stage4Records),
+			)
+		}
+	}
+
+	// ── Stage 5: Hybrid Merge + Temporal Decay ──────────────────────────────
+	// Active when: Stages 3 AND 4 both produced results.
+	// Implements: dedup by payload_id, temporal decay rerank, trim to q.Limit.
+	//
+	// When only Stage 4 produced results, uses Stage 4 results trimmed to limit.
+	// When only Stage 3 produced results (or semantic skipped), uses Stage 3.
+	//
+	// Reference: Tech Spec Section 3.4 — Stage 5, Section 3.6.
+	var (
+		finalRecords    []destination.TranslatedPayload
+		finalNextCursor string
+		finalHasMore    bool
+		finalStage      int
+	)
+
+	if !semanticSkipped && len(stage4Records) > 0 && len(records) > 0 {
+		// ── Stage 5: Both stages have results — full hybrid merge ────────────
+		decayCfg := ResolveDecay(cr.retrieval, src.Policy.Decay, q.Profile)
+		finalRecords = HybridMerge(records, stage4Records, q.Limit, decayCfg.Enabled, decayCfg, time.Now())
+		finalNextCursor = "" // Stage 5 result is a full reranked page; no cursor
+		finalHasMore = false
+		finalStage = 5
+		if decayCfg.Enabled && cr.decayCounter != nil {
+			cr.decayCounter.Inc()
+		}
+		cr.logger.Debug("query: Stage 5 hybrid merge complete",
+			"component", "cascade",
+			"source", src.Name,
+			"stage3_count", len(records),
+			"stage4_count", len(stage4Records),
+			"merged_count", len(finalRecords),
+			"decay_enabled", decayCfg.Enabled,
+		)
+	} else if !semanticSkipped && len(stage4Records) > 0 {
+		// Stage 4 results only (Stage 3 returned nothing). Trim to q.Limit.
+		end := len(stage4Records)
+		if q.Limit > 0 && end > q.Limit {
+			end = q.Limit
+		}
+		sem := make([]destination.TranslatedPayload, end)
+		for i := 0; i < end; i++ {
+			sem[i] = stage4Records[i].Payload
 		}
 		finalRecords = sem
 		finalNextCursor = ""
 		finalHasMore = false
 		finalStage = 4
-
-		// Write-back Stage 4 results to the exact cache when policy permits,
-		// so that an identical future query hits Stage 1 without re-embedding.
-		if useCache && cr.exactCache != nil && src.Policy.Cache.WriteToCache {
-			cr.exactCache.Put(cacheKey, q.Destination, cache.CacheEntry{
-				Records:    finalRecords,
-				NextCursor: finalNextCursor,
-				HasMore:    finalHasMore,
-			})
+	} else {
+		// Stage 3 results only (semantic skipped or Stage 4 returned nothing).
+		// Trim to the original requested limit.
+		trimmed := records
+		if q.Limit > 0 && len(trimmed) > q.Limit {
+			trimmed = trimmed[:q.Limit]
 		}
+		finalRecords = trimmed
+		finalNextCursor = nextCursor
+		finalHasMore = hasMore
+		finalStage = 3
+	}
+
+	// ── Exact Cache write-back ───────────────────────────────────────────────
+	// Store final results in the exact cache for future identical requests when
+	// the source policy permits caching writes.
+	if useCache && cr.exactCache != nil && src.Policy.Cache.WriteToCache {
+		cr.exactCache.Put(cacheKey, q.Destination, cache.CacheEntry{
+			Records:    finalRecords,
+			NextCursor: finalNextCursor,
+			HasMore:    finalHasMore,
+		})
+	}
+
+	// ── Semantic Cache write-back ────────────────────────────────────────────
+	// Store final results keyed by the query embedding vector so that future
+	// semantically similar queries hit Stage 2 directly.
+	if queryVecOK && !semanticSkipped && cr.semanticCache != nil && src.Policy.Cache.WriteToCache {
+		scopeKey := cache.SemanticScopeKey(src.Name, q.Destination, q.Profile, q.Namespace)
+		cr.semanticCache.Put(scopeKey, queryVec, q.Destination, cache.SemanticCacheEntry{
+			Records:    finalRecords,
+			NextCursor: finalNextCursor,
+			HasMore:    finalHasMore,
+		})
 	}
 
 	result := CascadeResult{

@@ -367,14 +367,16 @@ func TestBehav_Phase5_Check3_CosineSimilarityRanking(t *testing.T) {
 	if cascResult.SemanticUnavailable {
 		t.Errorf("CHECK 3 FAIL: cascade marked semantic unavailable when client + data are present")
 	}
-	if cascResult.RetrievalStage != 4 {
-		t.Errorf("CHECK 3 FAIL: RetrievalStage = %d; want 4 (semantic retrieval)", cascResult.RetrievalStage)
+	// Phase 6: when Stage 3 (structured) also returns results, Stage 5 (hybrid
+	// merge) runs. Accept Stage 4 (semantic only) or Stage 5 (hybrid merge).
+	if cascResult.RetrievalStage < 4 {
+		t.Errorf("CHECK 3 FAIL: RetrievalStage = %d; want >= 4 (semantic retrieval active)", cascResult.RetrievalStage)
 	}
 	if len(cascResult.Records) == 0 {
 		t.Errorf("CHECK 3 FAIL: cascade returned 0 records; want > 0")
 	} else {
-		t.Logf("CHECK 3 PASS: cascade Stage 4 active, returned %d record(s), top result = %q",
-			len(cascResult.Records), cascResult.Records[0].PayloadID)
+		t.Logf("CHECK 3 PASS: cascade Stage %d active, returned %d record(s), top result = %q",
+			cascResult.RetrievalStage, len(cascResult.Records), cascResult.Records[0].PayloadID)
 	}
 }
 
