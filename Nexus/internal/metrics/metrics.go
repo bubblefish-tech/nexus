@@ -103,6 +103,12 @@ type Metrics struct {
 	// Incremented in authenticate() when no key matches.
 	AuthFailuresTotal *prometheus.CounterVec
 
+	// ── Policy ───────────────────────────────────────────────────────────────
+	// PolicyDenialsTotal counts policy gate rejections by source and reason.
+	// Incremented whenever a policy check denies a request (403).
+	// Reference: Tech Spec Section 11.3.
+	PolicyDenialsTotal *prometheus.CounterVec
+
 	// ── Rate limit ───────────────────────────────────────────────────────────
 	// RateLimitHitsTotal counts rate limit rejections by source label.
 	// Incremented in handleWrite and handleQuery when Allow() returns false.
@@ -244,6 +250,15 @@ func New() *Metrics {
 		[]string{"source"},
 	)
 
+	// ── Policy ──────────────────────────────────────────────────────────────
+	m.PolicyDenialsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_policy_denials_total",
+			Help: "Policy gate rejections by source and reason.",
+		},
+		[]string{"source", "reason"},
+	)
+
 	// ── Rate limit ───────────────────────────────────────────────────────────
 	m.RateLimitHitsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -304,6 +319,7 @@ func New() *Metrics {
 		m.ReplayEntriesTotal,
 		m.ReplayDurationSeconds,
 		m.AuthFailuresTotal,
+		m.PolicyDenialsTotal,
 		m.RateLimitHitsTotal,
 		m.AdminCallsTotal,
 		m.ConfigLintWarnings,

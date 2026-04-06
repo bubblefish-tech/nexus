@@ -147,6 +147,48 @@ func TestRegistryServesPrometheusFormat(t *testing.T) {
 	}
 }
 
+// TestSecurityMetricsRegistered verifies that the four security-related metrics
+// are registered and produce non-zero values when exercised.
+//
+// Reference: Tech Spec Section 11.3, Phase R-18 Behavioral Contract.
+func TestSecurityMetricsRegistered(t *testing.T) {
+	m := metrics.New()
+
+	// Exercise all four security metrics.
+	m.AuthFailuresTotal.WithLabelValues("unknown").Inc()
+	m.PolicyDenialsTotal.WithLabelValues("claude", "write not allowed").Inc()
+	m.RateLimitHitsTotal.WithLabelValues("claude").Inc()
+	m.AdminCallsTotal.WithLabelValues("/api/status").Inc()
+
+	mfs, err := m.Registry().Gather()
+	if err != nil {
+		t.Fatalf("Gather() error: %v", err)
+	}
+
+	wantNonZero := map[string]bool{
+		"bubblefish_auth_failures_total":   false,
+		"bubblefish_policy_denials_total":  false,
+		"bubblefish_rate_limit_hits_total": false,
+		"bubblefish_admin_calls_total":     false,
+	}
+
+	for _, mf := range mfs {
+		name := mf.GetName()
+		if _, want := wantNonZero[name]; !want {
+			continue
+		}
+		if isNonZero(t, mf) {
+			wantNonZero[name] = true
+		}
+	}
+
+	for name, found := range wantNonZero {
+		if !found {
+			t.Errorf("metric %q was expected to be non-zero but was zero or missing", name)
+		}
+	}
+}
+
 // isNonZero returns true if any metric sample in the family has a non-zero value.
 func isNonZero(t *testing.T, mf *dto.MetricFamily) bool {
 	t.Helper()

@@ -44,6 +44,8 @@ func (d *Daemon) emitSecurityEvent(e securitylog.Event) {
 //
 // Reference: Tech Spec Section 12.
 func (d *Daemon) handleSecurityEvents(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/security/events").Inc()
+
 	// Emit admin_access event for this endpoint.
 	d.emitSecurityEvent(securitylog.Event{
 		EventType: "admin_access",
@@ -82,6 +84,8 @@ func (d *Daemon) handleSecurityEvents(w http.ResponseWriter, r *http.Request) {
 // counts of security events by type.
 // Reference: Tech Spec Section 12.
 func (d *Daemon) handleSecuritySummary(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/security/summary").Inc()
+
 	// Emit admin_access event for this endpoint.
 	d.emitSecurityEvent(securitylog.Event{
 		EventType: "admin_access",
@@ -116,8 +120,11 @@ func (d *Daemon) emitAuthFailure(r *http.Request, tokenClass string) {
 	})
 }
 
-// emitPolicyDenied emits a policy_denied security event.
+// emitPolicyDenied emits a policy_denied security event and increments the
+// bubblefish_policy_denials_total metric.
+// Reference: Tech Spec Section 11.3.
 func (d *Daemon) emitPolicyDenied(r *http.Request, source, subject, operation, dest, reason string) {
+	d.metrics.PolicyDenialsTotal.WithLabelValues(source, reason).Inc()
 	d.emitSecurityEvent(securitylog.Event{
 		EventType: "policy_denied",
 		Source:    source,

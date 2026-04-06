@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 )
 
@@ -46,6 +47,7 @@ func newTestDaemonWithSecurityLog(t *testing.T) *Daemon {
 			Daemon: config.DaemonConfig{},
 		},
 		logger:      logger,
+		metrics:     metrics.New(),
 		securityLog: sl,
 		stopped:     make(chan struct{}),
 	}
@@ -83,6 +85,7 @@ func TestEmitSecurityEventNilLogger(t *testing.T) {
 		logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelWarn,
 		})),
+		metrics: metrics.New(),
 		stopped: make(chan struct{}),
 	}
 	// Should not panic.
@@ -161,6 +164,7 @@ func TestHandleSecurityEventsDisabled(t *testing.T) {
 		logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelWarn,
 		})),
+		metrics: metrics.New(),
 		stopped: make(chan struct{}),
 	}
 
