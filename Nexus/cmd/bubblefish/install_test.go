@@ -73,13 +73,13 @@ func TestBuildDaemonTOML(t *testing.T) {
 	}
 }
 
-func TestWriteFileIfNotExists(t *testing.T) {
+func TestWriteConfigFile(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.toml")
 
 	// First write should succeed.
-	if err := writeFileIfNotExists(path, "hello"); err != nil {
+	if err := writeConfigFile(path, "hello", false); err != nil {
 		t.Fatalf("first write failed: %v", err)
 	}
 	data, _ := os.ReadFile(path)
@@ -87,13 +87,22 @@ func TestWriteFileIfNotExists(t *testing.T) {
 		t.Fatalf("expected %q, got %q", "hello", string(data))
 	}
 
-	// Second write should be a no-op (skip existing).
-	if err := writeFileIfNotExists(path, "world"); err != nil {
+	// Second write without force should be a no-op (skip existing).
+	if err := writeConfigFile(path, "world", false); err != nil {
 		t.Fatalf("second write failed: %v", err)
 	}
 	data, _ = os.ReadFile(path)
 	if string(data) != "hello" {
 		t.Fatalf("expected file to remain %q, got %q", "hello", string(data))
+	}
+
+	// Write with force should overwrite.
+	if err := writeConfigFile(path, "forced", true); err != nil {
+		t.Fatalf("force write failed: %v", err)
+	}
+	data, _ = os.ReadFile(path)
+	if string(data) != "forced" {
+		t.Fatalf("expected %q after force, got %q", "forced", string(data))
 	}
 }
 
@@ -116,7 +125,7 @@ func TestWriteDestination(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := writeDestination(dir, tt.destType); err != nil {
+			if err := writeDestination(dir, tt.destType, false); err != nil {
 				t.Fatalf("writeDestination(%q) failed: %v", tt.destType, err)
 			}
 
@@ -134,7 +143,7 @@ func TestWriteDestinationUnknown(t *testing.T) {
 	destDir := filepath.Join(dir, "destinations")
 	os.MkdirAll(destDir, 0700)
 
-	err := writeDestination(dir, "badtype")
+	err := writeDestination(dir, "badtype", false)
 	if err == nil {
 		t.Fatal("expected error for unknown destination type")
 	}

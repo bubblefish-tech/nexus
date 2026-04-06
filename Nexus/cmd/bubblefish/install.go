@@ -42,6 +42,7 @@ func runInstall(args []string) {
 	mode := fs.String("mode", "balanced", "deployment mode: simple, balanced, safe")
 	profile := fs.String("profile", "", "install profile: openwebui")
 	oauthTemplate := fs.String("oauth-template", "", "generate OAuth template: caddy, traefik")
+	force := fs.Bool("force", false, "overwrite existing config")
 	fs.Parse(args)
 
 	home, err := os.UserHomeDir()
@@ -50,6 +51,15 @@ func runInstall(args []string) {
 		os.Exit(1)
 	}
 	configDir := filepath.Join(home, ".bubblefish", "Nexus")
+
+	// Refuse if config already exists unless --force.
+	daemonPath := filepath.Join(configDir, "daemon.toml")
+	if !*force {
+		if _, err := os.Stat(daemonPath); err == nil {
+			fmt.Fprintf(os.Stderr, "bubblefish install: config already exists at %s — use --force to overwrite\n", configDir)
+			os.Exit(1)
+		}
+	}
 
 	// Create directory tree.
 	dirs := []string{
@@ -72,27 +82,26 @@ func runInstall(args []string) {
 
 	// Write daemon.toml based on mode.
 	daemonTOML := buildDaemonTOML(*mode, adminKey)
-	daemonPath := filepath.Join(configDir, "daemon.toml")
-	if err := writeFileIfNotExists(daemonPath, daemonTOML); err != nil {
+	if err := writeConfigFile(daemonPath, daemonTOML, *force); err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish install: write daemon.toml: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Write destination config.
-	if err := writeDestination(configDir, *dest); err != nil {
+	if err := writeDestination(configDir, *dest, *force); err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish install: write destination: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Write default source config based on mode.
-	if err := writeDefaultSource(configDir, *mode, *dest, sourceKey); err != nil {
+	if err := writeDefaultSource(configDir, *mode, *dest, sourceKey, *force); err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish install: write source: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Handle --profile flag.
 	if *profile == "openwebui" {
-		if err := writeOpenWebUIProfile(configDir); err != nil {
+		if err := writeOpenWebUIProfile(configDir, *force); err != nil {
 			fmt.Fprintf(os.Stderr, "bubblefish install: write openwebui profile: %v\n", err)
 			os.Exit(1)
 		}
@@ -100,7 +109,7 @@ func runInstall(args []string) {
 
 	// Handle --oauth-template flag.
 	if *oauthTemplate != "" {
-		if err := writeOAuthTemplate(configDir, *oauthTemplate); err != nil {
+		if err := writeOAuthTemplate(configDir, *oauthTemplate, *force); err != nil {
 			fmt.Fprintf(os.Stderr, "bubblefish install: write oauth template: %v\n", err)
 			os.Exit(1)
 		}
@@ -140,12 +149,14 @@ func generateKey() string {
 	return hex.EncodeToString(b)
 }
 
-// writeFileIfNotExists writes content to path only if it does not already exist.
-// Uses 0600 permissions for sensitive config files.
-func writeFileIfNotExists(path string, content string) error {
-	if _, err := os.Stat(path); err == nil {
-		fmt.Printf("  skip (exists): %s\n", path)
-		return nil
+// writeConfigFile writes content to path. When force is false it skips existing
+// files; when true it overwrites them. Uses 0600 permissions for sensitive config.
+func writeConfigFile(path, content string, force bool) error {
+	if !force {
+		if _, err := os.Stat(path); err == nil {
+			fmt.Printf("  skip (exists): %s\n", path)
+			return nil
+		}
 	}
 	fmt.Printf("  create: %s\n", path)
 	return os.WriteFile(path, []byte(content), 0600)
@@ -261,7 +272,7 @@ log_file = "~/.bubblefish/Nexus/security.log"
 }
 
 // writeDestination creates the appropriate destination TOML in destinations/.
-func writeDestination(configDir, destType string) error {
+func writeDestination(configDir, destType string, force bool) error {
 	destDir := filepath.Join(configDir, "destinations")
 
 	switch destType {
@@ -276,7 +287,7 @@ db_path = "~/.bubblefish/Nexus/memories.db"
 half_life_days = 7.0
 decay_mode = "exponential"
 `
-		return writeFileIfNotExists(filepath.Join(destDir, "sqlite.toml"), content)
+		return writeConfigFile(filepath.Join(destDir, "sqlite.toml"), content, force)
 
 	case "postgres":
 		content := `# BubbleFish Nexus — PostgreSQL destination
@@ -290,7 +301,7 @@ dsn = "env:NEXUS_POSTGRES_DSN"
 half_life_days = 7.0
 decay_mode = "exponential"
 `
-		return writeFileIfNotExists(filepath.Join(destDir, "postgres.toml"), content)
+		return writeConfigFile(filepath.Join(destDir, "postgres.toml"), content, force)
 
 	case "openbrain":
 		content := `# BubbleFish Nexus — OpenBrain (Supabase) destination
@@ -305,7 +316,7 @@ api_key = "env:NEXUS_OPENBRAIN_KEY"
 half_life_days = 7.0
 decay_mode = "exponential"
 `
-		return writeFileIfNotExists(filepath.Join(destDir, "openbrain.toml"), content)
+		return writeConfigFile(filepath.Join(destDir, "openbrain.toml"), content, force)
 
 	default:
 		return fmt.Errorf("unknown destination type %q (supported: sqlite, postgres, openbrain)", destType)
@@ -313,7 +324,7 @@ decay_mode = "exponential"
 }
 
 // writeDefaultSource creates a default source TOML in sources/.
-func writeDefaultSource(configDir, mode, destType, apiKey string) error {
+func writeDefaultSource(configDir, mode, destType, apiKey string, force bool) error {
 	sourcesDir := filepath.Join(configDir, "sources")
 
 	canRead := true
@@ -362,11 +373,11 @@ max_results = 20
 max_response_bytes = 16384
 `, apiKey, canRead, canWrite, targetDest, rateLimit, targetDest)
 
-	return writeFileIfNotExists(filepath.Join(sourcesDir, "default.toml"), content)
+	return writeConfigFile(filepath.Join(sourcesDir, "default.toml"), content, force)
 }
 
 // writeOpenWebUIProfile creates source config tuned for Open WebUI payload shape.
-func writeOpenWebUIProfile(configDir string) error {
+func writeOpenWebUIProfile(configDir string, force bool) error {
 	sourcesDir := filepath.Join(configDir, "sources")
 	content := `# BubbleFish Nexus — Open WebUI source profile
 # Tuned for Open WebUI payload shape.
@@ -400,11 +411,11 @@ allowed_destinations = ["sqlite"]
 max_results = 20
 max_response_bytes = 16384
 `
-	return writeFileIfNotExists(filepath.Join(sourcesDir, "openwebui.toml"), content)
+	return writeConfigFile(filepath.Join(sourcesDir, "openwebui.toml"), content, force)
 }
 
 // writeOAuthTemplate generates example OAuth reverse-proxy configs.
-func writeOAuthTemplate(configDir, template string) error {
+func writeOAuthTemplate(configDir, template string, force bool) error {
 	examplesDir := filepath.Join(configDir, "examples", "oauth")
 	if err := os.MkdirAll(examplesDir, 0700); err != nil {
 		return err
@@ -423,7 +434,7 @@ YOUR_DOMAIN {
     reverse_proxy localhost:8080
 }
 `
-		return writeFileIfNotExists(filepath.Join(examplesDir, "Caddyfile"), content)
+		return writeConfigFile(filepath.Join(examplesDir, "Caddyfile"), content, force)
 
 	case "traefik":
 		content := `# BubbleFish Nexus — Example Traefik config with OIDC
@@ -448,7 +459,7 @@ http:
       forwardAuth:
         address: "http://localhost:4181"
 `
-		return writeFileIfNotExists(filepath.Join(examplesDir, "traefik.yml"), content)
+		return writeConfigFile(filepath.Join(examplesDir, "traefik.yml"), content, force)
 
 	default:
 		return fmt.Errorf("unknown oauth template %q (supported: caddy, traefik)", template)
