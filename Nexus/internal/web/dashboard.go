@@ -38,12 +38,50 @@ import (
 	"github.com/BubbleFish-Nexus/internal/version"
 )
 
+// SourcePolicyInfo is a read-only summary of a source's policies for the
+// security tab. Defined here to avoid importing config into web.
+type SourcePolicyInfo struct {
+	Name                string   `json:"name"`
+	CanRead             bool     `json:"can_read"`
+	CanWrite            bool     `json:"can_write"`
+	AllowedDestinations []string `json:"allowed_destinations"`
+	MaxResults          int      `json:"max_results"`
+	MaxResponseBytes    int      `json:"max_response_bytes"`
+	RateLimit           int      `json:"rate_limit_rpm"`
+}
+
+// AuthFailureInfo is a single auth failure event for the security tab.
+type AuthFailureInfo struct {
+	Timestamp  string `json:"timestamp"`
+	Source     string `json:"source"`
+	IP         string `json:"ip"`
+	Endpoint   string `json:"endpoint"`
+	TokenClass string `json:"token_class"`
+	StatusCode int    `json:"status_code"`
+}
+
+// LintFinding is a single lint diagnostic for the security tab.
+type LintFinding struct {
+	Severity string `json:"severity"`
+	Check    string `json:"check"`
+	Message  string `json:"message"`
+}
+
+// SecurityProvider supplies data for the dashboard security tab.
+// All methods must be safe for concurrent use.
+type SecurityProvider interface {
+	SourcePolicies() []SourcePolicyInfo
+	AuthFailures(limit int) []AuthFailureInfo
+	LintFindings() []LintFinding
+}
+
 // Config holds the settings for the web dashboard.
 type Config struct {
-	Port        int
-	RequireAuth bool
-	AdminKey    []byte // Resolved admin token bytes.
-	Logger      *slog.Logger
+	Port             int
+	RequireAuth      bool
+	AdminKey         []byte // Resolved admin token bytes.
+	Logger           *slog.Logger
+	SecurityProvider SecurityProvider // Optional; security tab disabled if nil.
 }
 
 // Dashboard is the web dashboard server. All state is held in struct fields.
@@ -67,6 +105,7 @@ func (d *Dashboard) Start() error {
 	mux.HandleFunc("/", d.withAuth(d.handleIndex))
 	mux.HandleFunc("/api/dashboard/status", d.withAuth(d.handleStatus))
 	mux.HandleFunc("/api/dashboard/events", d.withAuth(d.handleSSE))
+	mux.HandleFunc("/api/dashboard/security", d.withAuth(d.handleSecurity))
 
 	addr := fmt.Sprintf("127.0.0.1:%d", d.cfg.Port)
 	d.server = &http.Server{
@@ -198,6 +237,28 @@ func (d *Dashboard) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSecurity returns security tab data as JSON: source policies,
+// auth failure history, and lint warnings.
+// Reference: Tech Spec Section 13.2 — Security Tab.
+func (d *Dashboard) handleSecurity(w http.ResponseWriter, r *http.Request) {
+	if d.cfg.SecurityProvider == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"sources":       []SourcePolicyInfo{},
+			"auth_failures": []AuthFailureInfo{},
+			"lint_findings": []LintFinding{},
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"sources":       d.cfg.SecurityProvider.SourcePolicies(),
+		"auth_failures": d.cfg.SecurityProvider.AuthFailures(100),
+		"lint_findings": d.cfg.SecurityProvider.LintFindings(),
+	})
+}
+
 // writeJSONError writes a standard error response.
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -232,12 +293,26 @@ const dashboardHTML = `<!DOCTYPE html>
   .tab { padding: 0.75rem 1.5rem; color: #6b7fa3; cursor: pointer; border-bottom: 2px solid transparent; }
   .tab.active { color: #e0e6ed; border-bottom-color: #3b82f6; }
   .content { padding: 2rem; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
   .pipeline { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   .stage { background: #131a2b; border: 1px solid #1e2a42; border-radius: 6px; padding: 0.75rem 1rem; text-align: center; min-width: 120px; }
   .stage .name { font-size: 0.8rem; color: #6b7fa3; }
   .stage .timing { font-size: 1.1rem; font-weight: 600; }
   .arrow { color: #3b82f6; font-size: 1.2rem; }
   #error-banner { display: none; background: #7f1d1d; color: #fecaca; padding: 0.75rem 2rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e2a42; }
+  th { color: #6b7fa3; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  td { font-size: 0.875rem; }
+  .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 1.5rem; }
+  .section-title:first-child { margin-top: 0; }
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-ok { background: #064e3b; color: #34d399; }
+  .badge-deny { background: #7f1d1d; color: #fca5a5; }
+  .badge-warn { background: #78350f; color: #fbbf24; }
+  .badge-error { background: #7f1d1d; color: #fca5a5; }
+  .sec-note { color: #6b7fa3; font-size: 0.8rem; margin-top: 0.5rem; }
 </style>
 </head>
 <body>
@@ -258,8 +333,37 @@ const dashboardHTML = `<!DOCTYPE html>
   <div class="tab" data-tab="security">Security</div>
 </div>
 <div class="content" id="tab-content">
-  <div id="overview-tab">
+  <div id="overview-tab" class="tab-panel active">
     <p>Dashboard connected. Waiting for status data...</p>
+  </div>
+  <div id="pipeline-tab" class="tab-panel">
+    <p>Pipeline visualization. Waiting for events...</p>
+  </div>
+  <div id="security-tab" class="tab-panel">
+    <div class="section-title" id="sec-policies-title">Source Policies</div>
+    <p class="sec-note">Read-only view. Config edits via TOML or CLI.</p>
+    <table id="sec-policies-table">
+      <thead><tr>
+        <th>Source</th><th>Read</th><th>Write</th>
+        <th>Allowed Destinations</th><th>Max Results</th><th>Max Response Bytes</th><th>Rate Limit (RPM)</th>
+      </tr></thead>
+      <tbody id="sec-policies-body"></tbody>
+    </table>
+    <div class="section-title">Auth Failure History</div>
+    <table id="sec-failures-table">
+      <thead><tr>
+        <th>Timestamp</th><th>Source</th><th>IP</th>
+        <th>Endpoint</th><th>Token Class</th><th>Status</th>
+      </tr></thead>
+      <tbody id="sec-failures-body"></tbody>
+    </table>
+    <div class="section-title">Config Lint Warnings</div>
+    <table id="sec-lint-table">
+      <thead><tr>
+        <th>Severity</th><th>Check</th><th>Message</th>
+      </tr></thead>
+      <tbody id="sec-lint-body"></tbody>
+    </table>
   </div>
 </div>
 <script>
@@ -274,12 +378,23 @@ const dashboardHTML = `<!DOCTYPE html>
   var cacheEl = document.getElementById("cache-hit");
   var errorBanner = document.getElementById("error-banner");
 
-  // Tab switching.
+  // Tab switching — shows matching tab-panel, hides others.
   var tabs = document.querySelectorAll(".tab");
+  var panels = document.querySelectorAll(".tab-panel");
   tabs.forEach(function(tab) {
     tab.addEventListener("click", function() {
       tabs.forEach(function(t) { t.classList.remove("active"); });
       tab.classList.add("active");
+      var target = tab.getAttribute("data-tab");
+      panels.forEach(function(p) {
+        if (p.id === target + "-tab") {
+          p.classList.add("active");
+        } else {
+          p.classList.remove("active");
+        }
+      });
+      // Fetch security data when switching to the security tab.
+      if (target === "security") { fetchSecurity(); }
     });
   });
 
@@ -290,7 +405,7 @@ const dashboardHTML = `<!DOCTYPE html>
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      // textContent only — NEVER inner HTML.
+      // textContent only — NEVER inner-HTML.
       statusEl.textContent = data.status || "unknown";
       versionLabel.textContent = "v" + (data.version || "?");
       if (data.queue_depth !== undefined) queueEl.textContent = data.queue_depth;
@@ -304,6 +419,153 @@ const dashboardHTML = `<!DOCTYPE html>
       // textContent only.
       errorBanner.textContent = "Dashboard disconnected: " + err.message;
       errorBanner.style.display = "block";
+    });
+  }
+
+  // fetchSecurity loads security tab data from the dashboard API.
+  function fetchSecurity() {
+    fetch("/api/dashboard/security", {
+      headers: { "Authorization": "Bearer " + getToken() }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      renderPolicies(data.sources || []);
+      renderAuthFailures(data.auth_failures || []);
+      renderLintFindings(data.lint_findings || []);
+    })
+    .catch(function() {});
+  }
+
+  // renderPolicies populates the source policies table.
+  // INVARIANT: textContent only, NEVER inner-HTML.
+  function renderPolicies(sources) {
+    var tbody = document.getElementById("sec-policies-body");
+    // Clear existing rows by removing children.
+    while (tbody.firstChild) { tbody.removeChild(tbody.firstChild); }
+    sources.forEach(function(src) {
+      var tr = document.createElement("tr");
+
+      var tdName = document.createElement("td");
+      tdName.textContent = src.name;
+      tr.appendChild(tdName);
+
+      var tdRead = document.createElement("td");
+      var readBadge = document.createElement("span");
+      readBadge.className = src.can_read ? "badge badge-ok" : "badge badge-deny";
+      readBadge.textContent = src.can_read ? "yes" : "no";
+      tdRead.appendChild(readBadge);
+      tr.appendChild(tdRead);
+
+      var tdWrite = document.createElement("td");
+      var writeBadge = document.createElement("span");
+      writeBadge.className = src.can_write ? "badge badge-ok" : "badge badge-deny";
+      writeBadge.textContent = src.can_write ? "yes" : "no";
+      tdWrite.appendChild(writeBadge);
+      tr.appendChild(tdWrite);
+
+      var tdDests = document.createElement("td");
+      tdDests.textContent = (src.allowed_destinations || []).join(", ") || "all";
+      tr.appendChild(tdDests);
+
+      var tdMax = document.createElement("td");
+      tdMax.textContent = src.max_results || "—";
+      tr.appendChild(tdMax);
+
+      var tdBytes = document.createElement("td");
+      tdBytes.textContent = src.max_response_bytes || "—";
+      tr.appendChild(tdBytes);
+
+      var tdRPM = document.createElement("td");
+      tdRPM.textContent = src.rate_limit_rpm || "—";
+      tr.appendChild(tdRPM);
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  // renderAuthFailures populates the auth failure history table.
+  // INVARIANT: textContent only, NEVER inner-HTML.
+  function renderAuthFailures(failures) {
+    var tbody = document.getElementById("sec-failures-body");
+    while (tbody.firstChild) { tbody.removeChild(tbody.firstChild); }
+    if (failures.length === 0) {
+      var tr = document.createElement("tr");
+      var td = document.createElement("td");
+      td.setAttribute("colspan", "6");
+      td.textContent = "No auth failures recorded.";
+      td.style.color = "#6b7fa3";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    failures.forEach(function(f) {
+      var tr = document.createElement("tr");
+
+      var tdTime = document.createElement("td");
+      tdTime.textContent = f.timestamp;
+      tr.appendChild(tdTime);
+
+      var tdSrc = document.createElement("td");
+      tdSrc.textContent = f.source;
+      tr.appendChild(tdSrc);
+
+      var tdIP = document.createElement("td");
+      tdIP.textContent = f.ip;
+      tr.appendChild(tdIP);
+
+      var tdEP = document.createElement("td");
+      tdEP.textContent = f.endpoint;
+      tr.appendChild(tdEP);
+
+      var tdClass = document.createElement("td");
+      tdClass.textContent = f.token_class;
+      tr.appendChild(tdClass);
+
+      var tdStatus = document.createElement("td");
+      var statusBadge = document.createElement("span");
+      statusBadge.className = "badge badge-error";
+      statusBadge.textContent = f.status_code;
+      tdStatus.appendChild(statusBadge);
+      tr.appendChild(tdStatus);
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  // renderLintFindings populates the lint warnings table.
+  // INVARIANT: textContent only, NEVER inner-HTML.
+  function renderLintFindings(findings) {
+    var tbody = document.getElementById("sec-lint-body");
+    while (tbody.firstChild) { tbody.removeChild(tbody.firstChild); }
+    if (findings.length === 0) {
+      var tr = document.createElement("tr");
+      var td = document.createElement("td");
+      td.setAttribute("colspan", "3");
+      td.textContent = "No lint warnings. Configuration looks good.";
+      td.style.color = "#34d399";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    findings.forEach(function(f) {
+      var tr = document.createElement("tr");
+
+      var tdSev = document.createElement("td");
+      var sevBadge = document.createElement("span");
+      sevBadge.className = f.severity === "error" ? "badge badge-error" : "badge badge-warn";
+      sevBadge.textContent = f.severity;
+      tdSev.appendChild(sevBadge);
+      tr.appendChild(tdSev);
+
+      var tdCheck = document.createElement("td");
+      tdCheck.textContent = f.check;
+      tr.appendChild(tdCheck);
+
+      var tdMsg = document.createElement("td");
+      tdMsg.textContent = f.message;
+      tr.appendChild(tdMsg);
+
+      tbody.appendChild(tr);
     });
   }
 

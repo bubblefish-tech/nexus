@@ -98,12 +98,39 @@ type DaemonConfig struct {
 }
 
 // AuditConfig models [daemon.audit].
-// Reference: Tech Spec Addendum Section A4.1.
+// Reference: Tech Spec Addendum Section A4.1, Update U1.6.
 type AuditConfig struct {
-	Enabled              bool   `toml:"enabled"`
-	LogFile              string `toml:"log_file"`
-	MaxFileSizeMB        int    `toml:"max_file_size_mb"`
-	AdminRateLimitPerMin int    `toml:"admin_rate_limit_per_minute"`
+	Enabled              bool                  `toml:"enabled"`
+	LogFile              string                `toml:"log_file"`
+	MaxFileSizeMB        int                   `toml:"max_file_size_mb"`
+	AdminRateLimitPerMin int                   `toml:"admin_rate_limit_per_minute"`
+	DualWrite            *bool                 `toml:"dual_write"` // Default true; pointer to distinguish unset from false
+	Integrity            AuditIntegrityConfig  `toml:"integrity"`
+	Encryption           AuditEncryptionConfig `toml:"encryption"`
+}
+
+// AuditDualWriteEnabled returns the effective dual_write setting (default true).
+func (a *AuditConfig) AuditDualWriteEnabled() bool {
+	if a.DualWrite == nil {
+		return true
+	}
+	return *a.DualWrite
+}
+
+// AuditIntegrityConfig models [daemon.audit.integrity].
+// SEPARATE from [daemon.wal.integrity] — independent HMAC key.
+// Reference: Update U1.1.
+type AuditIntegrityConfig struct {
+	Mode       string `toml:"mode"`         // "crc32" (default) or "mac"
+	MacKeyFile string `toml:"mac_key_file"` // Separate 32-byte HMAC-SHA256 key for interaction log
+}
+
+// AuditEncryptionConfig models [daemon.audit.encryption].
+// SEPARATE from [daemon.wal.encryption] — independent AES-256 key.
+// Reference: Update U1.2.
+type AuditEncryptionConfig struct {
+	Enabled bool   `toml:"enabled"`
+	KeyFile string `toml:"key_file"` // Separate 32-byte AES-256 key for interaction log
 }
 
 // DaemonRetrievalFirewallConfig models [daemon.retrieval_firewall].

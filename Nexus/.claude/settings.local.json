@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(grep -E \"^/d/BubbleFish/Nexus/[^/]+$|^/d/BubbleFish/Nexus/[^/]+/[^/]+$\")",
+      "Bash(grep:*)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(find . -name \"*.go\" -type f -exec grep -l \"HybridMerge\\\\|FinalScore\\\\|computeRecency\" {} \\\\;)",
+      "Bash(find:*)",
+      "Bash(xargs -0 grep -l \"benchmark\\\\|perf\\\\|load\" -i)",
+      "Bash(go run:*)",
+      "Bash(python3 -c ':*)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(ls -d /d/Bubblefish/Nexus/internal/*/)",
+      "Bash(ls:*)"
+    ]
+  }
+}

@@ -240,8 +240,15 @@ func TestAuditLogger_Rotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Glob: %v", err)
 	}
-	if len(matches) == 0 {
-		t.Fatal("expected at least one rotated file")
+	// Filter out shadow files.
+	var primaryRotated []string
+	for _, m := range matches {
+		if !strings.Contains(filepath.Base(m), "shadow") {
+			primaryRotated = append(primaryRotated, m)
+		}
+	}
+	if len(primaryRotated) == 0 {
+		t.Fatal("expected at least one rotated primary file")
 	}
 
 	// Current file should also exist.
@@ -291,34 +298,36 @@ func TestAuditLogger_ConcurrentWrites(t *testing.T) {
 		t.Errorf("concurrent write error: %v", err)
 	}
 
-	// Verify all records are valid.
-	f, err := os.Open(logFile)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	lineCount := 0
-	for scanner.Scan() {
-		lineCount++
-		parts := strings.Split(scanner.Text(), "\t")
-		if len(parts) < 2 {
-			t.Errorf("line %d: missing CRC32", lineCount)
-			continue
+	// Verify all records are valid in both primary and shadow.
+	for _, path := range []string{logFile, filepath.Join(dir, "interactions-shadow.jsonl")} {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatalf("Open %s: %v", path, err)
 		}
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
-		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if computed != storedCRC {
-			t.Errorf("line %d: CRC32 mismatch (data corruption)", lineCount)
-		}
-	}
 
-	expected := goroutines * writesPerGoroutine
-	if lineCount != expected {
-		t.Errorf("expected %d records, got %d", expected, lineCount)
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+		lineCount := 0
+		for scanner.Scan() {
+			lineCount++
+			parts := strings.Split(scanner.Text(), "\t")
+			if len(parts) < 2 {
+				t.Errorf("%s line %d: missing CRC32", path, lineCount)
+				continue
+			}
+			jsonBytes := []byte(parts[0])
+			storedCRC := parts[1]
+			computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
+			if computed != storedCRC {
+				t.Errorf("%s line %d: CRC32 mismatch (data corruption)", path, lineCount)
+			}
+		}
+		f.Close()
+
+		expected := goroutines * writesPerGoroutine
+		if lineCount != expected {
+			t.Errorf("%s: expected %d records, got %d", path, expected, lineCount)
+		}
 	}
 }
 
@@ -326,7 +335,7 @@ func TestAuditLogger_AppendFailureDoesNotPanic(t *testing.T) {
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "interactions.jsonl")
 
-	al, err := NewAuditLogger(logFile)
+	al, err := NewAuditLogger(logFile, WithDualWrite(false))
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
@@ -346,6 +355,8 @@ func TestAuditLogger_AppendFailureDoesNotPanic(t *testing.T) {
 	err = al.Log(rec)
 	if err == nil {
 		t.Log("Log after close succeeded (file was reopened)")
+		// Clean up the reopened file.
+		al.Close()
 	}
 	// The key assertion: we reached this line without panic.
 }
@@ -506,4 +517,322 @@ func TestAuditLogger_DeletedFileRecreated(t *testing.T) {
 	if _, err := os.Stat(logFile); os.IsNotExist(err) {
 		t.Fatal("log file should have been recreated")
 	}
+}
+
+// ── Hardening Tests (Update U1.1–U1.5) ─────────────────────────────────────
+
+func TestAuditLogger_DualWrite_BothFilesExist(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	shadowFile := filepath.Join(dir, "interactions-shadow.jsonl")
+
+	al, err := NewAuditLogger(logFile, WithDualWrite(true))
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer al.Close()
+
+	rec := InteractionRecord{
+		RecordID:       NewRecordID(),
+		Timestamp:      time.Now().UTC(),
+		Source:         "test",
+		OperationType:  "write",
+		PolicyDecision: "allowed",
+	}
+	if err := al.Log(rec); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	// Both files must exist.
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		t.Fatal("primary file does not exist")
+	}
+	if _, err := os.Stat(shadowFile); os.IsNotExist(err) {
+		t.Fatal("shadow file does not exist")
+	}
+
+	// Both must have identical content.
+	primaryData, _ := os.ReadFile(logFile)
+	shadowData, _ := os.ReadFile(shadowFile)
+	if string(primaryData) != string(shadowData) {
+		t.Error("primary and shadow file contents differ")
+	}
+}
+
+func TestAuditLogger_DualWrite_IdenticalRecordCount(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	shadowFile := filepath.Join(dir, "interactions-shadow.jsonl")
+
+	al, err := NewAuditLogger(logFile, WithDualWrite(true))
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer al.Close()
+
+	const count = 50
+	for i := 0; i < count; i++ {
+		rec := InteractionRecord{
+			RecordID:       NewRecordID(),
+			Timestamp:      time.Now().UTC(),
+			Source:         "test",
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+		}
+		if err := al.Log(rec); err != nil {
+			t.Fatalf("Log[%d]: %v", i, err)
+		}
+	}
+
+	primaryLines := countFileLines(t, logFile)
+	shadowLines := countFileLines(t, shadowFile)
+	if primaryLines != count {
+		t.Errorf("primary: expected %d lines, got %d", count, primaryLines)
+	}
+	if shadowLines != count {
+		t.Errorf("shadow: expected %d lines, got %d", count, shadowLines)
+	}
+}
+
+func TestAuditLogger_DualWriteDisabled_NoShadow(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	shadowFile := filepath.Join(dir, "interactions-shadow.jsonl")
+
+	al, err := NewAuditLogger(logFile, WithDualWrite(false))
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer al.Close()
+
+	rec := InteractionRecord{
+		RecordID:       NewRecordID(),
+		Timestamp:      time.Now().UTC(),
+		Source:         "test",
+		OperationType:  "write",
+		PolicyDecision: "allowed",
+	}
+	if err := al.Log(rec); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		t.Fatal("primary file should exist")
+	}
+	if _, err := os.Stat(shadowFile); !os.IsNotExist(err) {
+		t.Fatal("shadow file should NOT exist when dual_write=false")
+	}
+}
+
+func TestAuditLogger_EncryptionMode(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	encKey := make([]byte, 32)
+	for i := range encKey {
+		encKey[i] = byte(i)
+	}
+
+	al, err := NewAuditLogger(logFile,
+		WithEncryption(encKey),
+		WithDualWrite(false),
+	)
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer al.Close()
+
+	rec := InteractionRecord{
+		RecordID:       NewRecordID(),
+		Timestamp:      time.Now().UTC(),
+		Source:         "test",
+		OperationType:  "write",
+		PolicyDecision: "allowed",
+	}
+	if err := al.Log(rec); err != nil {
+		t.Fatalf("Log: %v", err)
+	}
+
+	// Verify the file contents are NOT plain JSON.
+	data, _ := os.ReadFile(logFile)
+	line := strings.TrimSpace(string(data))
+	parts := strings.Split(line, "\t")
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 tab-separated parts, got %d", len(parts))
+	}
+	// The data part should be base64 encoded, not plain JSON.
+	if strings.HasPrefix(parts[0], "{") {
+		t.Error("encrypted mode should not produce plain JSON in data part")
+	}
+
+	// Verify round-trip via reader.
+	reader := NewAuditReader(logFile,
+		WithReaderEncryption(encKey),
+		WithReaderDualWrite(false),
+	)
+	result, err := reader.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if result.TotalMatching != 1 {
+		t.Errorf("expected 1 record, got %d", result.TotalMatching)
+	}
+	if result.Records[0].Source != "test" {
+		t.Errorf("expected source=test, got %s", result.Records[0].Source)
+	}
+}
+
+func TestAuditLogger_EncryptionPlusHMAC(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	macKey := []byte("test-hmac-key-32-bytes-long!!!!!")
+	encKey := make([]byte, 32)
+	for i := range encKey {
+		encKey[i] = byte(i + 100)
+	}
+
+	al, err := NewAuditLogger(logFile,
+		WithIntegrityMode("mac", macKey),
+		WithEncryption(encKey),
+		WithDualWrite(false),
+	)
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer al.Close()
+
+	for i := 0; i < 5; i++ {
+		rec := InteractionRecord{
+			RecordID:       NewRecordID(),
+			Timestamp:      time.Now().UTC(),
+			Source:         fmt.Sprintf("src-%d", i),
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+		}
+		if err := al.Log(rec); err != nil {
+			t.Fatalf("Log[%d]: %v", i, err)
+		}
+	}
+
+	// Round-trip via reader with both encryption and HMAC.
+	reader := NewAuditReader(logFile,
+		WithReaderIntegrity("mac", macKey),
+		WithReaderEncryption(encKey),
+		WithReaderDualWrite(false),
+	)
+	result, err := reader.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if result.TotalMatching != 5 {
+		t.Errorf("expected 5 records, got %d", result.TotalMatching)
+	}
+}
+
+func TestAuditLogger_EncryptionRequires32ByteKey(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+
+	_, err := NewAuditLogger(logFile,
+		WithEncryption([]byte("too-short")),
+		WithDualWrite(false),
+	)
+	if err == nil {
+		t.Fatal("expected error for non-32-byte encryption key")
+	}
+}
+
+func TestAuditLogger_RotationMarkerPresent(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+
+	al, err := NewAuditLogger(logFile,
+		WithMaxFileSize(500),
+		WithDualWrite(false),
+	)
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer al.Close()
+
+	// Write enough to trigger rotation.
+	for i := 0; i < 20; i++ {
+		rec := InteractionRecord{
+			RecordID:       NewRecordID(),
+			Timestamp:      time.Now().UTC(),
+			Source:         "test",
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+			LatencyMs:      float64(i),
+		}
+		if err := al.Log(rec); err != nil {
+			t.Fatalf("Log[%d]: %v", i, err)
+		}
+	}
+
+	// Check rotated files for rotation_marker.
+	matches, _ := filepath.Glob(filepath.Join(dir, "interactions-*.jsonl"))
+	found := false
+	for _, m := range matches {
+		data, _ := os.ReadFile(m)
+		if strings.Contains(string(data), `"rotation_marker"`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("rotation_marker record not found in any rotated file")
+	}
+}
+
+func TestAuditLogger_DualWrite_RotationCreatesShadow(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+
+	al, err := NewAuditLogger(logFile,
+		WithMaxFileSize(500),
+		WithDualWrite(true),
+	)
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+	defer al.Close()
+
+	for i := 0; i < 20; i++ {
+		rec := InteractionRecord{
+			RecordID:       NewRecordID(),
+			Timestamp:      time.Now().UTC(),
+			Source:         "test",
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+			LatencyMs:      float64(i),
+		}
+		if err := al.Log(rec); err != nil {
+			t.Fatalf("Log[%d]: %v", i, err)
+		}
+	}
+
+	// Shadow rotated files should exist.
+	shadowMatches, _ := filepath.Glob(filepath.Join(dir, "interactions-shadow-*.jsonl"))
+	if len(shadowMatches) == 0 {
+		t.Fatal("expected at least one rotated shadow file")
+	}
+}
+
+// countFileLines returns the number of non-empty lines in a file.
+func countFileLines(t *testing.T, path string) int {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Open %s: %v", path, err)
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	n := 0
+	for scanner.Scan() {
+		if scanner.Text() != "" {
+			n++
+		}
+	}
+	return n
 }

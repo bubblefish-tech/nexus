@@ -177,6 +177,163 @@ func TestDashboardIndexNotFound(t *testing.T) {
 	}
 }
 
+// mockSecurityProvider implements SecurityProvider for tests.
+type mockSecurityProvider struct{}
+
+func (m *mockSecurityProvider) SourcePolicies() []SourcePolicyInfo {
+	return []SourcePolicyInfo{
+		{
+			Name:                "claude-desktop",
+			CanRead:             true,
+			CanWrite:            true,
+			AllowedDestinations: []string{"sqlite-local"},
+			MaxResults:          20,
+			MaxResponseBytes:    16384,
+			RateLimit:           60,
+		},
+	}
+}
+
+func (m *mockSecurityProvider) AuthFailures(limit int) []AuthFailureInfo {
+	return []AuthFailureInfo{
+		{
+			Timestamp:  "2026-04-06T10:00:00Z",
+			Source:     "unknown",
+			IP:        "127.0.0.1",
+			Endpoint:   "/inbound/test",
+			TokenClass: "unknown",
+			StatusCode: 401,
+		},
+	}
+}
+
+func (m *mockSecurityProvider) LintFindings() []LintFinding {
+	return []LintFinding{
+		{
+			Severity: "warn",
+			Check:    "literal_key",
+			Message:  "admin_token is a literal value; use env: or file: reference for production",
+		},
+	}
+}
+
+func TestDashboardSecurityEndpoint(t *testing.T) {
+	t.Helper()
+
+	d := New(Config{
+		Port:             0,
+		RequireAuth:      false,
+		Logger:           testLogger(t),
+		SecurityProvider: &mockSecurityProvider{},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/security", nil)
+	rec := httptest.NewRecorder()
+	d.handleSecurity(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", rec.Code)
+	}
+
+	ct := rec.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Fatalf("got Content-Type %q, want application/json", ct)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// Verify sources are present.
+	sources, ok := body["sources"].([]interface{})
+	if !ok || len(sources) != 1 {
+		t.Errorf("expected 1 source, got %v", body["sources"])
+	}
+
+	// Verify auth_failures are present.
+	failures, ok := body["auth_failures"].([]interface{})
+	if !ok || len(failures) != 1 {
+		t.Errorf("expected 1 auth failure, got %v", body["auth_failures"])
+	}
+
+	// Verify lint_findings are present.
+	findings, ok := body["lint_findings"].([]interface{})
+	if !ok || len(findings) != 1 {
+		t.Errorf("expected 1 lint finding, got %v", body["lint_findings"])
+	}
+}
+
+func TestDashboardSecurityEndpointNoProvider(t *testing.T) {
+	t.Helper()
+
+	d := New(Config{
+		Port:        0,
+		RequireAuth: false,
+		Logger:      testLogger(t),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/security", nil)
+	rec := httptest.NewRecorder()
+	d.handleSecurity(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200", rec.Code)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// When no provider, should return empty arrays.
+	sources, ok := body["sources"].([]interface{})
+	if !ok || len(sources) != 0 {
+		t.Errorf("expected empty sources, got %v", body["sources"])
+	}
+}
+
+func TestDashboardSecurityTabInHTML(t *testing.T) {
+	t.Helper()
+
+	d := New(Config{
+		Port:        0,
+		RequireAuth: false,
+		Logger:      testLogger(t),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	d.handleIndex(rec, req)
+
+	body := rec.Body.String()
+
+	// Security tab must be present.
+	if !strings.Contains(body, "security-tab") {
+		t.Error("dashboard HTML must contain security-tab panel")
+	}
+
+	// Source policies table.
+	if !strings.Contains(body, "sec-policies-body") {
+		t.Error("dashboard HTML must contain source policies table")
+	}
+
+	// Auth failures table.
+	if !strings.Contains(body, "sec-failures-body") {
+		t.Error("dashboard HTML must contain auth failures table")
+	}
+
+	// Lint warnings table.
+	if !strings.Contains(body, "sec-lint-body") {
+		t.Error("dashboard HTML must contain lint warnings table")
+	}
+
+	// INVARIANT: No innerHTML.
+	if strings.Contains(body, "innerHTML") {
+		t.Error("dashboard HTML must NEVER use innerHTML (XSS prevention)")
+	}
+}
+
 func TestDashboardSSEHeaders(t *testing.T) {
 	t.Helper()
 

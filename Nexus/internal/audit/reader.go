@@ -19,6 +19,7 @@ package audit
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
@@ -27,6 +28,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -61,16 +63,27 @@ type QueryResult struct {
 
 // AuditReader reads and queries the interaction log files.
 // It discovers all rotated log files via glob, parses JSONL, validates CRC32,
-// and applies filters.
+// and applies filters. Supports shadow fallback and cross-segment dedup.
 //
-// Reference: Tech Spec Addendum Section A2.5.
+// Reference: Tech Spec Addendum Section A2.5, Update U1.3–U1.5.
 type AuditReader struct {
 	logDir   string // Directory containing interaction log files
 	baseName string // Base name of the current log file (e.g., "interactions.jsonl")
 
 	// Integrity mode: "crc32" (default) or "mac".
 	integrityMode string
-	macKey        []byte
+	macKey        []byte // SEPARATE from WAL HMAC key
+
+	// Encryption: when enabled, entries are decrypted before parsing.
+	encryptionEnabled bool
+	encryptionKey     []byte // SEPARATE from WAL encryption key
+
+	// Dual-write: when true, shadow fallback is attempted on CRC failure.
+	dualWrite bool
+
+	// Metrics counters (atomic for thread safety).
+	shadowRecoveries atomic.Int64
+	crcFailures      atomic.Int64
 
 	logger *slog.Logger
 }
@@ -79,10 +92,31 @@ type AuditReader struct {
 type ReaderOption func(*AuditReader)
 
 // WithReaderIntegrity sets the integrity mode and HMAC key for validation.
+// This key is SEPARATE from the WAL HMAC key.
 func WithReaderIntegrity(mode string, key []byte) ReaderOption {
 	return func(r *AuditReader) {
 		r.integrityMode = mode
 		r.macKey = key
+	}
+}
+
+// WithReaderEncryption enables decryption using the given 32-byte AES-256 key.
+// This key is SEPARATE from the WAL encryption key.
+//
+// Reference: Update U1.2.
+func WithReaderEncryption(key []byte) ReaderOption {
+	return func(r *AuditReader) {
+		r.encryptionEnabled = true
+		r.encryptionKey = key
+	}
+}
+
+// WithReaderDualWrite enables shadow fallback on CRC failure.
+//
+// Reference: Update U1.3.
+func WithReaderDualWrite(enabled bool) ReaderOption {
+	return func(r *AuditReader) {
+		r.dualWrite = enabled
 	}
 }
 
@@ -100,6 +134,7 @@ func NewAuditReader(logFile string, opts ...ReaderOption) *AuditReader {
 		logDir:        filepath.Dir(logFile),
 		baseName:      filepath.Base(logFile),
 		integrityMode: "crc32",
+		dualWrite:     true,
 		logger:        slog.Default(),
 	}
 	for _, opt := range opts {
@@ -108,14 +143,25 @@ func NewAuditReader(logFile string, opts ...ReaderOption) *AuditReader {
 	return r
 }
 
+// ShadowRecoveries returns the count of records recovered from shadow after
+// primary corruption. Reference: Update U1.7.
+func (r *AuditReader) ShadowRecoveries() int64 {
+	return r.shadowRecoveries.Load()
+}
+
+// CRCFailures returns the count of records where both primary and shadow had
+// CRC32 mismatches. Reference: Update U1.7.
+func (r *AuditReader) CRCFailures() int64 {
+	return r.crcFailures.Load()
+}
+
 // Query reads all interaction log files, applies filters, and returns matching
 // records with pagination. Files are read oldest-first (rotated files sorted by
 // filename, then the current file).
 //
-// CRC32 is validated on each entry; entries with CRC mismatch are skipped with
-// a WARN log. When integrity=mac, HMAC is also validated.
+// Rotation marker records are skipped. Cross-segment dedup by record_id.
 //
-// Reference: Tech Spec Addendum Section A2.5.
+// Reference: Tech Spec Addendum Section A2.5, Update U1.3–U1.5.
 func (r *AuditReader) Query(filter AuditFilter) (QueryResult, error) {
 	if filter.Limit <= 0 {
 		filter.Limit = 100
@@ -124,14 +170,15 @@ func (r *AuditReader) Query(filter AuditFilter) (QueryResult, error) {
 		filter.Limit = 1000
 	}
 
-	files, err := r.discoverFiles()
+	files, err := r.discoverPrimaryFiles()
 	if err != nil {
 		return QueryResult{}, err
 	}
 
+	seen := make(map[string]struct{}) // record_id dedup
 	var allMatching []InteractionRecord
 	for _, f := range files {
-		records, err := r.readFile(f)
+		records, err := r.readFileWithShadow(f)
 		if err != nil {
 			r.logger.Warn("audit: error reading log file",
 				"component", "audit",
@@ -141,6 +188,16 @@ func (r *AuditReader) Query(filter AuditFilter) (QueryResult, error) {
 			continue
 		}
 		for _, rec := range records {
+			// Skip rotation markers (internal bookkeeping).
+			if rec.OperationType == "rotation_marker" {
+				continue
+			}
+			// Dedup by record_id across segments (crash recovery).
+			if _, dup := seen[rec.RecordID]; dup {
+				continue
+			}
+			seen[rec.RecordID] = struct{}{}
+
 			if r.matchesFilter(rec, filter) {
 				allMatching = append(allMatching, rec)
 			}
@@ -172,14 +229,15 @@ func (r *AuditReader) Query(filter AuditFilter) (QueryResult, error) {
 
 // Count returns the total number of records matching the filter (no pagination).
 func (r *AuditReader) Count(filter AuditFilter) (int, error) {
-	files, err := r.discoverFiles()
+	files, err := r.discoverPrimaryFiles()
 	if err != nil {
 		return 0, err
 	}
 
+	seen := make(map[string]struct{})
 	count := 0
 	for _, f := range files {
-		records, err := r.readFile(f)
+		records, err := r.readFileWithShadow(f)
 		if err != nil {
 			r.logger.Warn("audit: error reading log file",
 				"component", "audit",
@@ -189,6 +247,13 @@ func (r *AuditReader) Count(filter AuditFilter) (int, error) {
 			continue
 		}
 		for _, rec := range records {
+			if rec.OperationType == "rotation_marker" {
+				continue
+			}
+			if _, dup := seen[rec.RecordID]; dup {
+				continue
+			}
+			seen[rec.RecordID] = struct{}{}
 			if r.matchesFilter(rec, filter) {
 				count++
 			}
@@ -197,28 +262,40 @@ func (r *AuditReader) Count(filter AuditFilter) (int, error) {
 	return count, nil
 }
 
-// discoverFiles finds all interaction log files: rotated files (sorted by
-// filename, oldest first) followed by the current log file.
+// discoverPrimaryFiles finds all primary interaction log files: rotated files
+// (sorted by filename, oldest first) followed by the current log file.
+// Shadow files are excluded — they're used for fallback, not direct reading.
 //
-// Reference: Tech Spec Addendum Section A2.3.
-func (r *AuditReader) discoverFiles() ([]string, error) {
+// Reference: Tech Spec Addendum Section A2.3, Update U1.4.
+func (r *AuditReader) discoverPrimaryFiles() ([]string, error) {
 	// Discover rotated files: interactions-YYYYMMDD-HHMMSS.jsonl
+	// Exclude shadow files: interactions-shadow-*.jsonl
 	rotatedPattern := filepath.Join(r.logDir, "interactions-*.jsonl")
 	rotated, err := filepath.Glob(rotatedPattern)
 	if err != nil {
 		return nil, fmt.Errorf("audit: glob rotated files: %w", err)
 	}
-	sort.Strings(rotated) // Lexicographic = chronological for YYYYMMDD-HHMMSS
+
+	// Filter out shadow files.
+	var primaryRotated []string
+	for _, f := range rotated {
+		base := filepath.Base(f)
+		if strings.HasPrefix(base, "interactions-shadow") {
+			continue
+		}
+		primaryRotated = append(primaryRotated, f)
+	}
+	sort.Strings(primaryRotated) // Lexicographic = chronological for YYYYMMDD-HHMMSS
 
 	// Current file goes last (newest).
 	currentPath := filepath.Join(r.logDir, r.baseName)
 	var files []string
-	files = append(files, rotated...)
+	files = append(files, primaryRotated...)
 
 	// Only add current file if it exists and is not already in rotated list.
 	if _, err := os.Stat(currentPath); err == nil {
 		alreadyIncluded := false
-		for _, f := range rotated {
+		for _, f := range primaryRotated {
 			if f == currentPath {
 				alreadyIncluded = true
 				break
@@ -232,11 +309,71 @@ func (r *AuditReader) discoverFiles() ([]string, error) {
 	return files, nil
 }
 
-// readFile parses a single JSONL log file, validating CRC32 (and HMAC when
-// integrity=mac) on each entry. Entries with integrity failures are skipped.
+// shadowPathFor returns the shadow file path corresponding to a primary file.
+// For "interactions.jsonl" → "interactions-shadow.jsonl"
+// For "interactions-YYYYMMDD-HHMMSS.jsonl" → "interactions-shadow-YYYYMMDD-HHMMSS.jsonl"
+func (r *AuditReader) shadowPathFor(primaryPath string) string {
+	dir := filepath.Dir(primaryPath)
+	base := filepath.Base(primaryPath)
+	return filepath.Join(dir, strings.Replace(base, "interactions", "interactions-shadow", 1))
+}
+
+// readFileWithShadow reads a primary file, falling back to the shadow file for
+// any entry with a CRC32 mismatch. If both primary and shadow are invalid for
+// the same entry, it's skipped.
 //
-// Uses a 10MB scanner buffer, same as WAL.
-func (r *AuditReader) readFile(path string) ([]InteractionRecord, error) {
+// Reference: Update U1.3.
+func (r *AuditReader) readFileWithShadow(primaryPath string) ([]InteractionRecord, error) {
+	primaryLines, err := r.readRawLines(primaryPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var shadowLines []string
+	if r.dualWrite {
+		shadowPath := r.shadowPathFor(primaryPath)
+		if sl, err := r.readRawLines(shadowPath); err == nil {
+			shadowLines = sl
+		}
+	}
+
+	var records []InteractionRecord
+	for i, line := range primaryLines {
+		rec, err := r.parseLine(line)
+		if err == nil {
+			records = append(records, rec)
+			continue
+		}
+
+		// Primary CRC failed — try shadow fallback.
+		if r.dualWrite && i < len(shadowLines) {
+			rec, err := r.parseLine(shadowLines[i])
+			if err == nil {
+				r.shadowRecoveries.Add(1)
+				r.logger.Warn("audit: recovered entry from shadow after primary corruption",
+					"component", "audit",
+					"file", primaryPath,
+					"line_number", i+1,
+				)
+				records = append(records, rec)
+				continue
+			}
+		}
+
+		// Both invalid — skip.
+		r.crcFailures.Add(1)
+		r.logger.Warn("audit: both primary and shadow corrupt — entry skipped",
+			"component", "audit",
+			"file", primaryPath,
+			"line_number", i+1,
+		)
+	}
+
+	return records, nil
+}
+
+// readRawLines reads all non-empty lines from a file.
+func (r *AuditReader) readRawLines(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("audit: open %s: %w", path, err)
@@ -247,74 +384,82 @@ func (r *AuditReader) readFile(path string) ([]InteractionRecord, error) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxScanBuf)
 
-	var records []InteractionRecord
-	lineNum := 0
-
+	var lines []string
 	for scanner.Scan() {
-		lineNum++
 		line := scanner.Text()
-		if line == "" {
-			continue
+		if line != "" {
+			lines = append(lines, line)
 		}
-
-		parts := strings.Split(line, "\t")
-		if len(parts) < 2 {
-			r.logger.Warn("audit: malformed line (missing CRC32)",
-				"component", "audit",
-				"file", path,
-				"line_number", lineNum,
-			)
-			continue
-		}
-
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
-
-		// Validate CRC32.
-		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if computed != storedCRC {
-			r.logger.Warn("audit: CRC32 mismatch — entry skipped",
-				"component", "audit",
-				"file", path,
-				"line_number", lineNum,
-				"expected", storedCRC,
-				"computed", computed,
-			)
-			continue
-		}
-
-		// Validate HMAC when integrity=mac.
-		if r.integrityMode == "mac" && len(parts) >= 3 {
-			storedHMAC := parts[2]
-			if !validateHMAC(jsonBytes, r.macKey, storedHMAC) {
-				r.logger.Warn("audit: HMAC mismatch — entry skipped (possible tampering)",
-					"component", "audit",
-					"file", path,
-					"line_number", lineNum,
-				)
-				continue
-			}
-		}
-
-		var record InteractionRecord
-		if err := json.Unmarshal(jsonBytes, &record); err != nil {
-			r.logger.Warn("audit: JSON unmarshal failed — entry skipped",
-				"component", "audit",
-				"file", path,
-				"line_number", lineNum,
-				"error", err,
-			)
-			continue
-		}
-
-		records = append(records, record)
 	}
-
 	if err := scanner.Err(); err != nil {
-		return records, fmt.Errorf("audit: scan %s: %w", path, err)
+		return lines, fmt.Errorf("audit: scan %s: %w", path, err)
+	}
+	return lines, nil
+}
+
+// parseLine parses a single log line and validates its integrity.
+// Returns the record, or error if CRC/HMAC/encryption validation fails.
+func (r *AuditReader) parseLine(line string) (InteractionRecord, error) {
+	parts := strings.Split(line, "\t")
+	if len(parts) < 2 {
+		return InteractionRecord{}, fmt.Errorf("malformed line (missing CRC32)")
 	}
 
-	return records, nil
+	dataPart := parts[0]
+	storedCRC := parts[1]
+
+	// Validate CRC32 over the data part.
+	computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE([]byte(dataPart)))
+	if computed != storedCRC {
+		return InteractionRecord{}, fmt.Errorf("CRC32 mismatch: computed=%s stored=%s", computed, storedCRC)
+	}
+
+	// If encrypted, decode and decrypt.
+	var jsonBytes []byte
+	var hmacHex string
+
+	if r.encryptionEnabled {
+		encBytes, err := base64.StdEncoding.DecodeString(dataPart)
+		if err != nil {
+			return InteractionRecord{}, fmt.Errorf("base64 decode: %w", err)
+		}
+		plaintext, err := decryptRecord(encBytes, r.encryptionKey)
+		if err != nil {
+			return InteractionRecord{}, fmt.Errorf("decrypt: %w", err)
+		}
+		// Plaintext may contain tab + HMAC if HMAC mode was used.
+		if r.integrityMode == "mac" {
+			idx := strings.LastIndex(string(plaintext), "\t")
+			if idx >= 0 {
+				jsonBytes = plaintext[:idx]
+				hmacHex = string(plaintext[idx+1:])
+			} else {
+				jsonBytes = plaintext
+			}
+		} else {
+			jsonBytes = plaintext
+		}
+	} else {
+		jsonBytes = []byte(dataPart)
+		// HMAC is the third tab-separated field for plaintext mode.
+		if r.integrityMode == "mac" && len(parts) >= 3 {
+			hmacHex = parts[2]
+		}
+	}
+
+	// Validate HMAC when integrity=mac.
+	if r.integrityMode == "mac" && hmacHex != "" {
+		if !validateHMAC(jsonBytes, r.macKey, hmacHex) {
+			return InteractionRecord{}, fmt.Errorf("HMAC mismatch (possible tampering)")
+		}
+	}
+
+	var record InteractionRecord
+	if err := json.Unmarshal(jsonBytes, &record); err != nil {
+		return InteractionRecord{}, fmt.Errorf("JSON unmarshal: %w", err)
+	}
+
+	return record, nil
 }
 
 // matchesFilter returns true if the record matches all non-zero filter criteria.

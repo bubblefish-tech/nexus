@@ -159,6 +159,26 @@ type Metrics struct {
 	// Set by the consistency checker background goroutine.
 	// Reference: Tech Spec Section 11.5.
 	ConsistencyScore prometheus.Gauge
+
+	// ── Audit (Interaction Log) ─────────────────────────────────────────────
+	// AuditLogErrorsTotal counts audit log write failures by file label
+	// (primary or shadow). Incremented when a write or fsync fails.
+	// Reference: Update U1.3.
+	AuditLogErrorsTotal *prometheus.CounterVec
+
+	// AuditShadowErrorsTotal counts shadow file write failures.
+	// Reference: Update U1.7.
+	AuditShadowErrorsTotal prometheus.Counter
+
+	// AuditCRCFailuresTotal counts records where both primary and shadow had
+	// CRC32 mismatches (unrecoverable corruption).
+	// Reference: Update U1.7.
+	AuditCRCFailuresTotal prometheus.Counter
+
+	// AuditShadowRecoveriesTotal counts records recovered from shadow after
+	// primary corruption.
+	// Reference: Update U1.7.
+	AuditShadowRecoveriesTotal prometheus.Counter
 }
 
 // New creates a Metrics with a private Prometheus registry. All metrics are
@@ -340,6 +360,27 @@ func New() *Metrics {
 		Help: "WAL-to-destination consistency score (0.0-1.0).",
 	})
 
+	// ── Audit (Interaction Log) ─────────────────────────────────────────────
+	m.AuditLogErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_audit_log_errors_total",
+			Help: "Audit log write failures by file label.",
+		},
+		[]string{"file"},
+	)
+	m.AuditShadowErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_shadow_errors_total",
+		Help: "Shadow file write failures.",
+	})
+	m.AuditCRCFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_crc_failures_total",
+		Help: "Records with CRC32 mismatch (both primary and shadow corrupt).",
+	})
+	m.AuditShadowRecoveriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_shadow_recoveries_total",
+		Help: "Records recovered from shadow after primary corruption.",
+	})
+
 	// Register all application metrics on the private registry.
 	reg.MustRegister(
 		m.PayloadProcessingLatency,
@@ -368,6 +409,10 @@ func New() *Metrics {
 		m.EventsDeliveredTotal,
 		m.EventsFailedTotal,
 		m.ConsistencyScore,
+		m.AuditLogErrorsTotal,
+		m.AuditShadowErrorsTotal,
+		m.AuditCRCFailuresTotal,
+		m.AuditShadowRecoveriesTotal,
 	)
 
 	return m

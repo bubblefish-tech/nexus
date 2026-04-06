@@ -414,6 +414,97 @@ func TestWarningCount(t *testing.T) {
 	}
 }
 
+// ── Audit Shared Keys ──────────────────────────────────────────────────
+
+func TestAuditSharedHMACKey_Warns(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.WAL.Integrity.Mode = "mac"
+	cfg.Daemon.WAL.Integrity.MacKeyFile = "file:/etc/shared-hmac.key"
+	cfg.Daemon.Audit.Integrity.Mode = "mac"
+	cfg.Daemon.Audit.Integrity.MacKeyFile = "file:/etc/shared-hmac.key"
+
+	result := Run(cfg, t.TempDir())
+	found := findByCheck(t, result, "audit_shared_hmac_key")
+	if found.Severity != Warn {
+		t.Fatalf("expected severity warn, got %s", found.Severity)
+	}
+}
+
+func TestAuditSharedHMACKey_NoWarningWhenDifferent(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.WAL.Integrity.Mode = "mac"
+	cfg.Daemon.WAL.Integrity.MacKeyFile = "file:/etc/wal-hmac.key"
+	cfg.Daemon.Audit.Integrity.Mode = "mac"
+	cfg.Daemon.Audit.Integrity.MacKeyFile = "file:/etc/audit-hmac.key"
+
+	result := Run(cfg, t.TempDir())
+	assertNoCheck(t, result, "audit_shared_hmac_key")
+}
+
+func TestAuditSharedEncryptionKey_Warns(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.WAL.Encryption.Enabled = true
+	cfg.Daemon.WAL.Encryption.KeyFile = "file:/etc/shared-enc.key"
+	cfg.Daemon.Audit.Encryption.Enabled = true
+	cfg.Daemon.Audit.Encryption.KeyFile = "file:/etc/shared-enc.key"
+
+	result := Run(cfg, t.TempDir())
+	found := findByCheck(t, result, "audit_shared_encryption_key")
+	if found.Severity != Warn {
+		t.Fatalf("expected severity warn, got %s", found.Severity)
+	}
+}
+
+func TestAuditSharedEncryptionKey_NoWarningWhenDifferent(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.WAL.Encryption.Enabled = true
+	cfg.Daemon.WAL.Encryption.KeyFile = "file:/etc/wal-enc.key"
+	cfg.Daemon.Audit.Encryption.Enabled = true
+	cfg.Daemon.Audit.Encryption.KeyFile = "file:/etc/audit-enc.key"
+
+	result := Run(cfg, t.TempDir())
+	assertNoCheck(t, result, "audit_shared_encryption_key")
+}
+
+func TestAuditMissingMACKeyfile_Error(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.Audit.Integrity.Mode = "mac"
+	cfg.Daemon.Audit.Integrity.MacKeyFile = ""
+
+	result := Run(cfg, t.TempDir())
+	// Should find a missing_keyfile error for audit.
+	found := false
+	for _, f := range result.Findings {
+		if f.Check == "missing_keyfile" && f.Severity == Error &&
+			f.Message == "audit integrity mode is mac but mac_key_file is empty" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected missing_keyfile error for audit MAC mode")
+	}
+}
+
+func TestAuditMissingEncryptionKeyfile_Error(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.Audit.Encryption.Enabled = true
+	cfg.Daemon.Audit.Encryption.KeyFile = ""
+
+	result := Run(cfg, t.TempDir())
+	found := false
+	for _, f := range result.Findings {
+		if f.Check == "missing_keyfile" && f.Severity == Error &&
+			f.Message == "audit encryption enabled but key_file is empty" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected missing_keyfile error for audit encryption")
+	}
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 func findByCheck(t *testing.T, r *Result, check string) Finding {

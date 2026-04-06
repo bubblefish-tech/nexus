@@ -85,6 +85,7 @@ func Run(cfg *config.Config, configDir string) *Result {
 	checkDuplicateKeys(cfg, r)
 	checkUnsignedConfigs(cfg, configDir, r)
 	checkEventSinksNoRetry(cfg, r)
+	checkAuditSharedKeys(cfg, r)
 
 	return r
 }
@@ -190,8 +191,8 @@ func checkLiteralKeys(cfg *config.Config, r *Result) {
 	}
 }
 
-// checkMissingKeyfiles errors when WAL encryption or MAC integrity is enabled
-// but the corresponding key file is not configured.
+// checkMissingKeyfiles errors when WAL or audit encryption/MAC integrity is
+// enabled but the corresponding key file is not configured.
 func checkMissingKeyfiles(cfg *config.Config, r *Result) {
 	if cfg.Daemon.WAL.Encryption.Enabled && cfg.Daemon.WAL.Encryption.KeyFile == "" {
 		r.Findings = append(r.Findings, Finding{
@@ -205,6 +206,21 @@ func checkMissingKeyfiles(cfg *config.Config, r *Result) {
 			Severity: Error,
 			Check:    "missing_keyfile",
 			Message:  "WAL integrity mode is mac but mac_key_file is empty",
+		})
+	}
+	// Audit key checks. Reference: Update U1.1, U1.2.
+	if cfg.Daemon.Audit.Encryption.Enabled && cfg.Daemon.Audit.Encryption.KeyFile == "" {
+		r.Findings = append(r.Findings, Finding{
+			Severity: Error,
+			Check:    "missing_keyfile",
+			Message:  "audit encryption enabled but key_file is empty",
+		})
+	}
+	if strings.EqualFold(cfg.Daemon.Audit.Integrity.Mode, "mac") && cfg.Daemon.Audit.Integrity.MacKeyFile == "" {
+		r.Findings = append(r.Findings, Finding{
+			Severity: Error,
+			Check:    "missing_keyfile",
+			Message:  "audit integrity mode is mac but mac_key_file is empty",
 		})
 	}
 }
@@ -321,6 +337,33 @@ func checkEventSinksNoRetry(cfg *config.Config, r *Result) {
 // isSecretRef returns true if the value uses an env: or file: prefix.
 func isSecretRef(val string) bool {
 	return strings.HasPrefix(val, "env:") || strings.HasPrefix(val, "file:")
+}
+
+// checkAuditSharedKeys warns when the audit HMAC key path or encryption key path
+// is the same as the WAL key path. Shared keys reduce security isolation.
+//
+// Reference: Update U1.1, U1.2.
+func checkAuditSharedKeys(cfg *config.Config, r *Result) {
+	// HMAC key path overlap.
+	if cfg.Daemon.Audit.Integrity.MacKeyFile != "" &&
+		cfg.Daemon.WAL.Integrity.MacKeyFile != "" &&
+		cfg.Daemon.Audit.Integrity.MacKeyFile == cfg.Daemon.WAL.Integrity.MacKeyFile {
+		r.Findings = append(r.Findings, Finding{
+			Severity: Warn,
+			Check:    "audit_shared_hmac_key",
+			Message:  "audit HMAC key path is the same as WAL HMAC key path; use separate keys for security isolation",
+		})
+	}
+	// Encryption key path overlap.
+	if cfg.Daemon.Audit.Encryption.KeyFile != "" &&
+		cfg.Daemon.WAL.Encryption.KeyFile != "" &&
+		cfg.Daemon.Audit.Encryption.KeyFile == cfg.Daemon.WAL.Encryption.KeyFile {
+		r.Findings = append(r.Findings, Finding{
+			Severity: Warn,
+			Check:    "audit_shared_encryption_key",
+			Message:  "audit encryption key path is the same as WAL encryption key path; use separate keys for security isolation",
+		})
+	}
 }
 
 // fileExists returns true if the path exists and is not a directory.

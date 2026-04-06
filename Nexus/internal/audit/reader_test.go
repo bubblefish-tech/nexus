@@ -23,6 +23,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -71,7 +72,7 @@ func TestAuditReader_BasicQuery(t *testing.T) {
 	}
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -100,7 +101,7 @@ func TestAuditReader_FilterBySource(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("cursor", "query", "denied", now.Add(3*time.Second)))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
 	result, err := reader.Query(AuditFilter{Source: "claude"})
 	if err != nil {
@@ -131,7 +132,7 @@ func TestAuditReader_FilterByOperation(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "admin", "allowed", now.Add(2*time.Second)))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{Operation: "query"})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -156,7 +157,7 @@ func TestAuditReader_FilterByPolicyDecision(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "query", "filtered", now.Add(2*time.Second)))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{PolicyDecision: "denied"})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -182,7 +183,7 @@ func TestAuditReader_FilterByTimeRange(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", base.Add(3*time.Hour)))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
 	// After base+30min, Before base+2h30min → should get 2 records (1h, 2h).
 	result, err := reader.Query(AuditFilter{
@@ -213,7 +214,7 @@ func TestAuditReader_Pagination(t *testing.T) {
 	}
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
 	// Page 1: offset=0, limit=10
 	r1, err := reader.Query(AuditFilter{Limit: 10, Offset: 0})
@@ -277,7 +278,7 @@ func TestAuditReader_LimitCappedAt1000(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("test", "write", "allowed", now))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{Limit: 5000})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -298,7 +299,7 @@ func TestAuditReader_DefaultLimit100(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("test", "write", "allowed", time.Now().UTC()))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -346,7 +347,7 @@ func TestAuditReader_CRC32Mismatch_SkipsCorruptEntry(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -394,7 +395,7 @@ func TestAuditReader_MultipleRotatedFiles(t *testing.T) {
 	writeRawRecord(t, f3, makeRecord("source-c", "write", "allowed", now.Add(4*time.Second)))
 	f3.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
 	// Query all — should see records from all 3 files.
 	result, err := reader.Query(AuditFilter{})
@@ -429,7 +430,7 @@ func TestAuditReader_Count(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "query", "allowed", now.Add(2*time.Second)))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
 	count, err := reader.Count(AuditFilter{Source: "claude"})
 	if err != nil {
@@ -469,7 +470,7 @@ func TestAuditReader_FilterByActorID(t *testing.T) {
 	writeRawRecord(t, f, rec3)
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{ActorID: "user-alice"})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -499,7 +500,7 @@ func TestAuditReader_FilterBySubjectAndDestination(t *testing.T) {
 	writeRawRecord(t, f, rec2)
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
 	result, err := reader.Query(AuditFilter{Subject: "project-alpha"})
 	if err != nil {
@@ -526,6 +527,7 @@ func TestAuditReader_HMACValidation(t *testing.T) {
 	// Write records with HMAC using the logger.
 	al, err := NewAuditLogger(logFile,
 		WithIntegrityMode("mac", macKey),
+		WithDualWrite(false),
 	)
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
@@ -549,6 +551,7 @@ func TestAuditReader_HMACValidation(t *testing.T) {
 	// Read with correct key.
 	reader := NewAuditReader(logFile,
 		WithReaderIntegrity("mac", macKey),
+		WithReaderDualWrite(false),
 	)
 	result, err := reader.Query(AuditFilter{})
 	if err != nil {
@@ -599,7 +602,7 @@ func TestAuditReader_EmptyLogFile(t *testing.T) {
 	}
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -617,7 +620,7 @@ func TestAuditReader_NonexistentFile(t *testing.T) {
 	logFile := filepath.Join(dir, "interactions.jsonl")
 
 	// Do NOT create the file.
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
 	if err != nil {
 		t.Fatalf("Query on missing file should not error: %v", err)
@@ -643,7 +646,7 @@ func TestAuditReader_CombinedFilters(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "write", "denied", now.Add(3*time.Second)))
 	f.Close()
 
-	reader := NewAuditReader(logFile)
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
 	// Source=claude AND operation=write AND decision=denied
 	result, err := reader.Query(AuditFilter{
@@ -656,5 +659,309 @@ func TestAuditReader_CombinedFilters(t *testing.T) {
 	}
 	if result.TotalMatching != 1 {
 		t.Errorf("expected 1 combined-filter match, got %d", result.TotalMatching)
+	}
+}
+
+// ── Hardening Tests (Update U1.3–U1.5) ─────────────────────────────────────
+
+func TestAuditReader_ShadowFallback_CorruptPrimary(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	shadowFile := filepath.Join(dir, "interactions-shadow.jsonl")
+
+	// Write 5 records via logger (dual-write).
+	al, err := NewAuditLogger(logFile, WithDualWrite(true))
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i := range 5 {
+		rec := InteractionRecord{
+			RecordID:       NewRecordID(),
+			Timestamp:      now.Add(time.Duration(i) * time.Second),
+			Source:         "test",
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+		}
+		if err := al.Log(rec); err != nil {
+			t.Fatalf("Log[%d]: %v", i, err)
+		}
+	}
+	al.Close()
+
+	// Corrupt one record in primary (flip a byte in line 3).
+	data, _ := os.ReadFile(logFile)
+	lines := 0
+	for i, b := range data {
+		if b == '\n' {
+			lines++
+			if lines == 3 {
+				data[i-20] ^= 0xFF
+				break
+			}
+		}
+	}
+	os.WriteFile(logFile, data, 0600)
+
+	// Shadow should still be intact.
+	reader := NewAuditReader(logFile, WithReaderDualWrite(true))
+	result, err := reader.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if result.TotalMatching != 5 {
+		t.Errorf("expected 5 records (1 recovered from shadow), got %d", result.TotalMatching)
+	}
+	if reader.ShadowRecoveries() != 1 {
+		t.Errorf("expected 1 shadow recovery, got %d", reader.ShadowRecoveries())
+	}
+
+	// Verify shadow file is intact.
+	_, err = os.Stat(shadowFile)
+	if os.IsNotExist(err) {
+		t.Fatal("shadow file should exist")
+	}
+}
+
+func TestAuditReader_BothCorrupt_SkipsEntry(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	shadowFile := filepath.Join(dir, "interactions-shadow.jsonl")
+
+	al, err := NewAuditLogger(logFile, WithDualWrite(true))
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i := range 5 {
+		rec := InteractionRecord{
+			RecordID:       NewRecordID(),
+			Timestamp:      now.Add(time.Duration(i) * time.Second),
+			Source:         "test",
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+		}
+		if err := al.Log(rec); err != nil {
+			t.Fatalf("Log[%d]: %v", i, err)
+		}
+	}
+	al.Close()
+
+	// Corrupt the same record (line 3) in BOTH primary and shadow.
+	for _, path := range []string{logFile, shadowFile} {
+		data, _ := os.ReadFile(path)
+		lines := 0
+		for i, b := range data {
+			if b == '\n' {
+				lines++
+				if lines == 3 {
+					data[i-20] ^= 0xFF
+					break
+				}
+			}
+		}
+		os.WriteFile(path, data, 0600)
+	}
+
+	reader := NewAuditReader(logFile, WithReaderDualWrite(true))
+	result, err := reader.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if result.TotalMatching != 4 {
+		t.Errorf("expected 4 records (1 skipped, both corrupt), got %d", result.TotalMatching)
+	}
+	if reader.CRCFailures() != 1 {
+		t.Errorf("expected 1 CRC failure, got %d", reader.CRCFailures())
+	}
+}
+
+func TestAuditReader_RotationMarkerSkipped(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+
+	// Write records and a rotation_marker manually.
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	now := time.Now().UTC()
+	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now))
+	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now.Add(time.Second)))
+
+	// Write a rotation_marker.
+	marker := InteractionRecord{
+		RecordID:       NewRecordID(),
+		Timestamp:      now.Add(2 * time.Second),
+		OperationType:  "rotation_marker",
+		PolicyDecision: "allowed",
+	}
+	writeRawRecord(t, f, marker)
+
+	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now.Add(3*time.Second)))
+	f.Close()
+
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
+	result, err := reader.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	// rotation_marker should be skipped.
+	if result.TotalMatching != 3 {
+		t.Errorf("expected 3 records (rotation_marker skipped), got %d", result.TotalMatching)
+	}
+	for _, rec := range result.Records {
+		if rec.OperationType == "rotation_marker" {
+			t.Error("rotation_marker should not appear in query results")
+		}
+	}
+}
+
+func TestAuditReader_CrashMidRotation_DedupByRecordID(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+
+	now := time.Now().UTC()
+
+	// Simulate crash mid-rotation: same records in both old segment and new current.
+	rotated := filepath.Join(dir, "interactions-20260401-120000.jsonl")
+
+	// Shared record IDs to test dedup.
+	sharedIDs := []string{NewRecordID(), NewRecordID(), NewRecordID()}
+
+	// Write to "old" segment (pre-rotation).
+	f1, _ := os.OpenFile(rotated, os.O_CREATE|os.O_WRONLY, 0600)
+	for i, id := range sharedIDs {
+		rec := InteractionRecord{
+			RecordID:       id,
+			Timestamp:      now.Add(time.Duration(i) * time.Second),
+			Source:         "test",
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+		}
+		writeRawRecord(t, f1, rec)
+	}
+	f1.Close()
+
+	// Write the SAME records to "new" current file (crash replay scenario).
+	f2, _ := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY, 0600)
+	for i, id := range sharedIDs {
+		rec := InteractionRecord{
+			RecordID:       id,
+			Timestamp:      now.Add(time.Duration(i) * time.Second),
+			Source:         "test",
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+		}
+		writeRawRecord(t, f2, rec)
+	}
+	// Also add one unique record in current file.
+	unique := InteractionRecord{
+		RecordID:       NewRecordID(),
+		Timestamp:      now.Add(10 * time.Second),
+		Source:         "test",
+		OperationType:  "write",
+		PolicyDecision: "allowed",
+	}
+	writeRawRecord(t, f2, unique)
+	f2.Close()
+
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
+	result, err := reader.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	// 3 shared (deduped) + 1 unique = 4.
+	if result.TotalMatching != 4 {
+		t.Errorf("expected 4 records (3 deduped + 1 unique), got %d", result.TotalMatching)
+	}
+}
+
+func TestAuditReader_EncryptionRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+	encKey := make([]byte, 32)
+	for i := range encKey {
+		encKey[i] = byte(i + 50)
+	}
+
+	al, err := NewAuditLogger(logFile,
+		WithEncryption(encKey),
+		WithDualWrite(false),
+	)
+	if err != nil {
+		t.Fatalf("NewAuditLogger: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i := range 10 {
+		rec := InteractionRecord{
+			RecordID:       NewRecordID(),
+			Timestamp:      now.Add(time.Duration(i) * time.Second),
+			Source:         fmt.Sprintf("src-%d", i),
+			OperationType:  "write",
+			PolicyDecision: "allowed",
+		}
+		if err := al.Log(rec); err != nil {
+			t.Fatalf("Log[%d]: %v", i, err)
+		}
+	}
+	al.Close()
+
+	reader := NewAuditReader(logFile,
+		WithReaderEncryption(encKey),
+		WithReaderDualWrite(false),
+	)
+	result, err := reader.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if result.TotalMatching != 10 {
+		t.Errorf("expected 10 records, got %d", result.TotalMatching)
+	}
+
+	// Verify CRC is valid on encrypted data by checking no CRC failures.
+	if reader.CRCFailures() != 0 {
+		t.Errorf("expected 0 CRC failures, got %d", reader.CRCFailures())
+	}
+}
+
+func TestAuditReader_ShadowExcludedFromPrimaryDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "interactions.jsonl")
+
+	// Create primary, shadow, and rotated shadow files.
+	for _, name := range []string{
+		"interactions.jsonl",
+		"interactions-shadow.jsonl",
+		"interactions-20260401-120000.jsonl",
+		"interactions-shadow-20260401-120000.jsonl",
+	} {
+		f, _ := os.Create(filepath.Join(dir, name))
+		now := time.Now().UTC()
+		rec := makeRecord("test", "write", "allowed", now)
+		writeRawRecord(t, f, rec)
+		f.Close()
+	}
+
+	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
+	files, err := reader.discoverPrimaryFiles()
+	if err != nil {
+		t.Fatalf("discoverPrimaryFiles: %v", err)
+	}
+
+	// Should only contain primary files, not shadow.
+	for _, f := range files {
+		base := filepath.Base(f)
+		if strings.Contains(base, "shadow") {
+			t.Errorf("shadow file should not appear in primary discovery: %s", base)
+		}
+	}
+	if len(files) != 2 {
+		t.Errorf("expected 2 primary files, got %d", len(files))
 	}
 }
