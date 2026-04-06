@@ -27,10 +27,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/mcp"
+	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/BubbleFish-Nexus/internal/version"
 )
 
@@ -43,6 +46,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  start    start daemon + MCP + dashboard + tray")
 		fmt.Fprintln(os.Stderr, "  build    compile policies and validate configuration")
 		fmt.Fprintln(os.Stderr, "  mcp      MCP server management")
+		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
 		fmt.Fprintln(os.Stderr, "  version  print version string")
 		os.Exit(1)
 	}
@@ -68,11 +72,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "bubblefish mcp: unknown subcommand %q\n", os.Args[2])
 			os.Exit(1)
 		}
+	case "sign-config":
+		runSignConfig()
 	case "version", "--version":
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish: unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|build|mcp|version>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|build|sign-config|mcp|version>")
 		os.Exit(1)
 	}
 }
@@ -172,6 +178,62 @@ func runMCPTest() {
 
 	fmt.Printf("bubblefish mcp test: ok — nexus_status returned status=%q version=%v\n",
 		statusResult["status"], statusResult["version"])
+}
+
+// runSignConfig executes the `bubblefish sign-config` command.
+// It reads compiled/*.json files, computes HMAC-SHA256 signatures using the
+// key provided via --keyref, and writes *.sig sidecar files.
+//
+// Usage: bubblefish sign-config --keyref env:NEXUS_SIGNING_KEY
+//
+// Reference: Tech Spec Section 6.5.
+func runSignConfig() {
+	// Parse --keyref flag.
+	var keyRef string
+	args := os.Args[2:]
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--keyref" && i+1 < len(args):
+			keyRef = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "--keyref="):
+			keyRef = strings.TrimPrefix(args[i], "--keyref=")
+		}
+	}
+	if keyRef == "" {
+		fmt.Fprintln(os.Stderr, "bubblefish sign-config: --keyref is required")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish sign-config --keyref env:NEXUS_SIGNING_KEY")
+		os.Exit(1)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	// Resolve the key reference — NEVER log the resolved value.
+	resolved, err := config.ResolveEnv(keyRef, logger)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish sign-config: resolve key: %v\n", err)
+		os.Exit(1)
+	}
+	if resolved == "" {
+		fmt.Fprintln(os.Stderr, "bubblefish sign-config: key resolved to empty value")
+		os.Exit(1)
+	}
+
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish sign-config: %v\n", err)
+		os.Exit(1)
+	}
+	compiledDir := filepath.Join(configDir, "compiled")
+
+	if err := signing.SignAll(compiledDir, []byte(resolved), logger); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish sign-config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("bubblefish sign-config: ok — all compiled config files signed")
 }
 
 // runBuild executes the `bubblefish build` command.

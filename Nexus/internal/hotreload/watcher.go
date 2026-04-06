@@ -42,6 +42,7 @@ import (
 	"sync"
 
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -68,6 +69,16 @@ type Config struct {
 	// Reload loads a fresh *config.Config from disk. Called by the Watcher
 	// outside of any mutex; must be safe to call from a goroutine.
 	Reload func() (*config.Config, error)
+
+	// SigningKey is the resolved signing key bytes. When non-nil, the watcher
+	// re-verifies compiled config signatures before applying a reload.
+	// Nil means signing is disabled — no verification is performed.
+	// NEVER log this value.
+	SigningKey []byte
+
+	// SigningEvent is called when a config signature verification failure
+	// occurs during hot reload. May be nil if signing is disabled.
+	SigningEvent signing.SecurityEventFunc
 
 	// Logger is the structured logger for watcher events.
 	Logger *slog.Logger
@@ -224,6 +235,22 @@ func (w *Watcher) reload() {
 			"error", err,
 		)
 		// Non-fatal: proceed with the reload even if the cache write fails.
+	}
+
+	// Re-verify config signatures if signing is enabled.
+	// Reference: Tech Spec Section 6.5 — refuse reload on invalid signature.
+	if w.cfg.SigningKey != nil {
+		compiledDir := filepath.Join(w.cfg.ConfigDir, "compiled")
+		if err := signing.VerifyAll(compiledDir, w.cfg.SigningKey, w.cfg.SigningEvent, w.cfg.Logger); err != nil {
+			w.cfg.Logger.Error("hotreload: config signature verification failed — keeping current config",
+				"component", "hotreload",
+				"error", err,
+			)
+			return
+		}
+		w.cfg.Logger.Debug("hotreload: config signature verification passed",
+			"component", "hotreload",
+		)
 	}
 
 	// Apply the new config atomically under Lock.

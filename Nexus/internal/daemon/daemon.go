@@ -51,6 +51,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/queue"
+	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
@@ -80,6 +81,12 @@ type Daemon struct {
 
 	reloadWatcher *hotreload.Watcher
 	mcpServer     *mcp.Server // nil when MCP is disabled or failed to start
+
+	// signingKey holds the resolved signing key bytes when [daemon.signing]
+	// enabled = true. Nil when signing is disabled. Used at startup and by
+	// hot reload to verify compiled config signatures.
+	// NEVER log this value.
+	signingKey []byte
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -127,6 +134,45 @@ func (d *Daemon) getConfig() *config.Config {
 func (d *Daemon) Start() error {
 	cfg := d.getConfig()
 
+	// Verify config signatures if signing is enabled.
+	// Reference: Tech Spec Section 6.5 — refuse to start if any compiled
+	// config file has a missing or invalid signature.
+	if cfg.Daemon.Signing.Enabled {
+		if cfg.Daemon.Signing.KeyFile == "" {
+			return fmt.Errorf("daemon: config signing enabled but key_file is missing")
+		}
+		resolvedSignKey, resolveErr := config.ResolveEnv(cfg.Daemon.Signing.KeyFile, d.logger)
+		if resolveErr != nil {
+			return fmt.Errorf("daemon: resolve signing key_file: %w", resolveErr)
+		}
+		if resolvedSignKey == "" {
+			return fmt.Errorf("daemon: signing key_file resolved to empty value")
+		}
+		d.signingKey = []byte(resolvedSignKey)
+
+		configDir, err := config.ConfigDir()
+		if err != nil {
+			return fmt.Errorf("daemon: resolve config dir for signing verification: %w", err)
+		}
+		compiledDir := filepath.Join(configDir, "compiled")
+
+		onEvent := func(eventType string, attrs ...slog.Attr) {
+			d.logger.LogAttrs(nil, slog.LevelWarn, "daemon: security event",
+				append([]slog.Attr{
+					slog.String("component", "signing"),
+					slog.String("event_type", eventType),
+				}, attrs...)...,
+			)
+		}
+
+		if err := signing.VerifyAll(compiledDir, d.signingKey, onEvent, d.logger); err != nil {
+			return fmt.Errorf("daemon: config signature verification failed — refusing to start: %w", err)
+		}
+		d.logger.Info("daemon: config signature verification passed",
+			"component", "daemon",
+		)
+	}
+
 	// Open WAL.
 	walPath, err := d.resolveWALPath()
 	if err != nil {
@@ -157,6 +203,25 @@ func (d *Daemon) Start() error {
 			"mode", wal.IntegrityModeMAC,
 		)
 	}
+	// WAL encryption: AES-256-GCM at-rest encryption.
+	// Reference: Tech Spec Section 6.4.2.
+	if cfg.Daemon.WAL.Encryption.Enabled {
+		if cfg.Daemon.WAL.Encryption.KeyFile == "" {
+			return fmt.Errorf("daemon: WAL encryption enabled but key_file is missing")
+		}
+		resolved, resolveErr := config.ResolveEnv(cfg.Daemon.WAL.Encryption.KeyFile, d.logger)
+		if resolveErr != nil {
+			return fmt.Errorf("daemon: resolve WAL encryption key_file: %w", resolveErr)
+		}
+		if resolved == "" {
+			return fmt.Errorf("daemon: WAL encryption key_file resolved to empty value")
+		}
+		walOpts = append(walOpts, wal.WithEncryption([]byte(resolved)))
+		d.logger.Info("daemon: WAL encryption enabled",
+			"component", "daemon",
+		)
+	}
+
 	walOpts = append(walOpts, wal.WithSecurityEvent(func(eventType string, attrs ...slog.Attr) {
 		d.logger.LogAttrs(nil, slog.LevelWarn, "daemon: security event",
 			append([]slog.Attr{
@@ -482,10 +547,23 @@ func (d *Daemon) startHotReload() {
 		return config.Load(configDir, d.logger)
 	}
 
+	// Build signing event callback for hot reload (nil when signing disabled).
+	var signingEvent signing.SecurityEventFunc
+	if d.signingKey != nil {
+		signingEvent = func(eventType string, attrs ...slog.Attr) {
+			d.logger.LogAttrs(nil, slog.LevelWarn, "daemon: security event",
+				append([]slog.Attr{
+					slog.String("component", "signing"),
+					slog.String("event_type", eventType),
+				}, attrs...)...,
+			)
+		}
+	}
+
 	w := hotreload.New(hotreload.Config{
-		SourcesDir: sourcesDir,
-		ConfigDir:  configDir,
-		Mu:         &d.configMu,
+		SourcesDir:  sourcesDir,
+		ConfigDir:   configDir,
+		Mu:          &d.configMu,
 		Snapshot: func() *config.Config {
 			// Called by the watcher under RLock — do not acquire additional locks.
 			return d.cfg
@@ -495,8 +573,10 @@ func (d *Daemon) startHotReload() {
 			d.cfg = c
 			d.metrics.ConfigLintWarnings.Set(0) // reset on successful reload
 		},
-		Reload: reloadFunc,
-		Logger: d.logger,
+		Reload:       reloadFunc,
+		SigningKey:   d.signingKey,
+		SigningEvent: signingEvent,
+		Logger:       d.logger,
 	})
 
 	if err := w.Start(); err != nil {
