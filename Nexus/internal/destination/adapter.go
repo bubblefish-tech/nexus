@@ -128,6 +128,53 @@ type Querier interface {
 	Query(params QueryParams) (QueryResult, error)
 }
 
+// ConflictGroup represents a set of contradictory memories sharing the same
+// subject and collection (entity_key) but with divergent content.
+// Reference: Tech Spec Section 13.2 — Conflict Inspector.
+type ConflictGroup struct {
+	Subject          string               `json:"subject"`
+	EntityKey        string               `json:"entity_key"` // collection field
+	ConflictingValues []string            `json:"conflicting_values"`
+	Sources          []string             `json:"sources"`
+	Timestamps       []time.Time          `json:"timestamps"`
+	Count            int                  `json:"count"`
+}
+
+// ConflictParams holds filter and pagination options for conflict queries.
+type ConflictParams struct {
+	Source    string // filter by source
+	Subject   string // filter by subject
+	ActorType string // filter by actor_type
+	Limit     int
+	Offset    int
+}
+
+// ConflictQuerier is an optional interface for destination backends that
+// support conflict detection. Callers must type-assert to check for support.
+// Reference: Tech Spec Section 13.2.
+type ConflictQuerier interface {
+	// QueryConflicts returns groups of contradictory memories.
+	QueryConflicts(params ConflictParams) ([]ConflictGroup, error)
+}
+
+// TimeTravelParams holds options for time-travel queries.
+type TimeTravelParams struct {
+	AsOf        time.Time // return memories with timestamp <= this value
+	Namespace   string
+	Subject     string
+	Destination string
+	Limit       int
+	Offset      int
+}
+
+// TimeTravelQuerier is an optional interface for destination backends that
+// support time-travel queries. Callers must type-assert to check for support.
+// Reference: Tech Spec Section 13.2.
+type TimeTravelQuerier interface {
+	// QueryTimeTravel returns memories as of the specified timestamp.
+	QueryTimeTravel(params TimeTravelParams) (QueryResult, error)
+}
+
 // ScoredRecord pairs a TranslatedPayload with its cosine similarity score
 // from a semantic search. Used by Stage 4 (Semantic Retrieval).
 //

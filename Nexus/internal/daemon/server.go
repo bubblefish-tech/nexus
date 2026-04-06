@@ -82,6 +82,10 @@ func (d *Daemon) buildRouter() http.Handler {
 		// Reference: Tech Spec Section 12, Phase R-17.
 		r.Get("/api/security/events", d.handleSecurityEvents)
 		r.Get("/api/security/summary", d.handleSecuritySummary)
+		// Conflict Inspector + Time-Travel — admin only, read-only.
+		// Reference: Tech Spec Section 12, Phase R-22.
+		r.Get("/api/conflicts", d.handleConflicts)
+		r.Get("/api/timetravel", d.handleTimeTravel)
 		// Live pipeline visualization SSE — admin only.
 		// Reference: Tech Spec Section 12, Phase R-21.
 		r.Get("/api/viz/events", d.handleVizEvents)

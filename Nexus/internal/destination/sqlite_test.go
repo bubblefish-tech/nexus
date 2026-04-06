@@ -18,6 +18,7 @@
 package destination_test
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -210,5 +211,155 @@ func TestSQLiteDestination_NilMetadata(t *testing.T) {
 	}
 	if !ok {
 		t.Fatal("expected record to exist")
+	}
+}
+
+// TestSQLiteDestination_QueryConflicts verifies that contradictory memories
+// (same subject + collection, different content) are detected.
+func TestSQLiteDestination_QueryConflicts(t *testing.T) {
+	d, cleanup := newTestSQLite(t)
+	defer cleanup()
+
+	// Write two memories with the same subject+collection but different content.
+	p1 := basePayload("conflict-1")
+	p1.Subject = "user:bob"
+	p1.Collection = "preferences"
+	p1.Content = "likes cats"
+	p1.Source = "claude"
+
+	p2 := basePayload("conflict-2")
+	p2.Subject = "user:bob"
+	p2.Collection = "preferences"
+	p2.Content = "likes dogs"
+	p2.Source = "chatgpt"
+
+	// A third memory with same subject but different collection — no conflict.
+	p3 := basePayload("no-conflict")
+	p3.Subject = "user:bob"
+	p3.Collection = "facts"
+	p3.Content = "works at Acme"
+
+	for _, p := range []destination.TranslatedPayload{p1, p2, p3} {
+		if err := d.Write(p); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+
+	groups, err := d.QueryConflicts(destination.ConflictParams{
+		Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("QueryConflicts: %v", err)
+	}
+
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 conflict group, got %d", len(groups))
+	}
+
+	g := groups[0]
+	if g.Subject != "user:bob" {
+		t.Errorf("subject = %q, want user:bob", g.Subject)
+	}
+	if g.EntityKey != "preferences" {
+		t.Errorf("entity_key = %q, want preferences", g.EntityKey)
+	}
+	if len(g.ConflictingValues) < 2 {
+		t.Errorf("expected at least 2 conflicting values, got %d", len(g.ConflictingValues))
+	}
+}
+
+// TestSQLiteDestination_QueryConflictsFiltered verifies source filtering.
+func TestSQLiteDestination_QueryConflictsFiltered(t *testing.T) {
+	d, cleanup := newTestSQLite(t)
+	defer cleanup()
+
+	p1 := basePayload("f1")
+	p1.Subject = "user:x"
+	p1.Collection = "prefs"
+	p1.Content = "A"
+	p1.Source = "s1"
+
+	p2 := basePayload("f2")
+	p2.Subject = "user:x"
+	p2.Collection = "prefs"
+	p2.Content = "B"
+	p2.Source = "s2"
+
+	for _, p := range []destination.TranslatedPayload{p1, p2} {
+		d.Write(p)
+	}
+
+	// Filter by source=s1 — both records have different sources but same
+	// subject+collection. With source filter, only s1 records are considered,
+	// so there's only one distinct content → no conflict.
+	groups, err := d.QueryConflicts(destination.ConflictParams{
+		Source: "s1",
+		Limit:  50,
+	})
+	if err != nil {
+		t.Fatalf("QueryConflicts: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("expected 0 conflicts when filtered by single source, got %d", len(groups))
+	}
+}
+
+// TestSQLiteDestination_QueryTimeTravel verifies time-travel queries.
+func TestSQLiteDestination_QueryTimeTravel(t *testing.T) {
+	d, cleanup := newTestSQLite(t)
+	defer cleanup()
+
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 1, 1, 14, 0, 0, 0, time.UTC)
+
+	for i, ts := range []time.Time{t1, t2, t3} {
+		p := basePayload(fmt.Sprintf("tt-%d", i))
+		p.Timestamp = ts
+		p.Content = fmt.Sprintf("memory at %s", ts.Format(time.RFC3339))
+		if err := d.Write(p); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+
+	// Query as-of noon — should return t1 and t2 only.
+	asOf := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	result, err := d.QueryTimeTravel(destination.TimeTravelParams{
+		AsOf:  asOf,
+		Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("QueryTimeTravel: %v", err)
+	}
+
+	if len(result.Records) != 2 {
+		t.Fatalf("expected 2 records as of %s, got %d", asOf, len(result.Records))
+	}
+
+	// Results should be ordered by timestamp DESC — t2 first.
+	if result.Records[0].Content != "memory at "+t2.Format(time.RFC3339) {
+		t.Errorf("first record content = %q, want t2 memory", result.Records[0].Content)
+	}
+}
+
+// TestSQLiteDestination_TimeTravelEmpty verifies empty result for future time.
+func TestSQLiteDestination_TimeTravelEmpty(t *testing.T) {
+	d, cleanup := newTestSQLite(t)
+	defer cleanup()
+
+	p := basePayload("future-1")
+	p.Timestamp = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	d.Write(p)
+
+	// Query as of January — before the memory was written.
+	result, err := d.QueryTimeTravel(destination.TimeTravelParams{
+		AsOf:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("QueryTimeTravel: %v", err)
+	}
+	if len(result.Records) != 0 {
+		t.Errorf("expected 0 records, got %d", len(result.Records))
 	}
 }

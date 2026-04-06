@@ -1047,6 +1047,148 @@ func (d *Daemon) writeErrorResponse(w http.ResponseWriter, r *http.Request, stat
 }
 
 // ---------------------------------------------------------------------------
+// Conflict Inspector + Time-Travel
+// ---------------------------------------------------------------------------
+
+// handleConflicts serves GET /api/conflicts — returns groups of contradictory
+// memories sharing the same subject + collection but with divergent content.
+// Read-only. NEVER modifies data.
+//
+// Query parameters:
+//
+//	?source=NAME    filter by source
+//	?subject=NAME   filter by subject
+//	?actor_type=T   filter by actor_type
+//	?limit=N        max groups (default 50, clamped to 200)
+//	?offset=N       pagination offset
+//
+// Reference: Tech Spec Section 13.2, Phase R-22.
+func (d *Daemon) handleConflicts(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/conflicts").Inc()
+
+	cq, ok := d.querier.(destination.ConflictQuerier)
+	if !ok {
+		d.writeErrorResponse(w, r, http.StatusNotImplemented, "not_implemented",
+			"conflict detection not supported by this destination", 0)
+		return
+	}
+
+	limit := 50
+	if ls := r.URL.Query().Get("limit"); ls != "" {
+		if n, err := strconv.Atoi(ls); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	offset := 0
+	if os := r.URL.Query().Get("offset"); os != "" {
+		if n, err := strconv.Atoi(os); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	groups, err := cq.QueryConflicts(destination.ConflictParams{
+		Source:    r.URL.Query().Get("source"),
+		Subject:   r.URL.Query().Get("subject"),
+		ActorType: r.URL.Query().Get("actor_type"),
+		Limit:     limit,
+		Offset:    offset,
+	})
+	if err != nil {
+		d.logger.Error("daemon: conflict query failed",
+			"component", "daemon",
+			"error", err,
+		)
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+			"conflict query failed", 0)
+		return
+	}
+
+	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"conflicts": groups,
+		"count":     len(groups),
+	})
+}
+
+// handleTimeTravel serves GET /api/timetravel — returns memories as of a
+// specific timestamp. Read-only. NEVER modifies data.
+//
+// Query parameters:
+//
+//	?as_of=RFC3339  required — return memories with timestamp <= this value
+//	?subject=NAME   filter by subject
+//	?namespace=NS   filter by namespace
+//	?destination=D  filter by destination
+//	?limit=N        max records (default 50, clamped to 200)
+//	?offset=N       pagination offset
+//
+// Reference: Tech Spec Section 13.2, Phase R-22.
+func (d *Daemon) handleTimeTravel(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/timetravel").Inc()
+
+	ttq, ok := d.querier.(destination.TimeTravelQuerier)
+	if !ok {
+		d.writeErrorResponse(w, r, http.StatusNotImplemented, "not_implemented",
+			"time-travel not supported by this destination", 0)
+		return
+	}
+
+	asOfStr := r.URL.Query().Get("as_of")
+	if asOfStr == "" {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "missing_parameter",
+			"as_of query parameter is required (RFC3339 timestamp)", 0)
+		return
+	}
+	asOf, err := time.Parse(time.RFC3339, asOfStr)
+	if err != nil {
+		// Try RFC3339Nano as well.
+		asOf, err = time.Parse(time.RFC3339Nano, asOfStr)
+		if err != nil {
+			d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_timestamp",
+				"as_of must be a valid RFC3339 timestamp", 0)
+			return
+		}
+	}
+
+	limit := 50
+	if ls := r.URL.Query().Get("limit"); ls != "" {
+		if n, parseErr := strconv.Atoi(ls); parseErr == nil && n > 0 {
+			limit = n
+		}
+	}
+	offset := 0
+	if os := r.URL.Query().Get("offset"); os != "" {
+		if n, parseErr := strconv.Atoi(os); parseErr == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	result, err := ttq.QueryTimeTravel(destination.TimeTravelParams{
+		AsOf:        asOf,
+		Namespace:   r.URL.Query().Get("namespace"),
+		Subject:     r.URL.Query().Get("subject"),
+		Destination: r.URL.Query().Get("destination"),
+		Limit:       limit,
+		Offset:      offset,
+	})
+	if err != nil {
+		d.logger.Error("daemon: time-travel query failed",
+			"component", "daemon",
+			"error", err,
+		)
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+			"time-travel query failed", 0)
+		return
+	}
+
+	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"records":     result.Records,
+		"has_more":    result.HasMore,
+		"next_cursor": result.NextCursor,
+		"as_of":       asOf.Format(time.RFC3339Nano),
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Pipeline visualization SSE
 // ---------------------------------------------------------------------------
 

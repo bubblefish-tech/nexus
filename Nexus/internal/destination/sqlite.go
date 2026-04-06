@@ -585,3 +585,172 @@ func marshalMetadata(m map[string]string) (string, error) {
 	}
 	return string(b), nil
 }
+
+// QueryConflicts returns groups of contradictory memories. It groups by
+// subject + collection (entity_key) and returns groups where multiple distinct
+// content values exist.
+//
+// All SQL is parameterized. NEVER string concatenation.
+// Reference: Tech Spec Section 13.2.
+func (d *SQLiteDestination) QueryConflicts(params ConflictParams) ([]ConflictGroup, error) {
+	limit := ClampLimit(params.Limit)
+
+	args := make([]interface{}, 0, 4)
+	conditions := make([]string, 0, 3)
+
+	if params.Source != "" {
+		conditions = append(conditions, "source = ?")
+		args = append(args, params.Source)
+	}
+	if params.Subject != "" {
+		conditions = append(conditions, "subject = ?")
+		args = append(args, params.Subject)
+	}
+	if params.ActorType != "" {
+		conditions = append(conditions, "actor_type = ?")
+		args = append(args, params.ActorType)
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + joinConditions(conditions)
+	}
+
+	// Find subject+collection groups with more than one distinct content value.
+	//nolint:gosec // whereClause from fixed conditions — no user input.
+	query := `SELECT subject, collection, COUNT(DISTINCT content) as cnt
+		FROM memories ` + whereClause + `
+		GROUP BY subject, collection
+		HAVING COUNT(DISTINCT content) > 1
+		ORDER BY cnt DESC
+		LIMIT ? OFFSET ?`
+
+	args = append(args, limit, params.Offset)
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("destination: sqlite: query conflicts: %w", err)
+	}
+	defer rows.Close()
+
+	type groupKey struct {
+		subject    string
+		collection string
+	}
+	keys := make([]groupKey, 0, limit)
+	for rows.Next() {
+		var gk groupKey
+		var cnt int
+		if err := rows.Scan(&gk.subject, &gk.collection, &cnt); err != nil {
+			return nil, fmt.Errorf("destination: sqlite: scan conflict group: %w", err)
+		}
+		keys = append(keys, gk)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("destination: sqlite: conflict rows: %w", err)
+	}
+
+	// For each group, fetch the distinct values.
+	groups := make([]ConflictGroup, 0, len(keys))
+	for _, gk := range keys {
+		detailRows, err := d.db.Query(
+			"SELECT DISTINCT content, source, timestamp FROM memories WHERE subject = ? AND collection = ? ORDER BY timestamp DESC",
+			gk.subject, gk.collection,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("destination: sqlite: conflict detail query: %w", err)
+		}
+
+		g := ConflictGroup{
+			Subject:   gk.subject,
+			EntityKey: gk.collection,
+		}
+		for detailRows.Next() {
+			var content, src, ts string
+			if err := detailRows.Scan(&content, &src, &ts); err != nil {
+				detailRows.Close()
+				return nil, fmt.Errorf("destination: sqlite: scan conflict detail: %w", err)
+			}
+			g.ConflictingValues = append(g.ConflictingValues, content)
+			g.Sources = append(g.Sources, src)
+			parsed, _ := time.Parse(time.RFC3339Nano, ts)
+			g.Timestamps = append(g.Timestamps, parsed)
+		}
+		detailRows.Close()
+		g.Count = len(g.ConflictingValues)
+		groups = append(groups, g)
+	}
+
+	return groups, nil
+}
+
+// QueryTimeTravel returns memories as of the specified timestamp. Results are
+// filtered to timestamp <= as_of and ordered by timestamp DESC.
+//
+// All SQL is parameterized. NEVER string concatenation.
+// Reference: Tech Spec Section 13.2.
+func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResult, error) {
+	limit := ClampLimit(params.Limit)
+	offset := params.Offset
+
+	args := make([]interface{}, 0, 5)
+	conditions := []string{"timestamp <= ?"}
+	args = append(args, params.AsOf.Format(time.RFC3339Nano))
+
+	if params.Namespace != "" {
+		conditions = append(conditions, "namespace = ?")
+		args = append(args, params.Namespace)
+	}
+	if params.Destination != "" {
+		conditions = append(conditions, "destination = ?")
+		args = append(args, params.Destination)
+	}
+	if params.Subject != "" {
+		conditions = append(conditions, "subject = ?")
+		args = append(args, params.Subject)
+	}
+
+	whereClause := "WHERE " + joinConditions(conditions)
+
+	fetchLimit := limit + 1
+	args = append(args, fetchLimit, offset)
+
+	//nolint:gosec // whereClause from fixed conditions — no user input.
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return QueryResult{}, fmt.Errorf("destination: sqlite: time travel query: %w", err)
+	}
+	defer rows.Close()
+
+	records := make([]TranslatedPayload, 0, limit)
+	for rows.Next() {
+		var rec TranslatedPayload
+		var ts, metaStr string
+		if err := rows.Scan(
+			&rec.PayloadID, &rec.RequestID, &rec.Source, &rec.Subject,
+			&rec.Namespace, &rec.Destination, &rec.Collection, &rec.Content,
+			&rec.Model, &rec.Role, &ts, &rec.IdempotencyKey,
+			&rec.SchemaVersion, &rec.TransformVersion, &rec.ActorType,
+			&rec.ActorID, &metaStr,
+		); err != nil {
+			return QueryResult{}, fmt.Errorf("destination: sqlite: time travel scan: %w", err)
+		}
+		rec.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+		if metaStr != "" && metaStr != "{}" {
+			_ = json.Unmarshal([]byte(metaStr), &rec.Metadata)
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return QueryResult{}, fmt.Errorf("destination: sqlite: time travel rows: %w", err)
+	}
+
+	result := QueryResult{Records: records}
+	if len(records) > limit {
+		result.Records = records[:limit]
+		result.HasMore = true
+		result.NextCursor = EncodeCursor(offset + limit)
+	}
+	return result, nil
+}
