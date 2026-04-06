@@ -99,6 +99,7 @@ func (w *WAL) markStatus(payloadID, status string) error {
 			return markErr
 		}
 		if found {
+			w.pendingCount.Add(-1)
 			return nil
 		}
 	}

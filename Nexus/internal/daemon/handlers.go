@@ -656,10 +656,20 @@ func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleReady is the readiness probe. Returns 200 when the destination is
-// healthy, 503 otherwise. No authentication required.
-// Reference: Tech Spec Section 11.4, Phase 0C Behavioral Contract item 13.
+// handleReady is the readiness probe. Returns 200 when both the WAL and
+// destination are healthy, 503 otherwise. No authentication required.
+// Reference: Tech Spec Section 4.4, Section 11.4.
 func (d *Daemon) handleReady(w http.ResponseWriter, r *http.Request) {
+	// WAL health check — set by watchdog goroutine.
+	if d.walHealthy.Load() == 0 {
+		d.logger.Warn("daemon: readiness probe: WAL unhealthy",
+			"component", "daemon",
+		)
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "wal_unhealthy",
+			"WAL directory is not writable or disk space is below threshold", 0)
+		return
+	}
+
 	if err := d.dest.Ping(); err != nil {
 		d.logger.Warn("daemon: readiness probe: destination unhealthy",
 			"component", "daemon",

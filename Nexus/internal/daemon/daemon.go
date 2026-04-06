@@ -39,6 +39,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/cache"
@@ -87,6 +88,11 @@ type Daemon struct {
 	// hot reload to verify compiled config signatures.
 	// NEVER log this value.
 	signingKey []byte
+
+	// walHealthy tracks whether the WAL watchdog considers the WAL healthy.
+	// 1 = healthy, 0 = unhealthy. Checked by /ready to return 503.
+	// Reference: Tech Spec Section 4.4.
+	walHealthy atomic.Int32
 
 	stopOnce sync.Once
 	stopped  chan struct{}
@@ -311,8 +317,10 @@ func (d *Daemon) Start() error {
 	d.metrics.WALCRCFailures.Add(float64(d.wal.CRCFailures()))
 	d.metrics.WALIntegrityFailures.Add(float64(d.wal.IntegrityFailures()))
 	d.metrics.WALHealthy.Set(1)
+	d.walHealthy.Store(1)
 
 	// Start WAL watchdog — updates WAL health and disk metrics periodically.
+	// Reference: Tech Spec Section 4.4.
 	go d.walWatchdog(walPath)
 
 	// Start hot reload watcher.
@@ -578,10 +586,17 @@ func (d *Daemon) startHotReload() {
 // WAL watchdog
 // ---------------------------------------------------------------------------
 
-// walWatchdog is a background goroutine that updates WAL-related Prometheus
-// metrics every 30 seconds. It exits when d.stopped is closed.
+// walWatchdog is a background goroutine that periodically checks WAL health:
+// directory writeability, disk space, and pending entry count. Interval is
+// configurable via [daemon.wal.watchdog] interval_seconds (default 30).
+// Reference: Tech Spec Section 4.4.
 func (d *Daemon) walWatchdog(walDir string) {
-	ticker := time.NewTicker(30 * time.Second)
+	cfg := d.getConfig()
+	interval := cfg.Daemon.WAL.Watchdog.IntervalSeconds
+	if interval <= 0 {
+		interval = 30
+	}
+	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -589,34 +604,66 @@ func (d *Daemon) walWatchdog(walDir string) {
 		case <-d.stopped:
 			return
 		case <-ticker.C:
-			d.updateWALMetrics(walDir)
+			d.runWatchdogCheck(walDir)
 		}
 	}
 }
 
-// updateWALMetrics refreshes WAL and disk metrics via doctor.
-func (d *Daemon) updateWALMetrics(walDir string) {
+// runWatchdogCheck performs a single watchdog iteration: probe WAL writeability,
+// check disk space, update pending count, and set Prometheus metrics + atomic
+// health flag for /ready. NEVER writes WAL entries — read-only.
+// Reference: Tech Spec Section 4.4.
+func (d *Daemon) runWatchdogCheck(walDir string) {
 	cfg := d.getConfig()
 	minDisk := uint64(cfg.Daemon.WAL.Watchdog.MinDiskBytes)
+	if minDisk == 0 {
+		minDisk = 100 << 20 // 100MB default per spec
+	}
+
 	res := doctor.Check(walDir, nil, minDisk) // no destination checks in watchdog
 
+	healthy := true
+
+	// Check WAL directory writeability.
 	if res.WALWritable {
 		d.metrics.WALHealthy.Set(1)
 	} else {
 		d.metrics.WALHealthy.Set(0)
+		healthy = false
 		d.logger.Error("daemon: WAL watchdog: WAL directory not writable",
 			"component", "daemon",
 			"wal_dir", walDir,
 		)
 	}
 
-	if res.DiskFreeBytes > 0 {
-		d.metrics.WALDiskBytesFree.Set(float64(res.DiskFreeBytes))
+	// Check disk space threshold.
+	d.metrics.WALDiskBytesFree.Set(float64(res.DiskFreeBytes))
+	if !res.DiskSpaceOK {
+		healthy = false
+		d.logger.Error("daemon: WAL watchdog: disk space below threshold",
+			"component", "daemon",
+			"wal_dir", walDir,
+			"free_bytes", res.DiskFreeBytes,
+			"min_bytes", minDisk,
+		)
+	}
+
+	// Update WAL pending entries count.
+	if d.wal != nil {
+		pending := d.wal.PendingCount()
+		d.metrics.WALPendingEntries.Set(float64(pending))
 	}
 
 	// Update queue depth.
 	if d.queue != nil {
 		d.metrics.QueueDepth.Set(float64(d.queue.Len()))
+	}
+
+	// Set atomic health flag for /ready endpoint.
+	if healthy {
+		d.walHealthy.Store(1)
+	} else {
+		d.walHealthy.Store(0)
 	}
 }
 

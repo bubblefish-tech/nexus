@@ -482,3 +482,111 @@ func TestWALReplayMalformedJSON(t *testing.T) {
 		t.Errorf("want 3 entries, got %d", len(replayed))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// PendingCount tests — Reference: Tech Spec Section 4.4.
+// ---------------------------------------------------------------------------
+
+// TestPendingCount_AppendIncrements verifies that PendingCount increases with
+// each successful Append.
+func TestPendingCount_AppendIncrements(t *testing.T) {
+	w, _ := openTestWAL(t)
+
+	if got := w.PendingCount(); got != 0 {
+		t.Fatalf("fresh WAL: want PendingCount=0, got %d", got)
+	}
+
+	appendN(t, w, 5)
+
+	if got := w.PendingCount(); got != 5 {
+		t.Fatalf("after 5 appends: want PendingCount=5, got %d", got)
+	}
+}
+
+// TestPendingCount_MarkDeliveredDecrements verifies that MarkDelivered
+// decrements PendingCount.
+func TestPendingCount_MarkDeliveredDecrements(t *testing.T) {
+	w, _ := openTestWAL(t)
+
+	for i := 0; i < 3; i++ {
+		if err := w.Append(Entry{
+			PayloadID:      fmt.Sprintf("p%d", i),
+			IdempotencyKey: fmt.Sprintf("k%d", i),
+			Payload:        json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+
+	if got := w.PendingCount(); got != 3 {
+		t.Fatalf("after 3 appends: want PendingCount=3, got %d", got)
+	}
+
+	if err := w.MarkDelivered("p1"); err != nil {
+		t.Fatalf("MarkDelivered: %v", err)
+	}
+
+	if got := w.PendingCount(); got != 2 {
+		t.Fatalf("after MarkDelivered: want PendingCount=2, got %d", got)
+	}
+}
+
+// TestPendingCount_MarkPermanentFailureDecrements verifies that
+// MarkPermanentFailure decrements PendingCount.
+func TestPendingCount_MarkPermanentFailureDecrements(t *testing.T) {
+	w, _ := openTestWAL(t)
+
+	if err := w.Append(Entry{
+		PayloadID:      "pfail",
+		IdempotencyKey: "kfail",
+		Payload:        json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	if err := w.MarkPermanentFailure("pfail"); err != nil {
+		t.Fatalf("MarkPermanentFailure: %v", err)
+	}
+
+	if got := w.PendingCount(); got != 0 {
+		t.Fatalf("after MarkPermanentFailure: want PendingCount=0, got %d", got)
+	}
+}
+
+// TestPendingCount_ReplayInitialises verifies that PendingCount is set
+// correctly during Replay from existing WAL segments.
+func TestPendingCount_ReplayInitialises(t *testing.T) {
+	w, dir := openTestWAL(t)
+
+	// Append 5 entries, deliver 2.
+	for i := 0; i < 5; i++ {
+		if err := w.Append(Entry{
+			PayloadID:      fmt.Sprintf("p%d", i),
+			IdempotencyKey: fmt.Sprintf("k%d", i),
+			Payload:        json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+	}
+	if err := w.MarkDelivered("p0"); err != nil {
+		t.Fatalf("MarkDelivered p0: %v", err)
+	}
+	if err := w.MarkDelivered("p1"); err != nil {
+		t.Fatalf("MarkDelivered p1: %v", err)
+	}
+	w.Close()
+
+	// Reopen — PendingCount starts at 0, Replay should set it to 3.
+	w2 := reopen(t, dir)
+	if got := w2.PendingCount(); got != 0 {
+		t.Fatalf("before Replay: want PendingCount=0, got %d", got)
+	}
+
+	replayed := replayAll(t, w2)
+	if len(replayed) != 3 {
+		t.Fatalf("want 3 replayed entries, got %d", len(replayed))
+	}
+	if got := w2.PendingCount(); got != 3 {
+		t.Fatalf("after Replay: want PendingCount=3, got %d", got)
+	}
+}

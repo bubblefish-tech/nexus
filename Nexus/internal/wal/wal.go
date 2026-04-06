@@ -99,6 +99,11 @@ type WAL struct {
 	// onSecurityEvent is called when a security-relevant event occurs
 	// (e.g. HMAC mismatch). May be nil.
 	onSecurityEvent SecurityEventFunc
+
+	// pendingCount tracks PENDING entries: incremented on Append, decremented
+	// on MarkDelivered/MarkPermanentFailure, initialised during Replay.
+	// Read without lock via PendingCount(). Reference: Tech Spec Section 4.4.
+	pendingCount atomic.Int64
 }
 
 // WithIntegrity configures WAL integrity mode. When mode is "mac", key
@@ -246,6 +251,7 @@ func (w *WAL) Append(entry Entry) error {
 	}
 
 	w.currentSize += int64(n)
+	w.pendingCount.Add(1)
 	if w.currentSize >= w.maxSize {
 		if rotErr := w.rotate(); rotErr != nil {
 			w.logger.Warn("wal: segment rotation failed",
@@ -387,10 +393,18 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 			seen[entry.IdempotencyKey] = true
 		}
 
+		w.pendingCount.Add(1)
 		fn(entry)
 	}
 
 	return scanner.Err()
+}
+
+// PendingCount returns the current count of PENDING WAL entries. Incremented
+// on Append and Replay, decremented on MarkDelivered/MarkPermanentFailure.
+// Safe to call concurrently. Reference: Tech Spec Section 4.4.
+func (w *WAL) PendingCount() int64 {
+	return w.pendingCount.Load()
 }
 
 // CRCFailures returns the total number of CRC32 mismatches encountered during

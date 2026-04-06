@@ -91,6 +91,7 @@ func NewTestDaemon(t testing.TB, cfg *config.Config) *Daemon {
 	d.dest = fakeDest
 	d.querier = fakeDest
 	d.queue = q
+	d.walHealthy.Store(1) // Match Start() initialisation.
 
 	return d
 }
@@ -147,6 +148,7 @@ func NewTestDaemonWithSQLite(t testing.TB, cfg *config.Config) (*Daemon, *destin
 	d.dest = sqliteDest
 	d.querier = sqliteDest
 	d.queue = q
+	d.walHealthy.Store(1) // Match Start() initialisation.
 
 	return d, sqliteDest
 }
@@ -208,6 +210,7 @@ func NewTestDaemonBlocking(t testing.TB, cfg *config.Config) *Daemon {
 	d.dest = bd
 	d.querier = &fakeDestination{}
 	d.queue = q
+	d.walHealthy.Store(1) // Match Start() initialisation.
 
 	return d
 }
@@ -245,4 +248,19 @@ func (d *Daemon) QueryHandler() http.Handler {
 // (e.g. health/ready probes that bypass auth).
 func (d *Daemon) BuildRouter() http.Handler {
 	return d.buildRouter()
+}
+
+// RunWatchdogCheck exposes runWatchdogCheck for testing the WAL health watchdog.
+func (d *Daemon) RunWatchdogCheck(walDir string) {
+	d.runWatchdogCheck(walDir)
+}
+
+// WALHealthy returns the current WAL health state (1=healthy, 0=unhealthy).
+func (d *Daemon) WALHealthy() int32 {
+	return d.walHealthy.Load()
+}
+
+// SetWALHealthy sets the WAL health state for testing.
+func (d *Daemon) SetWALHealthy(v int32) {
+	d.walHealthy.Store(v)
 }
