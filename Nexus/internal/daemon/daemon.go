@@ -84,6 +84,11 @@ type Daemon struct {
 	reloadWatcher *hotreload.Watcher
 	mcpServer     *mcp.Server // nil when MCP is disabled or failed to start
 
+	// trustedProxies holds parsed CIDR networks for determining effective
+	// client IP from forwarded headers. Nil when no trusted proxies are
+	// configured. Reference: Tech Spec Section 6.3.
+	proxies *trustedProxies
+
 	// signingKey holds the resolved signing key bytes when [daemon.signing]
 	// enabled = true. Nil when signing is disabled. Used at startup and by
 	// hot reload to verify compiled config signatures.
@@ -351,19 +356,60 @@ func (d *Daemon) Start() error {
 	// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
 	d.startMCPServer(cfg)
 
+	// Parse trusted proxies for effective_client_ip resolution.
+	// Reference: Tech Spec Section 6.3.
+	proxies, err := parseTrustedProxies(cfg.Daemon.TrustedProxies)
+	if err != nil {
+		return fmt.Errorf("daemon: %w", err)
+	}
+	d.proxies = proxies
+	if len(proxies.networks) > 0 {
+		d.logger.Info("daemon: trusted proxies configured",
+			"component", "daemon",
+			"cidr_count", len(proxies.networks),
+		)
+	}
+
+	// Build TLS configuration if enabled.
+	// INVARIANT: If TLS enabled but certs missing/unreadable, refuse to start.
+	// Reference: Tech Spec Section 6.2.
+	resolve := func(ref string) (string, error) {
+		return config.ResolveEnv(ref, d.logger)
+	}
+	tlsCfg, err := buildTLSConfig(cfg.Daemon.TLS, resolve)
+	if err != nil {
+		return fmt.Errorf("daemon: %w", err)
+	}
+
 	// Build HTTP server.
 	router := d.buildRouter()
 	d.server = newHTTPServer(d.serverAddr(), router)
 
-	d.logger.Info("daemon: starting HTTP server",
-		"component", "daemon",
-		"addr", d.serverAddr(),
-		"version", version.Version,
-	)
-
-	// ListenAndServe blocks until the server is closed.
-	if err := d.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("daemon: HTTP server: %w", err)
+	if tlsCfg != nil {
+		d.server.TLSConfig = tlsCfg
+		d.logger.Info("daemon: starting HTTPS server (TLS enabled)",
+			"component", "daemon",
+			"addr", d.serverAddr(),
+			"version", version.Version,
+			"tls_min", cfg.Daemon.TLS.MinVersion,
+			"tls_max", cfg.Daemon.TLS.MaxVersion,
+			"client_auth", cfg.Daemon.TLS.ClientAuth,
+		)
+		// ListenAndServeTLS with empty cert/key paths because the certificate
+		// is already loaded in TLSConfig.Certificates.
+		if err := d.server.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("daemon: HTTPS server: %w", err)
+		}
+	} else {
+		d.logger.Info("daemon: starting HTTP server",
+			"component", "daemon",
+			"addr", d.serverAddr(),
+			"version", version.Version,
+		)
+		// ListenAndServe blocks until the server is closed.
+		if err := d.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("daemon: HTTP server: %w", err)
+		}
 	}
 
 	return nil

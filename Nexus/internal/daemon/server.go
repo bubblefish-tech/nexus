@@ -18,6 +18,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -121,7 +122,16 @@ func (d *Daemon) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		start := time.Now()
-		next.ServeHTTP(ww, r)
+
+		// Derive effective client IP from trusted proxy headers or TCP source.
+		// Reference: Tech Spec Section 6.3.
+		clientIP := d.proxies.effectiveClientIP(r)
+
+		// Store effective_client_ip in context for downstream use (rate limiting,
+		// security events). Reference: Tech Spec Section 6.3.
+		ctx := context.WithValue(r.Context(), ctxEffectiveClientIP, clientIP)
+		next.ServeHTTP(ww, r.WithContext(ctx))
+
 		d.logger.Info("http request",
 			"component", "daemon",
 			"method", r.Method,
@@ -130,6 +140,7 @@ func (d *Daemon) loggingMiddleware(next http.Handler) http.Handler {
 			"bytes", ww.BytesWritten(),
 			"latency_ms", time.Since(start).Milliseconds(),
 			"request_id", middleware.GetReqID(r.Context()),
+			"effective_client_ip", clientIP,
 			"remote_addr", r.RemoteAddr,
 		)
 	})

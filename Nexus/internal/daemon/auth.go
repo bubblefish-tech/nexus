@@ -32,6 +32,11 @@ type contextKey int
 const (
 	// ctxSource is the context key for the authenticated *config.Source.
 	ctxSource contextKey = iota
+
+	// ctxEffectiveClientIP is the context key for the effective client IP
+	// derived from trusted proxy headers or TCP source. Set by
+	// loggingMiddleware. Reference: Tech Spec Section 6.3.
+	ctxEffectiveClientIP
 )
 
 // authResult carries the outcome of authentication for a single request.
@@ -180,5 +185,17 @@ func sourceFromContext(ctx context.Context) *config.Source {
 		return nil
 	}
 	s, _ := v.(*config.Source)
+	return s
+}
+
+// effectiveClientIPFromContext retrieves the effective client IP from ctx.
+// Returns "" if not present (should not happen after loggingMiddleware).
+// Reference: Tech Spec Section 6.3.
+func effectiveClientIPFromContext(ctx context.Context) string {
+	v := ctx.Value(ctxEffectiveClientIP)
+	if v == nil {
+		return ""
+	}
+	s, _ := v.(string)
 	return s
 }
