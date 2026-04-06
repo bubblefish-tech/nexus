@@ -45,6 +45,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "commands:")
 		fmt.Fprintln(os.Stderr, "  install      create config directory and initial configuration")
 		fmt.Fprintln(os.Stderr, "  start        start daemon + MCP + dashboard + tray")
+		fmt.Fprintln(os.Stderr, "  dev          start daemon with debug logging and auto-reload")
 		fmt.Fprintln(os.Stderr, "  build        compile policies and validate configuration")
 		fmt.Fprintln(os.Stderr, "  lint         check configuration for dangerous or suboptimal settings")
 		fmt.Fprintln(os.Stderr, "  mcp          MCP server management")
@@ -58,6 +59,8 @@ func main() {
 		runInstall(os.Args[2:])
 	case "start":
 		runStart()
+	case "dev":
+		runDev()
 	case "build":
 		runBuild()
 	case "lint":
@@ -82,7 +85,7 @@ func main() {
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish: unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|build|lint|sign-config|mcp|version>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|dev|build|lint|sign-config|mcp|version>")
 		os.Exit(1)
 	}
 }
