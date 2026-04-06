@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -94,6 +95,11 @@ type Daemon struct {
 	// Reference: Tech Spec Section 4.4.
 	walHealthy atomic.Int32
 
+	// consistencyScore stores the latest WAL-to-destination consistency score
+	// (0.0–1.0) as float64 bits. -1 means not yet computed. Read via
+	// math.Float64frombits. Reference: Tech Spec Section 11.5.
+	consistencyScore atomic.Uint64
+
 	stopOnce sync.Once
 	stopped  chan struct{}
 }
@@ -109,13 +115,16 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	if logger == nil {
 		panic("daemon: logger must not be nil")
 	}
-	return &Daemon{
+	d := &Daemon{
 		cfg:     cfg,
 		logger:  logger,
 		metrics: metrics.New(),
 		rl:      newRateLimiter(),
 		stopped: make(chan struct{}),
 	}
+	// -1.0 means "not yet computed". Overwritten on first check.
+	d.consistencyScore.Store(math.Float64bits(-1.0))
+	return d
 }
 
 // getConfig returns the current *config.Config under RLock. All concurrent
@@ -322,6 +331,17 @@ func (d *Daemon) Start() error {
 	// Start WAL watchdog — updates WAL health and disk metrics periodically.
 	// Reference: Tech Spec Section 4.4.
 	go d.walWatchdog(walPath)
+
+	// Start consistency checker if enabled.
+	// Reference: Tech Spec Section 11.5.
+	if cfg.Consistency.Enabled {
+		go d.consistencyChecker()
+		d.logger.Info("daemon: consistency checker started",
+			"component", "daemon",
+			"interval_seconds", cfg.Consistency.IntervalSeconds,
+			"sample_size", cfg.Consistency.SampleSize,
+		)
+	}
 
 	// Start hot reload watcher.
 	d.startHotReload()

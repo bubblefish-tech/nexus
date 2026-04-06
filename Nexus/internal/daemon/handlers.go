@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -698,10 +699,13 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 		queueDepth = d.queue.Len()
 	}
 
+	consistencyScore := math.Float64frombits(d.consistencyScore.Load())
+
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":      "running",
-		"version":     version.Version,
-		"queue_depth": queueDepth,
+		"status":            "running",
+		"version":           version.Version,
+		"queue_depth":       queueDepth,
+		"consistency_score": consistencyScore,
 	})
 }
 

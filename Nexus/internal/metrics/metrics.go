@@ -129,6 +129,12 @@ type Metrics struct {
 	// was applied in Stage 5 (Hybrid Merge + Temporal Decay).
 	// Reference: Tech Spec Section 11.3.
 	TemporalDecayApplied prometheus.Counter
+
+	// ── Consistency ──────────────────────────────────────────────────────────
+	// ConsistencyScore is the WAL-to-destination consistency score (0.0–1.0).
+	// Set by the consistency checker background goroutine.
+	// Reference: Tech Spec Section 11.5.
+	ConsistencyScore prometheus.Gauge
 }
 
 // New creates a Metrics with a private Prometheus registry. All metrics are
@@ -275,6 +281,12 @@ func New() *Metrics {
 		Help: "Number of times temporal decay reranking was applied in Stage 5.",
 	})
 
+	// ── Consistency ──────────────────────────────────────────────────────────
+	m.ConsistencyScore = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_consistency_score",
+		Help: "WAL-to-destination consistency score (0.0-1.0).",
+	})
+
 	// Register all application metrics on the private registry.
 	reg.MustRegister(
 		m.PayloadProcessingLatency,
@@ -297,6 +309,7 @@ func New() *Metrics {
 		m.ConfigLintWarnings,
 		m.EmbeddingLatency,
 		m.TemporalDecayApplied,
+		m.ConsistencyScore,
 	)
 
 	return m

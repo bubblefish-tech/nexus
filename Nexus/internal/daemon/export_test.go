@@ -22,6 +22,7 @@ package daemon
 
 import (
 	"log/slog"
+	"math"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -263,4 +264,16 @@ func (d *Daemon) WALHealthy() int32 {
 // SetWALHealthy sets the WAL health state for testing.
 func (d *Daemon) SetWALHealthy(v int32) {
 	d.walHealthy.Store(v)
+}
+
+// RunConsistencyCheck exposes runConsistencyCheck for testing the consistency
+// assertions background checker.
+func (d *Daemon) RunConsistencyCheck(sampleSize int) {
+	d.runConsistencyCheck(sampleSize)
+}
+
+// ConsistencyScore returns the latest consistency score stored atomically.
+// Returns -1.0 if not yet computed.
+func (d *Daemon) ConsistencyScore() float64 {
+	return math.Float64frombits(d.consistencyScore.Load())
 }

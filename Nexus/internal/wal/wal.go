@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"log/slog"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -419,6 +420,76 @@ func (w *WAL) CRCFailures() int64 {
 // Prometheus via bubblefish_wal_integrity_failures_total.
 func (w *WAL) IntegrityFailures() int64 {
 	return w.integrityFailures.Load()
+}
+
+// SampleDelivered scans all WAL segments and returns up to count randomly
+// sampled entries with status DELIVERED. This is a read-only operation used
+// by the consistency checker to verify that delivered payloads exist in the
+// destination. Corrupt or malformed entries are silently skipped.
+//
+// If fewer than count DELIVERED entries exist, all of them are returned.
+// Reference: Tech Spec Section 11.5.
+func (w *WAL) SampleDelivered(count int) ([]Entry, error) {
+	segs, err := w.segments()
+	if err != nil {
+		return nil, err
+	}
+
+	var delivered []Entry
+	for _, seg := range segs {
+		if err := w.scanDelivered(seg, &delivered); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(delivered) <= count {
+		return delivered, nil
+	}
+
+	// Fisher-Yates shuffle, take first count.
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng.Shuffle(len(delivered), func(i, j int) {
+		delivered[i], delivered[j] = delivered[j], delivered[i]
+	})
+	return delivered[:count], nil
+}
+
+// scanDelivered reads a single segment and appends DELIVERED entries to out.
+func (w *WAL) scanDelivered(path string, out *[]Entry) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("wal: open segment for scan %q: %w", path, err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
+			continue
+		}
+
+		jsonBytes := []byte(parts[0])
+		storedCRC := parts[1]
+
+		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
+		if computed != storedCRC {
+			continue // skip corrupt entries silently
+		}
+
+		var entry Entry
+		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+			continue
+		}
+
+		if entry.Status == StatusDelivered {
+			*out = append(*out, entry)
+		}
+	}
+	return scanner.Err()
 }
 
 // Close closes the current WAL segment. Safe to call multiple times.

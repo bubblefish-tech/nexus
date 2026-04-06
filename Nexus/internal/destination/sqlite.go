@@ -409,6 +409,18 @@ func (d *SQLiteDestination) Exists(payloadID string) (bool, error) {
 	return true, nil
 }
 
+// DeletePayload removes a single record by payload_id. Used by consistency
+// assertion tests to verify that the checker detects missing entries.
+// Returns the number of rows deleted (0 or 1).
+func (d *SQLiteDestination) DeletePayload(payloadID string) (int64, error) {
+	const query = `DELETE FROM memories WHERE payload_id = ?`
+	res, err := d.db.Exec(query, payloadID)
+	if err != nil {
+		return 0, fmt.Errorf("destination: sqlite: delete %q: %w", payloadID, err)
+	}
+	return res.RowsAffected()
+}
+
 // Query returns a page of memories matching params using a basic structured
 // query on the memories table. It implements the Querier interface for Phase 0C.
 // The full 6-stage retrieval cascade (Phase 3+) replaces this for production reads.
