@@ -56,7 +56,6 @@ func key(scope, dest, query string) [32]byte {
 // ---------------------------------------------------------------------------
 
 func TestLRU_BasicAddAndGet(t *testing.T) {
-	t.Helper()
 	l := cache.NewLRU[string, int](1024)
 	l.Add("a", 1, 10)
 	l.Add("b", 2, 10)
@@ -71,7 +70,6 @@ func TestLRU_BasicAddAndGet(t *testing.T) {
 }
 
 func TestLRU_MissingKey_ReturnsFalse(t *testing.T) {
-	t.Helper()
 	l := cache.NewLRU[string, int](1024)
 	_, ok := l.Get("missing")
 	if ok {
@@ -80,7 +78,6 @@ func TestLRU_MissingKey_ReturnsFalse(t *testing.T) {
 }
 
 func TestLRU_UpdateExisting_DoesNotGrowLen(t *testing.T) {
-	t.Helper()
 	l := cache.NewLRU[string, int](1024)
 	l.Add("k", 1, 10)
 	l.Add("k", 2, 10) // update same key
@@ -95,7 +92,6 @@ func TestLRU_UpdateExisting_DoesNotGrowLen(t *testing.T) {
 }
 
 func TestLRU_Remove(t *testing.T) {
-	t.Helper()
 	l := cache.NewLRU[string, int](1024)
 	l.Add("x", 99, 10)
 	l.Remove("x")
@@ -110,7 +106,6 @@ func TestLRU_Remove(t *testing.T) {
 }
 
 func TestLRU_LRUEviction_OldestEvictedFirst(t *testing.T) {
-	t.Helper()
 	// Capacity for exactly 2 entries of 10 bytes each.
 	l := cache.NewLRU[string, string](20)
 	l.Add("first", "A", 10)
@@ -134,7 +129,6 @@ func TestLRU_LRUEviction_OldestEvictedFirst(t *testing.T) {
 }
 
 func TestLRU_BytesUsed_TracksCorrectly(t *testing.T) {
-	t.Helper()
 	l := cache.NewLRU[string, int](1024)
 	l.Add("a", 1, 100)
 	l.Add("b", 2, 200)
@@ -148,7 +142,6 @@ func TestLRU_BytesUsed_TracksCorrectly(t *testing.T) {
 }
 
 func TestLRU_Concurrency_NoRaceConditions(t *testing.T) {
-	t.Helper()
 	l := cache.NewLRU[int, int](1024 * 1024)
 	var wg sync.WaitGroup
 	for i := range 100 {
@@ -170,7 +163,6 @@ func TestLRU_Concurrency_NoRaceConditions(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestWatermark_InitialValue_IsZero(t *testing.T) {
-	t.Helper()
 	w := cache.NewWatermarkStore()
 	if w.Current("dest") != 0 {
 		t.Errorf("Current(unknown dest) = %d; want 0", w.Current("dest"))
@@ -178,7 +170,6 @@ func TestWatermark_InitialValue_IsZero(t *testing.T) {
 }
 
 func TestWatermark_Advance_MonotonicallyIncreases(t *testing.T) {
-	t.Helper()
 	w := cache.NewWatermarkStore()
 	v1 := w.Advance("d")
 	v2 := w.Advance("d")
@@ -195,7 +186,6 @@ func TestWatermark_Advance_MonotonicallyIncreases(t *testing.T) {
 }
 
 func TestWatermark_IndependentPerDest(t *testing.T) {
-	t.Helper()
 	w := cache.NewWatermarkStore()
 	w.Advance("alpha")
 	w.Advance("alpha")
@@ -218,7 +208,6 @@ func TestWatermark_IndependentPerDest(t *testing.T) {
 //
 // Reference: Tech Spec Section 3.4 — Stage 1 (scope isolation invariant).
 func TestExactCache_ScopeIsolation(t *testing.T) {
-	t.Helper()
 	c := newCache(DefaultMaxBytes)
 
 	keyA := key("source-A", "sqlite", "tell me about dogs")
@@ -247,7 +236,6 @@ func TestExactCache_ScopeIsolation(t *testing.T) {
 //
 // Reference: Tech Spec Section 3.4 — Stage 1 (watermark freshness check).
 func TestExactCache_WatermarkInvalidation(t *testing.T) {
-	t.Helper()
 	c := newCache(DefaultMaxBytes)
 
 	k := key("src", "sqlite", "dogs")
@@ -270,7 +258,6 @@ func TestExactCache_WatermarkInvalidation(t *testing.T) {
 // TestExactCache_NewEntryAfterInvalidation verifies that a Put after
 // InvalidateDest stores a fresh entry at the new watermark and is retrievable.
 func TestExactCache_NewEntryAfterInvalidation(t *testing.T) {
-	t.Helper()
 	c := newCache(DefaultMaxBytes)
 	k := key("src", "dest", "q")
 
@@ -296,7 +283,6 @@ func TestExactCache_NewEntryAfterInvalidation(t *testing.T) {
 //
 // Reference: Tech Spec Section 3.4 — Stage 1 (LRU capped at configurable max).
 func TestExactCache_LRUEviction(t *testing.T) {
-	t.Helper()
 	// Use a very small cache (1 byte) so every Put evicts all prior entries.
 	c := newCache(1)
 
@@ -319,7 +305,6 @@ func TestExactCache_LRUEviction(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExactCache_Hit(t *testing.T) {
-	t.Helper()
 	c := newCache(DefaultMaxBytes)
 	k := key("src", "dest", "q")
 	want := makeEntry("id-42", "hello world")
@@ -335,7 +320,6 @@ func TestExactCache_Hit(t *testing.T) {
 }
 
 func TestExactCache_Miss_AbsentKey(t *testing.T) {
-	t.Helper()
 	c := newCache(DefaultMaxBytes)
 	k := key("src", "dest", "never-stored")
 
@@ -349,7 +333,6 @@ func TestExactCache_Miss_AbsentKey(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBuildKey_DifferentScopes_ProduceDifferentKeys(t *testing.T) {
-	t.Helper()
 	kA := cache.BuildKey("A", "dest", "balanced", "ns", "subj", "q", 20, 0, "ph")
 	kB := cache.BuildKey("B", "dest", "balanced", "ns", "subj", "q", 20, 0, "ph")
 	if kA == kB {
@@ -358,7 +341,6 @@ func TestBuildKey_DifferentScopes_ProduceDifferentKeys(t *testing.T) {
 }
 
 func TestBuildKey_SameInputs_ProduceSameKey(t *testing.T) {
-	t.Helper()
 	k1 := cache.BuildKey("src", "dest", "balanced", "ns", "s", "q", 10, 0, "ph")
 	k2 := cache.BuildKey("src", "dest", "balanced", "ns", "s", "q", 10, 0, "ph")
 	if k1 != k2 {
@@ -367,7 +349,6 @@ func TestBuildKey_SameInputs_ProduceSameKey(t *testing.T) {
 }
 
 func TestBuildKey_DifferentPolicyHash_ProducesDifferentKey(t *testing.T) {
-	t.Helper()
 	k1 := cache.BuildKey("src", "dest", "balanced", "ns", "", "q", 20, 0, "policy-v1")
 	k2 := cache.BuildKey("src", "dest", "balanced", "ns", "", "q", 20, 0, "policy-v2")
 	if k1 == k2 {
@@ -384,7 +365,6 @@ func TestBuildKey_DifferentPolicyHash_ProducesDifferentKey(t *testing.T) {
 //
 // Reference: Phase 4 Verification Gate (100 goroutines: zero race reports).
 func TestExactCache_Concurrency_NoRaceConditions(t *testing.T) {
-	t.Helper()
 	c := newCache(DefaultMaxBytes)
 
 	var wg sync.WaitGroup

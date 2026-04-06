@@ -41,14 +41,12 @@ func (s *stubPinger) Close() error { s.closeCalls++; return nil }
 //
 // Reference: Phase 0D Verification Gate ("Doctor with healthy setup: all checks pass").
 func TestDoctorHealthy(t *testing.T) {
-	t.Helper()
-
 	walDir := t.TempDir()
 	dest := &stubPinger{name: "test-dest"}
 
 	result := doctor.Check(walDir, []doctor.Named{
 		{Name: dest.name, Dest: dest},
-	})
+	}, 0)
 
 	if !result.DaemonRunning {
 		t.Error("expected DaemonRunning=true")
@@ -78,13 +76,11 @@ func TestDoctorHealthy(t *testing.T) {
 //
 // Reference: Phase 0D Verification Gate ("Doctor with unwritable WAL dir: reports failure").
 func TestDoctorUnwritableWAL(t *testing.T) {
-	t.Helper()
-
 	// Use a path that cannot exist: a nested path under a temp dir that was
 	// never created. The probe file write will fail because the parent is absent.
 	nonExistent := filepath.Join(t.TempDir(), "does", "not", "exist")
 
-	result := doctor.Check(nonExistent, nil)
+	result := doctor.Check(nonExistent, nil, 0)
 
 	if result.WALWritable {
 		t.Error("expected WALWritable=false for non-existent directory")
@@ -100,15 +96,13 @@ func TestDoctorUnwritableWAL(t *testing.T) {
 //
 // Reference: Phase 0D Behavioral Contract item 12.
 func TestDoctorDestinationUnreachable(t *testing.T) {
-	t.Helper()
-
 	walDir := t.TempDir()
 	pingErr := errors.New("connection refused")
 	dest := &stubPinger{name: "unreachable", pingErr: pingErr}
 
 	result := doctor.Check(walDir, []doctor.Named{
 		{Name: dest.name, Dest: dest},
-	})
+	}, 0)
 
 	if len(result.Destinations) != 1 {
 		t.Fatalf("expected 1 destination result, got %d", len(result.Destinations))

@@ -28,6 +28,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/BubbleFish-Nexus/internal/version"
 )
 
 // JSON-RPC 2.0 error codes.
@@ -316,7 +318,7 @@ func (s *Server) handleInitialize(w http.ResponseWriter, req rpcRequest) {
 		},
 		ServerInfo: serverInfo{
 			Name:    "bubblefish-nexus",
-			Version: "0.1.0",
+			Version: version.Version,
 		},
 	})
 }

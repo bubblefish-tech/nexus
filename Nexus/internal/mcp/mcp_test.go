@@ -34,6 +34,7 @@ import (
 
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/mcp"
+	"github.com/BubbleFish-Nexus/internal/version"
 )
 
 // ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ func newTestPipeline() *recordingPipeline {
 			Records:        []destination.TranslatedPayload{},
 			RetrievalStage: 3,
 		},
-		statusResult: mcp.StatusResult{Status: "ok", Version: "0.1.0", QueueDepth: 0},
+		statusResult: mcp.StatusResult{Status: "ok", Version: version.Version, QueueDepth: 0},
 	}
 }
 

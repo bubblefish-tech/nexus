@@ -79,6 +79,12 @@ type Config struct {
 	// bubblefish_queue_processing_rate metric. Must be safe to call
 	// concurrently. If nil, no callback is made.
 	OnProcessed func()
+
+	// OnDelivered is an optional callback invoked after each entry is
+	// successfully written to the destination. Receives the destination name
+	// so the caller can invalidate caches for the affected destination.
+	// Must be safe to call concurrently. If nil, no callback is made.
+	OnDelivered func(destination string)
 }
 
 // Queue is a bounded, concurrency-safe message queue. All state is held in
@@ -91,7 +97,8 @@ type Queue struct {
 	logger      *slog.Logger
 	dest        destination.DestinationWriter
 	updater     wal.WALUpdater
-	onProcessed func() // optional; called after each successful write
+	onProcessed func()             // optional; called after each successful write
+	onDelivered func(dest string)  // optional; called with destination name after successful write
 }
 
 // New creates a Queue with the given configuration and starts the worker
@@ -126,6 +133,7 @@ func New(cfg Config, logger *slog.Logger, dest destination.DestinationWriter, up
 		dest:        dest,
 		updater:     updater,
 		onProcessed: cfg.OnProcessed,
+		onDelivered: cfg.OnDelivered,
 	}
 
 	for i := 0; i < workers; i++ {
@@ -264,6 +272,10 @@ func (q *Queue) processEntry(entry wal.Entry) {
 			// Notify metrics observer (e.g. bubblefish_queue_processing_rate).
 			if q.onProcessed != nil {
 				q.onProcessed()
+			}
+			// Notify cache invalidator with the destination name.
+			if q.onDelivered != nil {
+				q.onDelivered(entry.Destination)
 			}
 			return
 		}

@@ -31,15 +31,17 @@ import (
 
 const pgxDriverName = "pgx"
 
-// createPostgresMemoriesTable creates the memories table and the pgvector
-// extension if not already present.
+// createPostgresMemoriesTableFmt is the DDL for the memories table. The %d
+// placeholder is replaced with the configured embedding dimensions at runtime.
 //
 // The embedding column is a vector type from the pgvector extension. Callers
 // must ensure pgvector is installed in the target database; see
 // https://github.com/pgvector/pgvector.
 //
-// All SQL uses parameterized placeholders — no string concatenation.
-const createPostgresMemoriesTable = `
+// All data queries use parameterized placeholders — no string concatenation.
+// The %d here is safe because it is an integer from the validated config, not
+// user input.
+const createPostgresMemoriesTableFmt = `
 CREATE TABLE IF NOT EXISTS memories (
     payload_id        TEXT        PRIMARY KEY,
     request_id        TEXT        NOT NULL DEFAULT '',
@@ -58,7 +60,7 @@ CREATE TABLE IF NOT EXISTS memories (
     actor_type        TEXT        NOT NULL DEFAULT '',
     actor_id          TEXT        NOT NULL DEFAULT '',
     metadata          JSONB       NOT NULL DEFAULT '{}',
-    embedding         vector(1536),
+    embedding         vector(%d),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 )`
 
@@ -126,7 +128,9 @@ func (d *PostgresDestination) applySchema() error {
 		return fmt.Errorf("destination: postgres: create extension vector: %w", err)
 	}
 
-	if _, err := d.db.Exec(createPostgresMemoriesTable); err != nil {
+	//nolint:gosec // dimensions is a validated int from config, not user input.
+	ddl := fmt.Sprintf(createPostgresMemoriesTableFmt, d.dimensions)
+	if _, err := d.db.Exec(ddl); err != nil {
 		return fmt.Errorf("destination: postgres: create memories table: %w", err)
 	}
 	if _, err := d.db.Exec(createPostgresIdxIdempotency); err != nil {

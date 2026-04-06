@@ -61,8 +61,6 @@ func makeTestConfig(sourceName, apiKey, destName, destType string) *config.Confi
 //
 // Reference: Phase 0D Verification Gate ("Concurrent reload + 100 auth requests: zero race reports").
 func TestConcurrentReloadAndAuth(t *testing.T) {
-	t.Helper()
-
 	var mu sync.RWMutex
 	initial := makeTestConfig("src", "key-initial", "dest1", "sqlite")
 	current := initial
@@ -141,8 +139,6 @@ func TestConcurrentReloadAndAuth(t *testing.T) {
 // Reference: Phase 0D Behavioral Contract item 7,
 // Verification Gate ("Destination config change during reload: WARN logged, old config active").
 func TestDestinationChangeRejected(t *testing.T) {
-	t.Helper()
-
 	var mu sync.RWMutex
 	oldCfg := makeTestConfig("src", "apikey", "dest1", "sqlite")
 	current := oldCfg
@@ -196,8 +192,6 @@ func TestDestinationChangeRejected(t *testing.T) {
 //
 // Reference: Phase 0D Behavioral Contract item 5.
 func TestSourceChangeApplied(t *testing.T) {
-	t.Helper()
-
 	var mu sync.RWMutex
 	oldCfg := makeTestConfig("src", "key-old", "dest1", "sqlite")
 	current := oldCfg
@@ -239,8 +233,6 @@ func TestSourceChangeApplied(t *testing.T) {
 //
 // Reference: Phase 0D Behavioral Contract item 10.
 func TestWatcherStopExitsCleanly(t *testing.T) {
-	t.Helper()
-
 	sourcesDir := t.TempDir()
 	var mu sync.RWMutex
 	cfg := makeTestConfig("s", "k", "d", "sqlite")

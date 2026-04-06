@@ -257,10 +257,11 @@ func (d *SQLiteDestination) CanSemanticSearch() bool {
 func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, params QueryParams) ([]ScoredRecord, error) {
 	limit := ClampLimit(params.Limit)
 
-	// Over-sample: fetch 10× the requested limit as candidates for reranking.
-	// This improves recall when the top-N by recency differ from top-N by cosine.
-	const overSampleFactor = 10
-	candidateLimit := limit * overSampleFactor
+	// The caller (CascadeRunner) already applies over-sampling before calling
+	// SemanticSearch, so params.Limit is already the over-sampled value.
+	// We use it directly as the candidate fetch limit, with a floor of 100
+	// to ensure adequate recall even when small limits are requested.
+	candidateLimit := limit
 	if candidateLimit < 100 {
 		candidateLimit = 100
 	}
@@ -531,7 +532,11 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 
 // joinConditions joins SQL WHERE conditions with " AND ".
 // Inputs are fixed condition strings, never user-supplied values.
+// Returns "" if conds is empty.
 func joinConditions(conds []string) string {
+	if len(conds) == 0 {
+		return ""
+	}
 	result := conds[0]
 	for _, c := range conds[1:] {
 		result += " AND " + c

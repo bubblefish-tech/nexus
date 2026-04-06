@@ -50,7 +50,6 @@ func scopeKey(source, dest, profile, namespace string) [32]byte {
 // ---------------------------------------------------------------------------
 
 func TestSemanticCache_Hit_ExactVector(t *testing.T) {
-	t.Helper()
 	sc := newSemanticCache(10)
 
 	vec := []float32{1, 0, 0}
@@ -70,7 +69,6 @@ func TestSemanticCache_Hit_ExactVector(t *testing.T) {
 }
 
 func TestSemanticCache_Hit_SimilarVector(t *testing.T) {
-	t.Helper()
 	sc := newSemanticCache(10)
 
 	// Store vector along the X axis.
@@ -87,7 +85,6 @@ func TestSemanticCache_Hit_SimilarVector(t *testing.T) {
 }
 
 func TestSemanticCache_Miss_OrthogonalVector(t *testing.T) {
-	t.Helper()
 	sc := newSemanticCache(10)
 
 	stored := []float32{1, 0, 0}

@@ -82,7 +82,6 @@ func defaultQuery() query.CanonicalQuery {
 // ---------------------------------------------------------------------------
 
 func TestCascade_Stage0_CanReadFalse_Denied(t *testing.T) {
-	t.Helper()
 	mq := &mockQuerier{result: destination.QueryResult{Records: []destination.TranslatedPayload{}}}
 	runner := query.New(mq, nil)
 	src := &config.Source{Name: "s", Namespace: "ns", CanRead: false}

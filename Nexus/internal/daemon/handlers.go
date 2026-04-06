@@ -34,6 +34,7 @@ import (
 
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/query"
+	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
 
@@ -566,7 +567,11 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// Execute the 6-stage retrieval cascade.
 	// Reference: Tech Spec Section 3.4.
 	runner := query.New(d.querier, d.logger).
-		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency)
+		WithExactCache(d.exactCache).
+		WithSemanticCache(d.semanticCache).
+		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency).
+		WithRetrievalConfig(qcfg.Retrieval).
+		WithDecayCounter(d.metrics.TemporalDecayApplied)
 	cascResult, err := runner.Run(r.Context(), src, cq)
 	if err != nil {
 		d.logger.Error("daemon: cascade failed",
@@ -623,7 +628,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 	d.writeJSON(w, http.StatusOK, healthResponse{
 		Status:  "ok",
-		Version: "0.1.0",
+		Version: version.Version,
 	})
 }
 
@@ -642,7 +647,7 @@ func (d *Daemon) handleReady(w http.ResponseWriter, r *http.Request) {
 	}
 	d.writeJSON(w, http.StatusOK, healthResponse{
 		Status:  "ready",
-		Version: "0.1.0",
+		Version: version.Version,
 	})
 }
 
@@ -661,7 +666,7 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":      "running",
-		"version":     "0.1.0",
+		"version":     version.Version,
 		"queue_depth": queueDepth,
 	})
 }

@@ -69,8 +69,6 @@ func sampleEntry(source string, dests []string) policy.PolicyEntry {
 // ────────────────────────────────────────────────────────────────────────────
 
 func TestValidate(t *testing.T) {
-	t.Helper()
-
 	tests := []struct {
 		name       string
 		entries    []policy.PolicyEntry
@@ -171,7 +169,6 @@ func TestValidate(t *testing.T) {
 // ────────────────────────────────────────────────────────────────────────────
 
 func TestCompile_ValidPolicy(t *testing.T) {
-	t.Helper()
 	dir := t.TempDir()
 
 	entries := []policy.PolicyEntry{
@@ -223,7 +220,6 @@ func TestCompile_ValidPolicy(t *testing.T) {
 }
 
 func TestCompile_FieldVisibility(t *testing.T) {
-	t.Helper()
 	dir := t.TempDir()
 
 	entry := sampleEntry("claude", []string{"sqlite"})
@@ -251,7 +247,6 @@ func TestCompile_FieldVisibility(t *testing.T) {
 }
 
 func TestCompile_AllPolicyFields(t *testing.T) {
-	t.Helper()
 	dir := t.TempDir()
 
 	entry := sampleEntry("mysource", []string{"sqlite"})
@@ -290,7 +285,6 @@ func TestCompile_AllPolicyFields(t *testing.T) {
 }
 
 func TestCompile_CreatesOutputDirWith0700(t *testing.T) {
-	t.Helper()
 	base := t.TempDir()
 	outputDir := filepath.Join(base, "compiled")
 
@@ -313,7 +307,6 @@ func TestCompile_CreatesOutputDirWith0700(t *testing.T) {
 }
 
 func TestCompile_ZeroSources(t *testing.T) {
-	t.Helper()
 	dir := t.TempDir()
 
 	if err := policy.Compile(nil, dir, nil); err != nil {
@@ -339,7 +332,6 @@ func TestCompile_ZeroSources(t *testing.T) {
 }
 
 func TestCompile_OutputPathHelper(t *testing.T) {
-	t.Helper()
 	got := policy.OutputPath("/foo/compiled")
 	want := filepath.Join("/foo/compiled", "policies.json")
 	if got != want {

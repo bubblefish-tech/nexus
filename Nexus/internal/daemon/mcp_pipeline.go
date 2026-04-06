@@ -26,6 +26,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/query"
+	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
 
@@ -203,7 +204,11 @@ func (d *Daemon) Search(ctx context.Context, params mcp.SearchParams) (mcp.Searc
 
 	// Execute the 6-stage retrieval cascade.
 	runner := query.New(d.querier, d.logger).
-		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency)
+		WithExactCache(d.exactCache).
+		WithSemanticCache(d.semanticCache).
+		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency).
+		WithRetrievalConfig(cfg.Retrieval).
+		WithDecayCounter(d.metrics.TemporalDecayApplied)
 	cascResult, err := runner.Run(ctx, src, cq)
 	if err != nil {
 		return mcp.SearchResult{}, fmt.Errorf("mcp: cascade: %w", err)
@@ -233,7 +238,7 @@ func (d *Daemon) Status(_ context.Context) (mcp.StatusResult, error) {
 	}
 	return mcp.StatusResult{
 		Status:     "ok",
-		Version:    "0.1.0",
+		Version:    version.Version,
 		QueueDepth: queueDepth,
 	}, nil
 }

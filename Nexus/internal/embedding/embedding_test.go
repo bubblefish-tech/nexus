@@ -74,7 +74,6 @@ func errorHandler(w http.ResponseWriter, _ *http.Request) {
 // ---------------------------------------------------------------------------
 
 func TestOpenAIClient_Embed_Success(t *testing.T) {
-	t.Helper()
 	want := []float32{0.1, 0.2, 0.3}
 	srv := httptest.NewServer(openAIHandler(want))
 	defer srv.Close()
@@ -109,7 +108,6 @@ func TestOpenAIClient_Embed_Success(t *testing.T) {
 }
 
 func TestOpenAIClient_Embed_ProviderError_ReturnsUnavailable(t *testing.T) {
-	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(errorHandler))
 	defer srv.Close()
 
@@ -138,7 +136,6 @@ func TestOpenAIClient_Embed_ProviderError_ReturnsUnavailable(t *testing.T) {
 }
 
 func TestOpenAIClient_Embed_Timeout_ReturnsUnavailable(t *testing.T) {
-	t.Helper()
 	// Handler that blocks longer than the client timeout.
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -181,7 +178,6 @@ func TestOpenAIClient_Embed_Timeout_ReturnsUnavailable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCompatibleClient_Embed_Success(t *testing.T) {
-	t.Helper()
 	want := []float32{0.5, 0.6}
 	srv := httptest.NewServer(openAIHandler(want))
 	defer srv.Close()
@@ -214,7 +210,6 @@ func TestCompatibleClient_Embed_Success(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestOllamaClient_Embed_Success(t *testing.T) {
-	t.Helper()
 	want := []float32{0.9, 0.8, 0.7, 0.6}
 	srv := httptest.NewServer(ollamaHandler(want))
 	defer srv.Close()
@@ -244,7 +239,6 @@ func TestOllamaClient_Embed_Success(t *testing.T) {
 }
 
 func TestOllamaClient_Embed_Unreachable_ReturnsUnavailable(t *testing.T) {
-	t.Helper()
 	cfg := config.EmbeddingConfig{
 		Enabled:        true,
 		Provider:       embedding.ProviderOllama,
@@ -274,7 +268,6 @@ func TestOllamaClient_Embed_Unreachable_ReturnsUnavailable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFactory_Disabled_ReturnsNil(t *testing.T) {
-	t.Helper()
 	cfg := config.EmbeddingConfig{
 		Enabled: false,
 	}
@@ -288,7 +281,6 @@ func TestFactory_Disabled_ReturnsNil(t *testing.T) {
 }
 
 func TestFactory_UnknownProvider_ReturnsError(t *testing.T) {
-	t.Helper()
 	cfg := config.EmbeddingConfig{
 		Enabled:  true,
 		Provider: "mystery-provider",
@@ -304,7 +296,6 @@ func TestFactory_UnknownProvider_ReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFactory_NilClient_IsNilInterface(t *testing.T) {
-	t.Helper()
 	// Callers check for nil before using the client.
 	// A disabled config must return a nil interface — not a non-nil interface
 	// containing a nil pointer.
@@ -324,7 +315,6 @@ func TestFactory_NilClient_IsNilInterface(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestClient_Dimensions_ReturnsConfiguredValue(t *testing.T) {
-	t.Helper()
 	srv := httptest.NewServer(openAIHandler(nil))
 	defer srv.Close()
 

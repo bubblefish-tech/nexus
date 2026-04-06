@@ -29,9 +29,9 @@ import (
 	"time"
 )
 
-// minDiskFreeBytes is the minimum acceptable free disk space on the WAL
+// DefaultMinDiskFreeBytes is the minimum acceptable free disk space on the WAL
 // partition. Matches the WAL watchdog default of 100 MiB.
-const minDiskFreeBytes uint64 = 100 * 1024 * 1024
+const DefaultMinDiskFreeBytes uint64 = 100 * 1024 * 1024
 
 // Pinger is the subset of destination.DestinationWriter required for doctor
 // checks. It matches the interface exactly so destinations can be passed
@@ -84,12 +84,18 @@ type Result struct {
 }
 
 // Check runs all doctor health checks and returns a Result.
+// minDiskBytes is the minimum free disk threshold; pass 0 to use the default
+// (100 MiB).
 //
 // For each destination: Ping() is called, then Close() is called regardless of
 // Ping outcome. This prevents connection leaks (CR-7).
 //
 // Reference: Tech Spec Section 13.1, Phase 0D Behavioral Contract items 11–13.
-func Check(walDir string, dests []Named) Result {
+func Check(walDir string, dests []Named, minDiskBytes uint64) Result {
+	if minDiskBytes == 0 {
+		minDiskBytes = DefaultMinDiskFreeBytes
+	}
+
 	r := Result{
 		DaemonRunning: true, // If we are executing, the daemon is running.
 		Destinations:  make([]DestinationResult, 0, len(dests)),
@@ -102,7 +108,7 @@ func Check(walDir string, dests []Named) Result {
 	free, err := diskFreeBytes(walDir)
 	if err == nil {
 		r.DiskFreeBytes = free
-		r.DiskSpaceOK = free >= minDiskFreeBytes
+		r.DiskSpaceOK = free >= minDiskBytes
 	}
 
 	// Destination reachability. Always Close() after Ping() — CR-7.

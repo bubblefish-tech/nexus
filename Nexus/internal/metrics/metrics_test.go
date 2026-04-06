@@ -32,8 +32,6 @@ import (
 //
 // Reference: Phase 0D Behavioral Contract item 1.
 func TestMultipleRegistriesNoPanic(t *testing.T) {
-	t.Helper()
-
 	// Creating many instances must never panic.
 	instances := make([]*metrics.Metrics, 5)
 	for i := range instances {
@@ -61,8 +59,6 @@ func TestMultipleRegistriesNoPanic(t *testing.T) {
 //
 // Reference: Phase 0D Behavioral Contract item 3, Verification Gate.
 func TestMetricsNonZeroAfterExercise(t *testing.T) {
-	t.Helper()
-
 	m := metrics.New()
 
 	// Simulate 10 writes.
@@ -98,7 +94,7 @@ func TestMetricsNonZeroAfterExercise(t *testing.T) {
 		"bubblefish_throughput_per_source_total":          false,
 		"bubblefish_payload_processing_latency_seconds":   false,
 		"bubblefish_read_latency_seconds":                 false,
-		"bubblefish_queue_processing_rate":                false,
+		"bubblefish_queue_processing_rate_total":          false,
 		"bubblefish_queue_depth":                          false,
 		"bubblefish_wal_pending_entries":                  false,
 		"bubblefish_wal_healthy":                          false,
@@ -130,8 +126,6 @@ func TestMetricsNonZeroAfterExercise(t *testing.T) {
 //
 // Reference: Phase 0D Verification Gate.
 func TestRegistryServesPrometheusFormat(t *testing.T) {
-	t.Helper()
-
 	m := metrics.New()
 	m.ThroughputPerSource.WithLabelValues("s1").Inc()
 

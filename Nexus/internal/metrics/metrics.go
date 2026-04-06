@@ -188,7 +188,7 @@ func New() *Metrics {
 		Help: "Current queue depth.",
 	})
 	m.QueueProcessingRate = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_queue_processing_rate",
+		Name: "bubblefish_queue_processing_rate_total",
 		Help: "Payloads dequeued and successfully written.",
 	})
 

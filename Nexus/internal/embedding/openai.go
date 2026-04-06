@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -53,8 +52,6 @@ type openAIClient struct {
 	dimensions int
 	// resolvedKey is the pre-resolved API key. NEVER log this value.
 	resolvedKey string
-
-	closeOnce sync.Once
 }
 
 // newOpenAIClient creates an OpenAI-compatible embedding client.

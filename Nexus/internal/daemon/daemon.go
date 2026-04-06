@@ -41,6 +41,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/doctor"
@@ -50,6 +51,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/queue"
+	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
 
@@ -71,6 +73,8 @@ type Daemon struct {
 	dest            destination.DestinationWriter
 	querier         destination.Querier
 	embeddingClient embedding.EmbeddingClient // nil when embedding disabled
+	exactCache      *cache.ExactCache         // Stage 1 — Phase 4
+	semanticCache   *cache.SemanticCache      // Stage 2 — Phase 6
 	server          *http.Server
 	rl              *rateLimiter
 
@@ -180,14 +184,24 @@ func (d *Daemon) Start() error {
 		}
 	}
 
+	// Initialise exact cache (Stage 1) and semantic cache (Stage 2).
+	d.exactCache = cache.NewExactCache(cache.DefaultMaxBytes, cache.NewStats(d.metrics.Registry()))
+	d.semanticCache = cache.NewSemanticCache(cache.DefaultSemanticMaxEntries, cache.NewSemanticStats(d.metrics.Registry()))
+
 	// Initialise idempotency store.
 	d.idem = idempotency.New()
 
-	// Create queue — wire OnProcessed to increment queue_processing_rate.
+	// Create queue — wire OnProcessed to increment queue_processing_rate,
+	// and OnDelivered to advance cache watermarks so stale entries are
+	// invalidated.
 	d.queue = queue.New(
 		queue.Config{
 			Size:        cfg.Daemon.QueueSize,
 			OnProcessed: d.metrics.QueueProcessingRate.Inc,
+			OnDelivered: func(dest string) {
+				d.exactCache.InvalidateDest(dest)
+				d.semanticCache.InvalidateDest(dest)
+			},
 		},
 		d.logger,
 		d.dest,
@@ -222,7 +236,7 @@ func (d *Daemon) Start() error {
 	d.logger.Info("daemon: starting HTTP server",
 		"component", "daemon",
 		"addr", d.serverAddr(),
-		"version", "0.1.0",
+		"version", version.Version,
 	)
 
 	// ListenAndServe blocks until the server is closed.
@@ -488,7 +502,9 @@ func (d *Daemon) walWatchdog(walDir string) {
 
 // updateWALMetrics refreshes WAL and disk metrics via doctor.
 func (d *Daemon) updateWALMetrics(walDir string) {
-	res := doctor.Check(walDir, nil) // no destination checks in watchdog
+	cfg := d.getConfig()
+	minDisk := uint64(cfg.Daemon.WAL.Watchdog.MinDiskBytes)
+	res := doctor.Check(walDir, nil, minDisk) // no destination checks in watchdog
 
 	if res.WALWritable {
 		d.metrics.WALHealthy.Set(1)
@@ -502,13 +518,6 @@ func (d *Daemon) updateWALMetrics(walDir string) {
 
 	if res.DiskFreeBytes > 0 {
 		d.metrics.WALDiskBytesFree.Set(float64(res.DiskFreeBytes))
-	}
-
-	// Sync WAL CRC failure counter from the WAL engine.
-	// WAL.CRCFailures() returns the cumulative count; we use Add(0) to
-	// observe the current value without resetting it.
-	if d.wal != nil {
-		d.metrics.WALCRCFailures.Add(0) // already initialised in Start()
 	}
 
 	// Update queue depth.

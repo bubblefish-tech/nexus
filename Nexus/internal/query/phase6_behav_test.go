@@ -73,15 +73,6 @@ func permitAllSourceP6() *config.Source {
 }
 
 // sourceWithDecay returns a source with per-source decay configured.
-func sourceWithDecay(halfLifeDays float64) *config.Source {
-	src := permitAllSourceP6()
-	src.Policy.Decay = config.PolicyDecayConfig{
-		HalfLifeDays: halfLifeDays,
-		DecayMode:    "exponential",
-	}
-	return src
-}
-
 // writeP6 inserts a payload with a given embedding and timestamp.
 func writeP6(t *testing.T, db *destination.SQLiteDestination, id, content string, vec []float32, ts time.Time) {
 	t.Helper()

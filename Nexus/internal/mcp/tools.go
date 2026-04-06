@@ -31,6 +31,7 @@ import (
 	"context"
 
 	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/BubbleFish-Nexus/internal/version"
 )
 
 // Pipeline is the internal interface the MCP server uses to route tool calls
@@ -206,5 +207,5 @@ func (p *TestPipeline) Search(_ context.Context, _ SearchParams) (SearchResult, 
 
 // Status returns a canned "ok" status without querying the daemon.
 func (p *TestPipeline) Status(_ context.Context) (StatusResult, error) {
-	return StatusResult{Status: "ok", Version: "0.1.0", QueueDepth: 0}, nil
+	return StatusResult{Status: "ok", Version: version.Version, QueueDepth: 0}, nil
 }
