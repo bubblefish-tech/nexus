@@ -39,12 +39,19 @@ func main() {
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 		fmt.Fprintln(os.Stderr, "usage: bubblefish <command>")
 		fmt.Fprintln(os.Stderr, "commands:")
+		fmt.Fprintln(os.Stderr, "  install  create config directory and initial configuration")
+		fmt.Fprintln(os.Stderr, "  start    start daemon + MCP + dashboard + tray")
 		fmt.Fprintln(os.Stderr, "  build    compile policies and validate configuration")
+		fmt.Fprintln(os.Stderr, "  mcp      MCP server management")
 		fmt.Fprintln(os.Stderr, "  version  print version string")
 		os.Exit(1)
 	}
 
 	switch os.Args[1] {
+	case "install":
+		runInstall(os.Args[2:])
+	case "start":
+		runStart()
 	case "build":
 		runBuild()
 	case "mcp":
@@ -65,7 +72,7 @@ func main() {
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish: unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "usage: bubblefish <build|mcp|version>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|build|mcp|version>")
 		os.Exit(1)
 	}
 }
