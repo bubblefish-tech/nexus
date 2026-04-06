@@ -136,6 +136,19 @@ type Metrics struct {
 	// Reference: Tech Spec Section 11.3.
 	TemporalDecayApplied prometheus.Counter
 
+	// ── Event Sink ──────────────────────────────────────────────────────────
+	// EventsDroppedTotal counts event sink events dropped (channel full).
+	// Reference: Tech Spec Section 11.3.
+	EventsDroppedTotal prometheus.Counter
+
+	// EventsDeliveredTotal counts event sink events successfully delivered.
+	// Reference: Tech Spec Section 11.3.
+	EventsDeliveredTotal prometheus.Counter
+
+	// EventsFailedTotal counts event sink delivery failures (retries exhausted).
+	// Reference: Tech Spec Section 11.3.
+	EventsFailedTotal prometheus.Counter
+
 	// ── Consistency ──────────────────────────────────────────────────────────
 	// ConsistencyScore is the WAL-to-destination consistency score (0.0–1.0).
 	// Set by the consistency checker background goroutine.
@@ -296,6 +309,20 @@ func New() *Metrics {
 		Help: "Number of times temporal decay reranking was applied in Stage 5.",
 	})
 
+	// ── Event Sink ──────────────────────────────────────────────────────────
+	m.EventsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_events_dropped_total",
+		Help: "Event sink events dropped (channel full).",
+	})
+	m.EventsDeliveredTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_events_delivered_total",
+		Help: "Event sink events successfully delivered.",
+	})
+	m.EventsFailedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_events_failed_total",
+		Help: "Event sink delivery failures.",
+	})
+
 	// ── Consistency ──────────────────────────────────────────────────────────
 	m.ConsistencyScore = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "bubblefish_consistency_score",
@@ -325,6 +352,9 @@ func New() *Metrics {
 		m.ConfigLintWarnings,
 		m.EmbeddingLatency,
 		m.TemporalDecayApplied,
+		m.EventsDroppedTotal,
+		m.EventsDeliveredTotal,
+		m.EventsFailedTotal,
 		m.ConsistencyScore,
 	)
 

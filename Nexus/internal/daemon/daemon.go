@@ -52,6 +52,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/idempotency"
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/metrics"
+	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
@@ -88,6 +89,10 @@ type Daemon struct {
 	// securityLog is the structured security event logger. Nil when
 	// security_events.enabled is false. Reference: Tech Spec Section 11.2.
 	securityLog *securitylog.Logger
+
+	// eventSink is the webhook event sink. Nil when daemon.events.enabled
+	// is false. Reference: Tech Spec Section 10.
+	eventSink *eventsink.Sink
 
 	// trustedProxies holds parsed CIDR networks for determining effective
 	// client IP from forwarded headers. Nil when no trusted proxies are
@@ -396,6 +401,34 @@ func (d *Daemon) Start() error {
 		)
 	}
 
+	// Initialise event sink (webhooks) if enabled.
+	// Reference: Tech Spec Section 10.
+	if cfg.Daemon.Events.Enabled && len(cfg.Daemon.Events.Sinks) > 0 {
+		sinks := make([]eventsink.SinkConfig, len(cfg.Daemon.Events.Sinks))
+		for i, s := range cfg.Daemon.Events.Sinks {
+			sinks[i] = eventsink.SinkConfig{
+				Name:           s.Name,
+				URL:            s.URL,
+				TimeoutSeconds: s.TimeoutSeconds,
+				MaxRetries:     s.MaxRetries,
+				Content:        s.Content,
+			}
+		}
+		d.eventSink = eventsink.New(eventsink.Config{
+			MaxInFlight:         cfg.Daemon.Events.MaxInFlight,
+			RetryBackoffSeconds: cfg.Daemon.Events.RetryBackoffSeconds,
+			Sinks:               sinks,
+			Metrics:             &eventSinkMetrics{m: d.metrics},
+			Logger:              d.logger,
+		})
+		d.eventSink.Start()
+		d.logger.Info("daemon: event sink started",
+			"component", "daemon",
+			"sinks", len(sinks),
+			"max_inflight", cfg.Daemon.Events.MaxInFlight,
+		)
+	}
+
 	// Start hot reload watcher.
 	d.startHotReload()
 
@@ -566,6 +599,12 @@ func (d *Daemon) Stop() error {
 					firstErr = err
 				}
 			}
+		}
+
+		// Drain event sink workers.
+		// Reference: Tech Spec Section 14.2 — drain in Stage 3.
+		if d.eventSink != nil {
+			d.eventSink.Stop()
 		}
 
 		// Close security event log.
@@ -864,3 +903,16 @@ func expandPath(p string) (string, error) {
 	}
 	return filepath.Join(home, p[1:]), nil
 }
+
+// ---------------------------------------------------------------------------
+// Event sink metrics adapter
+// ---------------------------------------------------------------------------
+
+// eventSinkMetrics adapts the Metrics struct to the eventsink.Metrics interface.
+type eventSinkMetrics struct {
+	m *metrics.Metrics
+}
+
+func (a *eventSinkMetrics) IncDropped()   { a.m.EventsDroppedTotal.Inc() }
+func (a *eventSinkMetrics) IncDelivered() { a.m.EventsDeliveredTotal.Inc() }
+func (a *eventSinkMetrics) IncFailed()    { a.m.EventsFailedTotal.Inc() }

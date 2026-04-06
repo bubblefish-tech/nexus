@@ -35,6 +35,7 @@ import (
 
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/lint"
 	"github.com/BubbleFish-Nexus/internal/query"
 	"github.com/BubbleFish-Nexus/internal/version"
@@ -449,6 +450,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.metrics.WALAppendLatency.Observe(time.Since(walStart).Seconds())
+
+	// Emit event to webhook sinks — non-blocking.
+	// Reference: Tech Spec Section 10.1 — emission after WAL append.
+	d.emitWriteEvent(entry, payloadBytes)
 
 	// Step 11 — Register idempotency key AFTER WAL.
 	// Reference: Tech Spec Section 3.2 Step 15.
@@ -966,6 +971,9 @@ func (d *Daemon) handleOpenAIWrite(w http.ResponseWriter, r *http.Request) {
 		}
 		d.metrics.WALAppendLatency.Observe(time.Since(walStart).Seconds())
 
+		// Emit event to webhook sinks — non-blocking.
+		d.emitWriteEvent(entry, payloadBytes)
+
 		if err := d.queue.Enqueue(entry); err != nil {
 			w.Header().Set("Retry-After", "5")
 			d.writeErrorResponse(w, r, http.StatusTooManyRequests, "queue_full",
@@ -1017,6 +1025,30 @@ func (d *Daemon) writeErrorResponse(w http.ResponseWriter, r *http.Request, stat
 		Details:           map[string]interface{}{},
 	}
 	d.writeJSON(w, status, resp)
+}
+
+// ---------------------------------------------------------------------------
+// Event sink helpers
+// ---------------------------------------------------------------------------
+
+// emitWriteEvent sends a memory_written event to the event sink (if enabled).
+// Non-blocking — NEVER blocks the write path.
+// Reference: Tech Spec Section 10.1.
+func (d *Daemon) emitWriteEvent(entry wal.Entry, payload json.RawMessage) {
+	if d.eventSink == nil {
+		return
+	}
+	d.eventSink.Emit(eventsink.Event{
+		EventType:   "memory_written",
+		PayloadID:   entry.PayloadID,
+		Source:      entry.Source,
+		Subject:     entry.Subject,
+		Destination: entry.Destination,
+		Timestamp:   entry.Timestamp,
+		ActorType:   entry.ActorType,
+		ActorID:     entry.ActorID,
+		Content:     payload,
+	})
 }
 
 // ---------------------------------------------------------------------------
