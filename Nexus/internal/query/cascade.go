@@ -85,6 +85,26 @@ type CascadeResult struct {
 	// SemanticUnavailableReason is a human-readable explanation for why semantic
 	// search was skipped. Set when SemanticUnavailable is true.
 	SemanticUnavailableReason string
+
+	// Debug holds optional per-stage diagnostic information. Populated only
+	// when the cascade is run in debug mode. Reference: Tech Spec Section 7.3.
+	Debug *DebugInfo
+}
+
+// DebugInfo holds per-stage diagnostic data for the _nexus.debug response.
+// Reference: Tech Spec Section 7.3.
+type DebugInfo struct {
+	StagesHit          []string           `json:"stages_hit"`
+	CandidatesPerStage map[string]int     `json:"candidates_per_stage"`
+	PerStageLatencyMs  map[string]float64 `json:"per_stage_latency_ms"`
+	CacheHit           bool               `json:"cache_hit"`
+	CacheType          string             `json:"cache_type"`
+	TemporalDecayConfig struct {
+		Mode             string  `json:"mode"`
+		HalfLifeDays     float64 `json:"half_life_days"`
+		OverSampleFactor int     `json:"over_sample_factor"`
+	} `json:"temporal_decay_config"`
+	TotalLatencyMs float64 `json:"total_latency_ms"`
 }
 
 // StageName returns the human-readable stage name for use in _nexus.stage
@@ -124,6 +144,7 @@ type CascadeRunner struct {
 	retrieval        config.RetrievalConfig // Phase 6: over-sample factor + decay
 	decayCounter     prometheus.Counter    // Phase 6: bubblefish_temporal_decay_applied_total
 	destinations     map[string]*config.Destination // Phase R-7: per-dest/collection decay
+	debug            bool // when true, populate DebugInfo in CascadeResult
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -200,6 +221,14 @@ func (cr *CascadeRunner) WithDestinations(dests map[string]*config.Destination) 
 	return cr
 }
 
+// WithDebug enables debug mode. When true, the CascadeResult.Debug field is
+// populated with per-stage diagnostic information.
+// Reference: Tech Spec Section 7.3.
+func (cr *CascadeRunner) WithDebug(enabled bool) *CascadeRunner {
+	cr.debug = enabled
+	return cr
+}
+
 // Run executes the 6-stage retrieval cascade for the given source policy and
 // canonical query. Stages execute strictly in order 0 → 5. Each stage may
 // produce results and short-circuit, pass through to the next stage, or block
@@ -207,9 +236,22 @@ func (cr *CascadeRunner) WithDestinations(dests map[string]*config.Destination) 
 //
 // Reference: Tech Spec Section 3.4.
 func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q CanonicalQuery) (CascadeResult, error) {
+	cascadeStart := time.Now()
+
+	// Debug tracking — only allocate when debug mode is on.
+	var dbg *DebugInfo
+	if cr.debug {
+		dbg = &DebugInfo{
+			StagesHit:          make([]string, 0, 6),
+			CandidatesPerStage: make(map[string]int),
+			PerStageLatencyMs:  make(map[string]float64),
+		}
+	}
+
 	// ── Stage 0: Policy Gate — always runs ──────────────────────────────────
 	// Returns HTTP 403 with a specific denial reason when blocked.
 	// Reference: Tech Spec Section 3.4 — Stage 0.
+	s0Start := time.Now()
 	if denial := runStage0(src, q); denial != nil {
 		cr.logger.Warn("query: cascade Stage 0 denied request",
 			"component", "cascade",
@@ -218,6 +260,10 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 			"code", denial.Code,
 		)
 		return CascadeResult{Denial: denial, Profile: q.Profile}, nil
+	}
+	if dbg != nil {
+		dbg.StagesHit = append(dbg.StagesHit, "policy_gate")
+		dbg.PerStageLatencyMs["policy_gate"] = float64(time.Since(s0Start).Microseconds()) / 1000.0
 	}
 
 	// ── Fast Path: Exact-Subject Short-Circuit ──────────────────────────────
@@ -267,13 +313,22 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 				"source", src.Name,
 				"destination", q.Destination,
 			)
-			return CascadeResult{
+			result := CascadeResult{
 				Records:        entry.Records,
 				NextCursor:     entry.NextCursor,
 				HasMore:        entry.HasMore,
 				Profile:        q.Profile,
 				RetrievalStage: 1,
-			}, nil
+			}
+			if dbg != nil {
+				dbg.StagesHit = append(dbg.StagesHit, "exact_cache")
+				dbg.CandidatesPerStage["exact_cache"] = len(entry.Records)
+				dbg.CacheHit = true
+				dbg.CacheType = "exact"
+				dbg.TotalLatencyMs = float64(time.Since(cascadeStart).Microseconds()) / 1000.0
+				result.Debug = dbg
+			}
+			return result, nil
 		}
 	}
 
@@ -353,13 +408,22 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 				"source", src.Name,
 				"destination", q.Destination,
 			)
-			return CascadeResult{
+			result := CascadeResult{
 				Records:        entry.Records,
 				NextCursor:     entry.NextCursor,
 				HasMore:        entry.HasMore,
 				Profile:        q.Profile,
 				RetrievalStage: 2,
-			}, nil
+			}
+			if dbg != nil {
+				dbg.StagesHit = append(dbg.StagesHit, "semantic_cache")
+				dbg.CandidatesPerStage["semantic_cache"] = len(entry.Records)
+				dbg.CacheHit = true
+				dbg.CacheType = "semantic"
+				dbg.TotalLatencyMs = float64(time.Since(cascadeStart).Microseconds()) / 1000.0
+				result.Debug = dbg
+			}
+			return result, nil
 		}
 	}
 
@@ -529,6 +593,33 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		Profile:        q.Profile,
 		RetrievalStage: finalStage,
 	}
+
+	// Populate debug info for the non-cache path.
+	if dbg != nil {
+		dbg.StagesHit = append(dbg.StagesHit, "structured_lookup")
+		dbg.CandidatesPerStage["structured_lookup"] = len(records)
+		if len(stage4Records) > 0 {
+			dbg.StagesHit = append(dbg.StagesHit, "semantic_retrieval")
+			dbg.CandidatesPerStage["semantic_retrieval"] = len(stage4Records)
+		}
+		if finalStage == 5 {
+			dbg.StagesHit = append(dbg.StagesHit, "hybrid_merge")
+			dbg.CandidatesPerStage["hybrid_merge"] = len(finalRecords)
+			var destDecay config.DestinationDecayConfig
+			if cr.destinations != nil {
+				if dest := cr.destinations[q.Destination]; dest != nil {
+					destDecay = dest.Decay
+				}
+			}
+			decayCfg := ResolveDecay(cr.retrieval, destDecay, q.Collection, src.Policy.Decay, q.Profile)
+			dbg.TemporalDecayConfig.Mode = decayCfg.Mode
+			dbg.TemporalDecayConfig.HalfLifeDays = decayCfg.HalfLifeDays
+			dbg.TemporalDecayConfig.OverSampleFactor = cr.retrieval.OverSampleFactor
+		}
+		dbg.TotalLatencyMs = float64(time.Since(cascadeStart).Microseconds()) / 1000.0
+		result.Debug = dbg
+	}
+
 	if semanticSkipped {
 		result.SemanticUnavailable = true
 		result.SemanticUnavailableReason = skipReason

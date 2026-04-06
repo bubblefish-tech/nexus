@@ -220,6 +220,18 @@ func effectiveClientIPFromContext(ctx context.Context) string {
 	return s
 }
 
+// isAdminToken checks whether the request carries an admin token without
+// modifying the auth flow. Used by debug_stages to determine if the caller
+// is authorized for debug output. Reference: Tech Spec Section 7.3.
+func (d *Daemon) isAdminToken(r *http.Request) bool {
+	token := extractBearerToken(r)
+	if token == "" {
+		return false
+	}
+	cfg := d.getConfig()
+	return subtle.ConstantTimeCompare([]byte(token), cfg.ResolvedAdminKey) == 1
+}
+
 // authenticateJWT attempts to validate the Bearer token as a JWT and map the
 // configured claim to a source. Returns the matched *config.Source or nil if
 // JWT validation fails or the claim does not match any known source.

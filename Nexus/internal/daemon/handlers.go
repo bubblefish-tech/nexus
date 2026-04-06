@@ -86,14 +86,15 @@ type openAIMemoriesResponse struct {
 // nexusMetadata is the _nexus metadata block returned on every query response.
 // Reference: Tech Spec Section 3.4, Phase 5 Behavioral Contract 4, Section 3.7.
 type nexusMetadata struct {
-	ResultCount              int    `json:"result_count"`
-	HasMore                  bool   `json:"has_more"`
-	NextCursor               string `json:"next_cursor,omitempty"`
-	Profile                  string `json:"profile"`
-	Stage                    string `json:"stage"`
-	RetrievalStage           int    `json:"retrieval_stage"`
-	SemanticUnavailable      bool   `json:"semantic_unavailable,omitempty"`
-	SemanticUnavailableReason string `json:"semantic_unavailable_reason,omitempty"`
+	ResultCount              int              `json:"result_count"`
+	HasMore                  bool             `json:"has_more"`
+	NextCursor               string           `json:"next_cursor,omitempty"`
+	Profile                  string           `json:"profile"`
+	Stage                    string           `json:"stage"`
+	RetrievalStage           int              `json:"retrieval_stage"`
+	SemanticUnavailable      bool             `json:"semantic_unavailable,omitempty"`
+	SemanticUnavailableReason string           `json:"semantic_unavailable_reason,omitempty"`
+	Debug                    *query.DebugInfo `json:"debug,omitempty"`
 }
 
 // healthResponse is returned by /health and /ready.
@@ -602,6 +603,12 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Debug stages: when ?debug_stages=true AND the request carries an admin
+	// token, populate _nexus.debug in the response. Data tokens with
+	// debug_stages=true are silently ignored — normal response returned.
+	// Reference: Tech Spec Section 7.3.
+	debugStages := r.URL.Query().Get("debug_stages") == "true" && d.isAdminToken(r)
+
 	// Execute the 6-stage retrieval cascade.
 	// Reference: Tech Spec Section 3.4.
 	runner := query.New(d.querier, d.logger).
@@ -609,7 +616,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		WithSemanticCache(d.semanticCache).
 		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency).
 		WithRetrievalConfig(qcfg.Retrieval).
-		WithDecayCounter(d.metrics.TemporalDecayApplied)
+		WithDecayCounter(d.metrics.TemporalDecayApplied).
+		WithDebug(debugStages)
 	cascResult, err := runner.Run(r.Context(), src, cq)
 	if err != nil {
 		d.logger.Error("daemon: cascade failed",
@@ -661,6 +669,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		RetrievalStage:            cascResult.RetrievalStage,
 		SemanticUnavailable:       cascResult.SemanticUnavailable,
 		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
+		Debug:                     cascResult.Debug,
 	}
 
 	// SSE streaming — when client sends Accept: text/event-stream.
