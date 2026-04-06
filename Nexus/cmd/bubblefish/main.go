@@ -51,6 +51,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  mcp          MCP server management")
 		fmt.Fprintln(os.Stderr, "  backup       create or restore a backup of config, WAL, and database")
 		fmt.Fprintln(os.Stderr, "  bench        throughput, latency, and retrieval evaluation benchmarks")
+		fmt.Fprintln(os.Stderr, "  demo         reliability demo: crash-recovery with 50 memories")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
@@ -85,13 +86,15 @@ func main() {
 		runBackup(os.Args[2:])
 	case "bench":
 		runBench(os.Args[2:])
+	case "demo":
+		runDemo(os.Args[2:])
 	case "sign-config":
 		runSignConfig()
 	case "version", "--version":
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish: unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|dev|build|lint|backup|bench|sign-config|mcp|version>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|dev|build|lint|backup|bench|demo|sign-config|mcp|version>")
 		os.Exit(1)
 	}
 }

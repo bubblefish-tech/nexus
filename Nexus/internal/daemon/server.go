@@ -89,6 +89,9 @@ func (d *Daemon) buildRouter() http.Handler {
 		// Live pipeline visualization SSE — admin only.
 		// Reference: Tech Spec Section 12, Phase R-21.
 		r.Get("/api/viz/events", d.handleVizEvents)
+		// Reliability demo — admin only.
+		// Reference: Tech Spec Section 12, Section 13.3, Phase R-26.
+		r.Post("/api/demo/reliability", d.handleDemoReliability)
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(

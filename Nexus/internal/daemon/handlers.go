@@ -34,6 +34,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/demo"
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/lint"
@@ -1339,5 +1340,62 @@ func safePrefix(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// ---------------------------------------------------------------------------
+// Reliability Demo — POST /api/demo/reliability
+// ---------------------------------------------------------------------------
+
+// handleDemoReliability runs the reliability demo in-process (no SIGKILL).
+// It writes 50 memories, queries them back, and asserts 50 present with 0
+// duplicates. Returns JSON result. Admin-only.
+//
+// Reference: Tech Spec Section 12, Section 13.3, Phase R-26.
+func (d *Daemon) handleDemoReliability(w http.ResponseWriter, r *http.Request) {
+	cfg := d.getConfig()
+
+	// Resolve source and API key for the demo writes.
+	// Use the first available source with write permission, or "default".
+	var demoSource string
+	var demoAPIKey string
+	for _, src := range cfg.Sources {
+		if src.CanWrite {
+			demoSource = src.Name
+			if key, ok := cfg.ResolvedSourceKeys[src.Name]; ok {
+				demoAPIKey = string(key)
+			}
+			break
+		}
+	}
+	if demoSource == "" || demoAPIKey == "" {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "demo_no_source",
+			"no writable source with an API key is configured", 0)
+		return
+	}
+
+	// Determine destination — use the first source's target_dest.
+	demoDestination := "sqlite"
+	for _, src := range cfg.Sources {
+		if src.Name == demoSource && src.TargetDest != "" {
+			demoDestination = src.TargetDest
+			break
+		}
+	}
+
+	// Build the daemon URL from bind address.
+	demoURL := fmt.Sprintf("http://%s:%d", cfg.Daemon.Bind, cfg.Daemon.Port)
+
+	result, err := demo.RunInProcess(demoURL, demoSource, demoDestination, demoAPIKey, string(cfg.ResolvedAdminKey), d.logger)
+	if err != nil {
+		d.logger.Error("demo: reliability demo failed",
+			"component", "daemon",
+			"error", err,
+		)
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "demo_failed",
+			fmt.Sprintf("reliability demo failed: %v", err), 0)
+		return
+	}
+
+	d.writeJSON(w, http.StatusOK, result)
 }
 
