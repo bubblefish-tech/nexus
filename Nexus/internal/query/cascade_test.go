@@ -235,6 +235,7 @@ func TestCascade_Stage3_StructuredLookup_ReturnsRecords(t *testing.T) {
 		Destination: "sqlite",
 		Namespace:   "ns",
 		Subject:     "user:42",
+		Q:           "memory", // Q present to avoid fast path (Phase R-8).
 		Profile:     "fast",
 		Limit:       10,
 	}

@@ -105,3 +105,17 @@ func Normalize(p destination.QueryParams) (CanonicalQuery, error) {
 		ActorType:    p.ActorType,
 	}, nil
 }
+
+// IsFastPath reports whether the query shape qualifies for the exact-subject
+// fast path. The fast path is eligible when the query contains a subject filter
+// and a limit but no free-text search (Q), no actor_type filter, and no cursor
+// offset. This allows Nexus to bypass the full cascade and execute a direct
+// indexed query: SELECT * FROM memories WHERE subject = ? ORDER BY timestamp
+// DESC LIMIT ?.
+//
+// The fast path is auto-selected on query shape match — no opt-in required.
+//
+// Reference: Tech Spec Section 3.7.
+func IsFastPath(q CanonicalQuery) bool {
+	return q.Subject != "" && q.Q == "" && q.ActorType == "" && q.CursorOffset == 0
+}

@@ -79,12 +79,13 @@ type openAIMemoriesResponse struct {
 }
 
 // nexusMetadata is the _nexus metadata block returned on every query response.
-// Reference: Tech Spec Section 3.4, Phase 5 Behavioral Contract 4.
+// Reference: Tech Spec Section 3.4, Phase 5 Behavioral Contract 4, Section 3.7.
 type nexusMetadata struct {
 	ResultCount              int    `json:"result_count"`
 	HasMore                  bool   `json:"has_more"`
 	NextCursor               string `json:"next_cursor,omitempty"`
 	Profile                  string `json:"profile"`
+	Stage                    string `json:"stage"`
 	RetrievalStage           int    `json:"retrieval_stage"`
 	SemanticUnavailable      bool   `json:"semantic_unavailable,omitempty"`
 	SemanticUnavailableReason string `json:"semantic_unavailable_reason,omitempty"`
@@ -622,6 +623,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		HasMore:                   cascResult.HasMore,
 		NextCursor:                cascResult.NextCursor,
 		Profile:                   cascResult.Profile,
+		Stage:                     query.StageName(cascResult.RetrievalStage),
 		RetrievalStage:            cascResult.RetrievalStage,
 		SemanticUnavailable:       cascResult.SemanticUnavailable,
 		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,

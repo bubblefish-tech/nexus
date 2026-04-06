@@ -48,6 +48,13 @@ func (d *PolicyDenial) Error() string {
 	return d.Code + ": " + d.Reason
 }
 
+// StageFastPath is the sentinel RetrievalStage value used when the
+// exact-subject fast path handles the query. It is distinct from stages 0–5 so
+// callers can map it to the string "fast_path" in _nexus metadata.
+//
+// Reference: Tech Spec Section 3.7.
+const StageFastPath = -1
+
 // CascadeResult holds the output of a completed cascade run. When Denial is
 // non-nil the caller must return HTTP 403 — all other fields are zero-valued.
 //
@@ -63,7 +70,8 @@ type CascadeResult struct {
 	// Profile is the retrieval profile that was used.
 	Profile string
 	// RetrievalStage is the numeric stage number that produced results.
-	// Zero when Denial is set.
+	// Zero when Denial is set. StageFastPath (-1) when the exact-subject fast
+	// path was used.
 	RetrievalStage int
 	// Denial is non-nil when Stage 0 blocked the request. The caller must
 	// return HTTP 403 with Denial.Code as the error body.
@@ -77,6 +85,29 @@ type CascadeResult struct {
 	// SemanticUnavailableReason is a human-readable explanation for why semantic
 	// search was skipped. Set when SemanticUnavailable is true.
 	SemanticUnavailableReason string
+}
+
+// StageName returns the human-readable stage name for use in _nexus.stage
+// response metadata.
+//
+// Reference: Tech Spec Section 3.7, Section 7.2.
+func StageName(stage int) string {
+	switch stage {
+	case StageFastPath:
+		return "fast_path"
+	case 1:
+		return "exact_cache"
+	case 2:
+		return "semantic_cache"
+	case 3:
+		return "structured"
+	case 4:
+		return "semantic"
+	case 5:
+		return "hybrid_merge"
+	default:
+		return "unknown"
+	}
 }
 
 // CascadeRunner executes the 6-stage retrieval cascade. All state is held in
@@ -187,6 +218,33 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 			"code", denial.Code,
 		)
 		return CascadeResult{Denial: denial, Profile: q.Profile}, nil
+	}
+
+	// ── Fast Path: Exact-Subject Short-Circuit ──────────────────────────────
+	// Active when: query shape is subject + limit only (no Q, no actor_type,
+	// no cursor). Bypasses the full cascade with a direct indexed query.
+	// Returns empty on 0 results — does NOT fall through to the cascade.
+	//
+	// Reference: Tech Spec Section 3.7.
+	if IsFastPath(q) {
+		records, nextCursor, hasMore, err := runStage3(ctx, cr.querier, q)
+		if err != nil {
+			return CascadeResult{}, err
+		}
+		cr.logger.Debug("query: fast path executed",
+			"component", "cascade",
+			"source", src.Name,
+			"destination", q.Destination,
+			"subject", q.Subject,
+			"results", len(records),
+		)
+		return CascadeResult{
+			Records:        records,
+			NextCursor:     nextCursor,
+			HasMore:        hasMore,
+			Profile:        q.Profile,
+			RetrievalStage: StageFastPath,
+		}, nil
 	}
 
 	// ── Stage 1: Exact Cache ────────────────────────────────────────────────
