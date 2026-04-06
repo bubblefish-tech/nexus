@@ -474,23 +474,8 @@ func (d *Daemon) startMCPServer(cfg *config.Config) {
 		return
 	}
 
-	if cfg.Daemon.MCP.APIKey == "" {
-		d.logger.Warn("daemon: MCP enabled but api_key is empty — MCP disabled",
-			"component", "daemon",
-		)
-		return
-	}
-
-	resolvedKey, err := config.ResolveEnv(cfg.Daemon.MCP.APIKey, d.logger)
-	if err != nil {
-		d.logger.Warn("daemon: MCP API key resolution failed — MCP disabled",
-			"component", "daemon",
-			"error", err,
-		)
-		return
-	}
-	if resolvedKey == "" {
-		d.logger.Warn("daemon: resolved MCP API key is empty — MCP disabled",
+	if len(cfg.ResolvedMCPKey) == 0 {
+		d.logger.Warn("daemon: MCP enabled but api_key is empty or unresolved — MCP disabled",
 			"component", "daemon",
 		)
 		return
@@ -509,7 +494,7 @@ func (d *Daemon) startMCPServer(cfg *config.Config) {
 	sourceName := cfg.Daemon.MCP.SourceName
 
 	// Daemon itself is the Pipeline implementation.
-	srv := mcp.New(bind, port, []byte(resolvedKey), sourceName, d, d.logger)
+	srv := mcp.New(bind, port, cfg.ResolvedMCPKey, sourceName, d, d.logger)
 	if err := srv.Start(); err != nil {
 		d.logger.Warn("daemon: MCP server start failed — MCP disabled, HTTP continues",
 			"component", "daemon",

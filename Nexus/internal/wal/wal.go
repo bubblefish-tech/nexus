@@ -111,6 +111,19 @@ func WithIntegrity(mode string, key []byte) Option {
 	}
 }
 
+// WithEncryption configures WAL at-rest encryption with the provided key.
+// The key should be 32 bytes (AES-256). Encryption support is a future phase;
+// this option is accepted but not yet implemented.
+// Reference: Tech Spec Section 6.4.2.
+func WithEncryption(key []byte) Option {
+	return func(w *WAL) {
+		// Encryption implementation deferred to a future phase.
+		// Accepting the option now allows the daemon startup code to be
+		// written ahead of the WAL encryption implementation.
+		_ = key
+	}
+}
+
 // WithSecurityEvent registers a callback invoked on security events such
 // as wal_tamper_detected. The callback is invoked synchronously during
 // replay; it must not block.

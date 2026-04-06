@@ -45,6 +45,11 @@ type Config struct {
 	// ResolvedAdminKey is the resolved admin_token bytes.
 	// NEVER log this value.
 	ResolvedAdminKey []byte
+
+	// ResolvedMCPKey is the resolved MCP api_key bytes.
+	// May be nil if MCP is disabled or api_key is empty.
+	// NEVER log this value.
+	ResolvedMCPKey []byte
 }
 
 // SourceByName returns the Source with the given name, or nil if not found.

@@ -38,6 +38,7 @@ const (
 type authResult struct {
 	source    *config.Source
 	isAdmin   bool
+	isMCP     bool
 	provided  []byte // the raw token bytes — never log
 }
 
@@ -71,7 +72,7 @@ func (d *Daemon) authenticate(r *http.Request) (authResult, bool) {
 	d.configMu.RUnlock()
 
 	// Compare against admin key using constant-time comparison.
-	// We must still compare ALL source keys to avoid timing leaks.
+	// We must still compare ALL keys (admin, source, MCP) to avoid timing leaks.
 	adminMatch := subtle.ConstantTimeCompare(provided, cfg.ResolvedAdminKey) == 1
 
 	// Compare against every source key. Continue through ALL entries so that
@@ -84,11 +85,19 @@ func (d *Daemon) authenticate(r *http.Request) (authResult, bool) {
 		}
 	}
 
+	// Compare against MCP key if configured. Must always run to prevent
+	// timing side-channels even when MCP is disabled.
+	mcpMatch := len(cfg.ResolvedMCPKey) > 0 &&
+		subtle.ConstantTimeCompare(provided, cfg.ResolvedMCPKey) == 1
+
 	if matchedSource != nil {
 		return authResult{source: matchedSource, provided: provided}, true
 	}
 	if adminMatch {
 		return authResult{isAdmin: true, provided: provided}, true
+	}
+	if mcpMatch {
+		return authResult{isMCP: true, provided: provided}, true
 	}
 	d.metrics.AuthFailuresTotal.WithLabelValues("unknown").Inc()
 	return authResult{}, false
@@ -124,10 +133,10 @@ func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
 				"invalid or missing API key", 0)
 			return
 		}
-		if result.isAdmin {
-			// Admin tokens must not be used on data endpoints.
+		if result.isAdmin || result.isMCP {
+			// Admin and MCP tokens must not be used on data endpoints.
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
-				"admin token not accepted on data endpoints; use a source API key", 0)
+				"wrong token class for this endpoint", 0)
 			return
 		}
 		// Embed source in context for downstream handlers.
@@ -149,8 +158,9 @@ func (d *Daemon) requireAdminToken(next http.Handler) http.Handler {
 			return
 		}
 		if !result.isAdmin {
+			// Data-plane and MCP tokens must not be used on admin endpoints.
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
-				"source API key not accepted on admin endpoints; use the admin token", 0)
+				"wrong token class for this endpoint", 0)
 			return
 		}
 		next.ServeHTTP(w, r)

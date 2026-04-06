@@ -340,6 +340,19 @@ func resolveAndValidate(cfg *Config, logger *slog.Logger) error {
 		}
 	}
 
+	// Resolve MCP key if MCP is enabled and api_key is set.
+	// The resolved key is stored for use by both the MCP server and the HTTP
+	// auth path (to reject MCP tokens on HTTP endpoints).
+	if cfg.Daemon.MCP.Enabled && cfg.Daemon.MCP.APIKey != "" {
+		mcpKey, err := ResolveEnv(cfg.Daemon.MCP.APIKey, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: mcp api_key: %w", err)
+		}
+		if mcpKey != "" {
+			cfg.ResolvedMCPKey = []byte(mcpKey)
+		}
+	}
+
 	// Validate WAL path is set (default to config dir if empty).
 	if cfg.Daemon.WAL.Path == "" {
 		cfg.Daemon.WAL.Path = "~/.bubblefish/Nexus/wal"

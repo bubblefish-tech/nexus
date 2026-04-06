@@ -32,6 +32,13 @@ import (
 // fakes — no real WAL, queue, or SQLite are opened.
 func buildTestDaemon(t *testing.T, sources []*config.Source, resolvedKeys map[string][]byte, adminKey string) *daemon.Daemon {
 	t.Helper()
+	return buildTestDaemonWithMCP(t, sources, resolvedKeys, adminKey, "")
+}
+
+// buildTestDaemonWithMCP is like buildTestDaemon but also configures a resolved
+// MCP key for token class separation tests.
+func buildTestDaemonWithMCP(t *testing.T, sources []*config.Source, resolvedKeys map[string][]byte, adminKey, mcpKey string) *daemon.Daemon {
+	t.Helper()
 	cfg := &config.Config{
 		Daemon: config.DaemonConfig{
 			Port: 18080,
@@ -47,6 +54,9 @@ func buildTestDaemon(t *testing.T, sources []*config.Source, resolvedKeys map[st
 		Sources:            sources,
 		ResolvedSourceKeys: resolvedKeys,
 		ResolvedAdminKey:   []byte(adminKey),
+	}
+	if mcpKey != "" {
+		cfg.ResolvedMCPKey = []byte(mcpKey)
 	}
 	return daemon.NewTestDaemon(t, cfg)
 }
@@ -231,6 +241,89 @@ func TestAuth_SourceTokenOnAdminEndpoint_Returns401(t *testing.T) {
 	code := extractErrorCode(t, rr.Body.Bytes())
 	if code != "wrong_token_class" {
 		t.Errorf("error code = %q; want %q", code, "wrong_token_class")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MCP token class separation
+// Reference: Tech Spec Section 6.1, Phase R-4 Behavioral Contract items 2–3.
+// ---------------------------------------------------------------------------
+
+func TestAuth_MCPTokenOnDataEndpoint_Returns401(t *testing.T) {
+	sources := []*config.Source{
+		{Name: "claude", CanRead: true, CanWrite: true, Namespace: "claude",
+			RateLimit: config.SourceRateLimitConfig{RequestsPerMinute: 1000}},
+	}
+	keys := map[string][]byte{"claude": []byte("src-key")}
+	d := buildTestDaemonWithMCP(t, sources, keys, "admin-key-secret", "mcp-key-secret")
+
+	handler := d.RequireDataTokenHandler(okHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer mcp-key-secret")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d; want %d", rr.Code, http.StatusUnauthorized)
+	}
+	code := extractErrorCode(t, rr.Body.Bytes())
+	if code != "wrong_token_class" {
+		t.Errorf("error code = %q; want %q", code, "wrong_token_class")
+	}
+}
+
+func TestAuth_MCPTokenOnAdminEndpoint_Returns401(t *testing.T) {
+	sources := []*config.Source{
+		{Name: "claude", CanRead: true, CanWrite: true, Namespace: "claude",
+			RateLimit: config.SourceRateLimitConfig{RequestsPerMinute: 1000}},
+	}
+	keys := map[string][]byte{"claude": []byte("src-key")}
+	d := buildTestDaemonWithMCP(t, sources, keys, "admin-key-secret", "mcp-key-secret")
+
+	handler := d.RequireAdminTokenHandler(okHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer mcp-key-secret")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d; want %d", rr.Code, http.StatusUnauthorized)
+	}
+	code := extractErrorCode(t, rr.Body.Bytes())
+	if code != "wrong_token_class" {
+		t.Errorf("error code = %q; want %q", code, "wrong_token_class")
+	}
+}
+
+func TestAuth_CorrectTokenClass_MCPNotConfigured_StillWorks(t *testing.T) {
+	// When MCP key is not configured, data and admin tokens still work normally.
+	sources := []*config.Source{
+		{Name: "claude", CanRead: true, CanWrite: true, Namespace: "claude",
+			RateLimit: config.SourceRateLimitConfig{RequestsPerMinute: 1000}},
+	}
+	keys := map[string][]byte{"claude": []byte("src-key")}
+	d := buildTestDaemon(t, sources, keys, "admin-key")
+
+	// Data token on data endpoint → 200.
+	dataHandler := d.RequireDataTokenHandler(okHandler)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer src-key")
+	rr := httptest.NewRecorder()
+	dataHandler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("data token on data endpoint: status = %d; want %d", rr.Code, http.StatusOK)
+	}
+
+	// Admin token on admin endpoint → 200.
+	adminHandler := d.RequireAdminTokenHandler(okHandler)
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.Header.Set("Authorization", "Bearer admin-key")
+	rr2 := httptest.NewRecorder()
+	adminHandler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Errorf("admin token on admin endpoint: status = %d; want %d", rr2.Code, http.StatusOK)
 	}
 }
 
