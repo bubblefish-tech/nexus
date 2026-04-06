@@ -102,6 +102,11 @@ type QueryParams struct {
 	Cursor string
 	// Profile is the retrieval profile (fast, balanced, deep). Used by later phases.
 	Profile string
+	// ActorType filters results by provenance (user, agent, system). Empty means
+	// no filter.
+	//
+	// Reference: Tech Spec Section 7.1.
+	ActorType string
 }
 
 // QueryResult holds one page of query results and pagination state.
@@ -150,6 +155,20 @@ type SemanticSearcher interface {
 	// by cosine similarity descending. Filters are applied from params
 	// (Namespace, Destination). Implementations must be safe for concurrent use.
 	SemanticSearch(ctx context.Context, vec []float32, params QueryParams) ([]ScoredRecord, error)
+}
+
+// ValidActorType reports whether s is one of the accepted provenance values:
+// "user", "agent", or "system". Empty is NOT valid — callers must resolve
+// defaults before calling this function.
+//
+// Reference: Tech Spec Section 7.1 — Provenance Semantics.
+func ValidActorType(s string) bool {
+	switch s {
+	case "user", "agent", "system":
+		return true
+	default:
+		return false
+	}
 }
 
 const (

@@ -256,6 +256,11 @@ func (d *PostgresDestination) Query(params QueryParams) (QueryResult, error) {
 		args = append(args, "%"+params.Q+"%")
 		idx++
 	}
+	if params.ActorType != "" {
+		conditions = append(conditions, fmt.Sprintf("actor_type = $%d", idx))
+		args = append(args, params.ActorType)
+		idx++
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {

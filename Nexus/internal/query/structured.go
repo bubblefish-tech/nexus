@@ -56,6 +56,7 @@ func runStage3(
 		Limit:       cq.Limit,
 		Cursor:      cursor,
 		Profile:     cq.Profile,
+		ActorType:   cq.ActorType,
 	}
 
 	result, err := q.Query(params)

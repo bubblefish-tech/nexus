@@ -82,9 +82,13 @@ func (d *Daemon) Write(ctx context.Context, params mcp.WriteParams) (mcp.WriteRe
 	}
 
 	// Resolve actor fields.
+	// Reference: Tech Spec Section 7.1 — Provenance Semantics.
 	actorType := params.ActorType
 	if actorType == "" {
 		actorType = src.DefaultActorType
+	}
+	if !destination.ValidActorType(actorType) {
+		return mcp.WriteResult{}, fmt.Errorf("mcp: invalid_actor_type: actor_type must be one of: user, agent, system")
 	}
 	actorID := params.ActorID
 

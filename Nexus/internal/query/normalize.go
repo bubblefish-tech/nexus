@@ -89,5 +89,6 @@ func Normalize(p destination.QueryParams) (CanonicalQuery, error) {
 		CursorOffset: offset,
 		RawCursor:    p.Cursor,
 		Profile:      profile,
+		ActorType:    p.ActorType,
 	}, nil
 }

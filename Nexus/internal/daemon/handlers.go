@@ -365,9 +365,15 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	payloadID := newID()
 
 	// Actor type/ID: X-Actor-Type/X-Actor-ID headers override source defaults.
+	// Reference: Tech Spec Section 7.1 — Provenance Semantics.
 	actorType := r.Header.Get("X-Actor-Type")
 	if actorType == "" {
 		actorType = src.DefaultActorType
+	}
+	if !destination.ValidActorType(actorType) {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_actor_type",
+			"actor_type must be one of: user, agent, system", 0)
+		return
 	}
 	actorID := r.Header.Get("X-Actor-ID")
 	if actorID == "" {
@@ -548,6 +554,15 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		profile = qcfg.Retrieval.DefaultProfile
 	}
 
+	// Parse actor_type provenance filter.
+	// Reference: Tech Spec Section 7.1 — actor_type query filter.
+	actorTypeFilter := r.URL.Query().Get("actor_type")
+	if actorTypeFilter != "" && !destination.ValidActorType(actorTypeFilter) {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_actor_type",
+			"actor_type must be one of: user, agent, system", 0)
+		return
+	}
+
 	// Normalize query params into a CanonicalQuery. Invalid cursors → 400.
 	cq, err := query.Normalize(destination.QueryParams{
 		Destination: destName,
@@ -557,6 +572,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Limit:       limit,
 		Cursor:      r.URL.Query().Get("cursor"),
 		Profile:     profile,
+		ActorType:   actorTypeFilter,
 	})
 	if err != nil {
 		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_cursor",

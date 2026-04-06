@@ -445,6 +445,10 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 		conditions = append(conditions, "content LIKE ?")
 		args = append(args, "%"+params.Q+"%")
 	}
+	if params.ActorType != "" {
+		conditions = append(conditions, "actor_type = ?")
+		args = append(args, params.ActorType)
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
