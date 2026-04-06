@@ -23,6 +23,7 @@ package daemon
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -89,6 +90,123 @@ func NewTestDaemon(t testing.TB, cfg *config.Config) *Daemon {
 	d.idem = idem
 	d.dest = fakeDest
 	d.querier = fakeDest
+	d.queue = q
+
+	return d
+}
+
+// NewTestDaemonWithSQLite constructs a *Daemon wired with a real WAL and a real
+// SQLite destination in temp directories. Used by Phase 9 integration tests that
+// need to verify end-to-end data persistence (load test, crash recovery).
+//
+// Returns the Daemon and the SQLite destination for direct verification queries.
+func NewTestDaemonWithSQLite(t testing.TB, cfg *config.Config) (*Daemon, *destination.SQLiteDestination) {
+	t.Helper()
+
+	logger := slog.Default()
+
+	walDir := t.TempDir()
+	w, err := wal.Open(walDir, 50, logger)
+	if err != nil {
+		t.Fatalf("NewTestDaemonWithSQLite: open WAL: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Logf("NewTestDaemonWithSQLite: WAL close: %v", err)
+		}
+	})
+
+	dbDir := t.TempDir()
+	sqliteDest, err := destination.OpenSQLite(filepath.Join(dbDir, "test.db"), logger)
+	if err != nil {
+		t.Fatalf("NewTestDaemonWithSQLite: open SQLite: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqliteDest.Close(); err != nil {
+			t.Logf("NewTestDaemonWithSQLite: SQLite close: %v", err)
+		}
+	})
+
+	idem := idempotency.New()
+
+	d := New(cfg, logger)
+
+	q := queue.New(
+		queue.Config{
+			Size:        cfg.Daemon.QueueSize,
+			OnProcessed: d.metrics.QueueProcessingRate.Inc,
+		},
+		logger,
+		sqliteDest,
+		w,
+	)
+	t.Cleanup(func() { q.Drain() })
+
+	d.wal = w
+	d.idem = idem
+	d.dest = sqliteDest
+	d.querier = sqliteDest
+	d.queue = q
+
+	return d, sqliteDest
+}
+
+// blockingDestination blocks on every Write call until the test ends.
+// Used to force queue backpressure in overload tests.
+type blockingDestination struct {
+	fakeDestination
+	block chan struct{}
+}
+
+func (b *blockingDestination) Write(p destination.TranslatedPayload) error {
+	<-b.block // blocks forever until channel closed
+	return nil
+}
+
+// NewTestDaemonBlocking constructs a *Daemon with a destination that blocks on
+// every Write, causing the queue to fill immediately. Used by queue overload tests.
+func NewTestDaemonBlocking(t testing.TB, cfg *config.Config) *Daemon {
+	t.Helper()
+
+	logger := slog.Default()
+
+	walDir := t.TempDir()
+	w, err := wal.Open(walDir, 50, logger)
+	if err != nil {
+		t.Fatalf("NewTestDaemonBlocking: open WAL: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Logf("NewTestDaemonBlocking: WAL close: %v", err)
+		}
+	})
+
+	blockCh := make(chan struct{})
+	bd := &blockingDestination{block: blockCh}
+
+	idem := idempotency.New()
+
+	d := New(cfg, logger)
+
+	q := queue.New(
+		queue.Config{
+			Size:        cfg.Daemon.QueueSize,
+			Workers:     1,
+			OnProcessed: d.metrics.QueueProcessingRate.Inc,
+		},
+		logger,
+		bd,
+		w,
+	)
+	// LIFO cleanup: Drain must run after blockCh is closed so workers can unblock.
+	// Register Drain first (runs last), then close(blockCh) (runs first).
+	t.Cleanup(func() { q.Drain() })
+	t.Cleanup(func() { close(blockCh) })
+
+	d.wal = w
+	d.idem = idem
+	d.dest = bd
+	d.querier = &fakeDestination{}
 	d.queue = q
 
 	return d
