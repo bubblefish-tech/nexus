@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/BubbleFish-Nexus/internal/fsutil"
 	"github.com/BubbleFish-Nexus/internal/version"
 )
 
@@ -87,7 +88,7 @@ func Compile(entries []PolicyEntry, outputDir string, logger *slog.Logger) error
 	}
 
 	outPath := filepath.Join(outputDir, "policies.json")
-	if err := os.Rename(tmpPath, outPath); err != nil {
+	if err := fsutil.RobustRename(tmpPath, outPath); err != nil {
 		return fmt.Errorf("policy: rename %q → %q: %w", tmpPath, outPath, err)
 	}
 	renamed = true

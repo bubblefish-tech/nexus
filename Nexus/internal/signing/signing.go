@@ -32,6 +32,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/BubbleFish-Nexus/internal/fsutil"
 )
 
 // SecurityEventFunc is a callback invoked when a signature verification
@@ -81,7 +83,7 @@ func SignFile(jsonPath string, key []byte) error {
 		return fmt.Errorf("signing: close temp file %q: %w", tmpPath, err)
 	}
 
-	if err := os.Rename(tmpPath, sigPath); err != nil {
+	if err := fsutil.RobustRename(tmpPath, sigPath); err != nil {
 		return fmt.Errorf("signing: rename %q → %q: %w", tmpPath, sigPath, err)
 	}
 	renamed = true

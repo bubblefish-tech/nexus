@@ -155,9 +155,59 @@ Wrapped both calls with `if err := d.Write(p); err != nil { t.Fatalf(...) }`.
 | BFN-2026-004 | P1 | R-22 | Unchecked I/O error | Fixed |
 | BFN-2026-005 | P2 | R-20 | Deprecated API | Fixed |
 | BFN-2026-006 | P3 | R-22 | Test quality | Fixed |
+| BFN-2026-007 | P1 | R-9 | Windows rename + WAL batch perf | Fixed |
 
 **Pre-existing issues not addressed (out of scope):**
 - `internal/daemon/phase9_test.go:486,507` — unused test helper functions (`multiSourceDaemon`, `retryAfterValue`)
 - `internal/mcp/server.go:79` — unused type `initializeParams`
 - Various unchecked `Close()` returns in pre-existing test files (embedding, wal, mcp, web)
 - `internal/hotreload/watcher_test.go:197` — ineffectual assignment (pre-existing)
+
+---
+
+## Bug #7: Load Test Fails on Windows — WAL Segment Rename Access Denied
+
+| Field | Value |
+|-------|-------|
+| **ID** | BFN-2026-007 |
+| **Severity** | P1 — High |
+| **Phase** | R-9 (Phase 9 Load Test) |
+| **File** | `internal/daemon/phase9_test.go:177-212` |
+| **Test** | `TestPhase9_LoadTest_1000ConcurrentWrites` |
+| **Discovered By** | Quality gate during Phase R-33 (2026-04-06) |
+
+**Description:**
+`TestPhase9_LoadTest_1000ConcurrentWrites` consistently fails on Windows. All 1000 HTTP writes return 200, but only ~585/1000 payloads drain to SQLite within the 60-second timeout. The queue's `MarkDelivered` fails because the WAL segment rename is blocked by a Windows file lock.
+
+**Error:**
+```
+wal: rename temp to segment: rename ...\wal-1744422495.tmp ...\wal-1775508803909762300.jsonl: Access is denied.
+```
+
+**Root Cause:**
+Windows enforces mandatory file locking. When another handle (WAL reader, scanner, or fsync) holds the `.tmp` file open, `os.Rename` fails with `Access is denied`. On Linux/macOS, rename succeeds even with open handles because POSIX allows unlinking open files.
+
+**Impact:**
+- Test-only. The daemon's write path succeeds (HTTP 200). The queue delivery acknowledgment fails, leaving payloads stuck in the WAL. In production this would cause duplicate deliveries on restart (safe due to idempotency) but not data loss.
+- All 1000 writes are accepted and persisted to the WAL. The failure is in the post-delivery WAL segment rotation.
+
+**Fix:**
+Created `internal/fsutil` package with `RobustRename` — wraps `os.Rename` with retry on transient Windows file-locking errors (`ERROR_ACCESS_DENIED` errno 5, `ERROR_SHARING_VIOLATION` errno 32). 5 attempts with exponential backoff (5ms, 10ms, 20ms, 40ms, 80ms = 155ms worst case). On POSIX, `isRetryableRenameErr` returns false so first failure propagates immediately with zero added latency.
+
+Applied `fsutil.RobustRename` to all 6 `os.Rename` call sites in the codebase:
+- `internal/wal/updater.go:214` — WAL segment rewrite (primary bug site)
+- `internal/audit/logger.go:427,432` — Audit log rotation (primary + shadow)
+- `internal/signing/signing.go:84` — Signature sidecar write
+- `internal/hotreload/watcher.go:336` — Compiled JSON atomic write
+- `internal/policy/compile.go:90` — Policy compilation output
+
+Platform-specific error classification via build tags (`rename_windows.go`, `rename_other.go`).
+
+**Performance Fix (same bug):**
+The rename retry eliminated `Access is denied` errors, but 1000 entries still couldn't drain in 60s due to O(N²) WAL rewrite cost: each `MarkDelivered` scanned and rewrote the full segment file individually.
+
+Added `MarkDeliveredBatch(payloadIDs []string) error` to the `WALUpdater` interface and implemented `markStatusBatch` / `markStatusBatchInSegment` that marks all entries in a single segment rewrite pass (O(N) instead of O(N²)). Queue worker refactored to accumulate delivered IDs and flush via `MarkDeliveredBatch` every 100ms or 50 entries.
+
+Result: 1000-entry load test dropped from 90–100s (timeout) to ~10s. All 30 packages pass with zero failures and zero race reports.
+
+**Status:** Fixed.

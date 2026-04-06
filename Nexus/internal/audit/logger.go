@@ -31,6 +31,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/BubbleFish-Nexus/internal/fsutil"
 )
 
 // AuditLogger is an append-only, CRC32-protected, optionally HMAC'd and encrypted
@@ -424,12 +426,12 @@ func (l *AuditLogger) rotate() error {
 	rotatedPrimary := filepath.Join(dir, fmt.Sprintf("interactions-%s.jsonl", ts))
 	rotatedShadow := filepath.Join(dir, fmt.Sprintf("interactions-shadow-%s.jsonl", ts))
 
-	if err := os.Rename(l.filePath, rotatedPrimary); err != nil {
+	if err := fsutil.RobustRename(l.filePath, rotatedPrimary); err != nil {
 		return fmt.Errorf("audit: rename primary for rotation: %w", err)
 	}
 
 	if l.dualWrite {
-		if err := os.Rename(l.shadowPath, rotatedShadow); err != nil {
+		if err := fsutil.RobustRename(l.shadowPath, rotatedShadow); err != nil {
 			l.logger.Warn("audit: rename shadow for rotation failed",
 				"component", "audit",
 				"error", err,

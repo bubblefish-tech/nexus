@@ -42,6 +42,7 @@ import (
 	"sync"
 
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/fsutil"
 	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/fsnotify/fsnotify"
 )
@@ -333,7 +334,7 @@ func writeCompiledJSON(configDir string, newCfg *config.Config) error {
 	}
 
 	// Atomic rename — on the same filesystem, this is atomic on all platforms.
-	if err := os.Rename(tmpPath, outPath); err != nil {
+	if err := fsutil.RobustRename(tmpPath, outPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("hotreload: rename compiled JSON: %w", err)
 	}

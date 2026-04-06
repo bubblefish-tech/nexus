@@ -58,6 +58,14 @@ const (
 	// initialBackoff is the first sleep duration between retry attempts.
 	// Subsequent attempts double the backoff (1s, 2s, 4s, 8s, 16s).
 	initialBackoff = time.Second
+
+	// batchFlushInterval is how often the worker flushes accumulated
+	// delivered payload IDs to the WAL via MarkDeliveredBatch.
+	batchFlushInterval = 100 * time.Millisecond
+
+	// batchFlushSize is the max number of delivered IDs to accumulate
+	// before flushing, even if the timer hasn't fired yet.
+	batchFlushSize = 50
 )
 
 // ErrLoadShed is returned by Enqueue when the channel is full. The WAL entry
@@ -206,17 +214,46 @@ func (q *Queue) DrainWithContext(ctx context.Context) bool {
 }
 
 // worker is the goroutine that reads WAL entries from the channel, writes them
-// to the destination, and calls MarkDelivered on success. Each worker exits
-// when the done channel is closed AND the channel buffer is empty.
+// to the destination, and batches MarkDelivered calls for efficiency. Each
+// worker exits when the done channel is closed AND the channel buffer is empty.
 func (q *Queue) worker() {
 	defer q.wg.Done()
+
+	var pending []string
+	ticker := time.NewTicker(batchFlushInterval)
+	defer ticker.Stop()
+
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		batch := pending
+		pending = nil
+		if err := q.updater.MarkDeliveredBatch(batch); err != nil {
+			q.logger.Warn("queue: MarkDeliveredBatch failed (data safe in destination)",
+				"component", "queue",
+				"batch_size", len(batch),
+				"error", err,
+			)
+		}
+	}
+
 	for {
 		select {
 		case entry, ok := <-q.ch:
 			if !ok {
+				flush()
 				return
 			}
-			q.processEntry(entry)
+			if id := q.processEntry(entry); id != "" {
+				pending = append(pending, id)
+				if len(pending) >= batchFlushSize {
+					flush()
+				}
+			}
+
+		case <-ticker.C:
+			flush()
 
 		case <-q.done:
 			// Drain any entries already buffered in the channel before exiting.
@@ -224,10 +261,17 @@ func (q *Queue) worker() {
 				select {
 				case entry, ok := <-q.ch:
 					if !ok {
+						flush()
 						return
 					}
-					q.processEntry(entry)
+					if id := q.processEntry(entry); id != "" {
+						pending = append(pending, id)
+						if len(pending) >= batchFlushSize {
+							flush()
+						}
+					}
 				default:
+					flush()
 					return
 				}
 			}
@@ -236,14 +280,14 @@ func (q *Queue) worker() {
 }
 
 // processEntry deserializes the WAL entry's Payload, attempts to write it to
-// the destination with exponential backoff, and marks it as delivered or
-// permanently failed in the WAL.
+// the destination with exponential backoff. Returns the payload ID on success
+// (for batch marking) or empty string on failure.
 //
 // Failure classification:
 //   - JSON unmarshal error → PERMANENT (not retryable; data is malformed)
 //   - destination.Write error → TRANSIENT for up to maxDeliveryAttempts,
 //     then PERMANENT
-func (q *Queue) processEntry(entry wal.Entry) {
+func (q *Queue) processEntry(entry wal.Entry) string {
 	var tp destination.TranslatedPayload
 	if err := json.Unmarshal(entry.Payload, &tp); err != nil {
 		q.logger.Error("queue: unmarshal payload — marking PERMANENT_FAILURE",
@@ -252,23 +296,13 @@ func (q *Queue) processEntry(entry wal.Entry) {
 			"error", err,
 		)
 		q.markPermanent(entry.PayloadID)
-		return
+		return ""
 	}
 
 	backoff := initialBackoff
 	for attempt := 1; attempt <= maxDeliveryAttempts; attempt++ {
 		writeErr := q.dest.Write(tp)
 		if writeErr == nil {
-			// Success: mark the WAL entry as delivered. A failure here is
-			// non-fatal — the destination is idempotent, so replay will
-			// re-deliver the same payload_id without producing a duplicate.
-			if mdErr := q.updater.MarkDelivered(entry.PayloadID); mdErr != nil {
-				q.logger.Warn("queue: MarkDelivered failed (data safe in destination)",
-					"component", "queue",
-					"payload_id", entry.PayloadID,
-					"error", mdErr,
-				)
-			}
 			// Notify metrics observer (e.g. bubblefish_queue_processing_rate).
 			if q.onProcessed != nil {
 				q.onProcessed()
@@ -277,7 +311,7 @@ func (q *Queue) processEntry(entry wal.Entry) {
 			if q.onDelivered != nil {
 				q.onDelivered(entry.Destination)
 			}
-			return
+			return entry.PayloadID
 		}
 
 		if attempt < maxDeliveryAttempts {
@@ -299,7 +333,7 @@ func (q *Queue) processEntry(entry wal.Entry) {
 					"component", "queue",
 					"payload_id", entry.PayloadID,
 				)
-				return
+				return ""
 			}
 			backoff *= 2
 		} else {
@@ -312,6 +346,7 @@ func (q *Queue) processEntry(entry wal.Entry) {
 			q.markPermanent(entry.PayloadID)
 		}
 	}
+	return ""
 }
 
 // markPermanent updates the WAL entry for payloadID to PERMANENT_FAILURE.

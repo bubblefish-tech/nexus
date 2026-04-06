@@ -25,27 +25,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/BubbleFish-Nexus/internal/fsutil"
 )
 
 // WALUpdater is implemented by WAL and consumed by the queue worker to mark
 // entries after a destination write attempt. Callers MUST log errors from
-// MarkDelivered at WARN level (not ERROR): a failure is non-fatal because
-// destination idempotency prevents duplicate writes on replay. Callers MUST
-// log errors from MarkPermanentFailure at ERROR level.
+// MarkDelivered/MarkDeliveredBatch at WARN level (not ERROR): a failure is
+// non-fatal because destination idempotency prevents duplicate writes on
+// replay. Callers MUST log errors from MarkPermanentFailure at ERROR level.
 type WALUpdater interface {
 	MarkDelivered(payloadID string) error
+	MarkDeliveredBatch(payloadIDs []string) error
 	MarkPermanentFailure(payloadID string) error
 }
 
 // MarkDelivered atomically rewrites the WAL entry for payloadID with
-// status=DELIVERED. The temp file is written to filepath.Dir(segment),
-// guaranteeing os.Rename atomicity (same filesystem, no EXDEV).
-//
-// The WAL mutex is held for the duration so concurrent Append calls are
-// serialised. This is intentional: correctness over throughput. MarkDelivered
-// is called off the hot write path (after destination I/O completes).
+// status=DELIVERED. Returns an error if the payload ID is not found.
 func (w *WAL) MarkDelivered(payloadID string) error {
 	return w.markStatus(payloadID, StatusDelivered)
+}
+
+// MarkDeliveredBatch atomically rewrites WAL entries for all payloadIDs with
+// status=DELIVERED in a single segment rewrite pass. This is O(N) for N
+// entries instead of O(N²) when calling MarkDelivered N times individually.
+//
+// The WAL mutex is held for the duration so concurrent Append calls are
+// serialised. This is intentional: correctness over throughput.
+// MarkDeliveredBatch is called off the hot write path.
+func (w *WAL) MarkDeliveredBatch(payloadIDs []string) error {
+	if len(payloadIDs) == 0 {
+		return nil
+	}
+	return w.markStatusBatch(payloadIDs, StatusDelivered)
 }
 
 // MarkPermanentFailure atomically rewrites the WAL entry for payloadID with
@@ -55,8 +67,8 @@ func (w *WAL) MarkPermanentFailure(payloadID string) error {
 	return w.markStatus(payloadID, StatusPermanentFailure)
 }
 
-// markStatus is the shared implementation for MarkDelivered and
-// MarkPermanentFailure. It holds the WAL mutex for the full operation.
+// markStatus is the shared implementation for single-entry MarkPermanentFailure.
+// It holds the WAL mutex for the full operation.
 func (w *WAL) markStatus(payloadID, status string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -105,6 +117,63 @@ func (w *WAL) markStatus(payloadID, status string) error {
 	}
 
 	return fmt.Errorf("wal: payload_id %q not found in any segment", payloadID)
+}
+
+// markStatusBatch marks multiple entries as the given status in a single
+// segment rewrite pass per segment. O(N) for N entries vs O(N²) for
+// individual calls. Holds the WAL mutex for the full operation.
+func (w *WAL) markStatusBatch(payloadIDs []string, status string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	segs, err := w.segments()
+	if err != nil {
+		return fmt.Errorf("wal: batch mark %s: list segments: %w", status, err)
+	}
+
+	// Build lookup set for O(1) matching.
+	remaining := make(map[string]struct{}, len(payloadIDs))
+	for _, id := range payloadIDs {
+		remaining[id] = struct{}{}
+	}
+
+	for _, seg := range segs {
+		if len(remaining) == 0 {
+			break
+		}
+
+		isActive := seg == w.currentPath
+
+		if isActive && w.current != nil {
+			if err := w.current.Close(); err != nil {
+				return fmt.Errorf("wal: close active segment before batch rewrite: %w", err)
+			}
+			w.current = nil
+		}
+
+		found, markErr := w.markStatusBatchInSegment(seg, remaining, status)
+
+		if isActive {
+			f, reopenErr := os.OpenFile(seg, os.O_APPEND|os.O_RDWR, 0600)
+			if reopenErr != nil {
+				return fmt.Errorf("wal: reopen active segment: %w", reopenErr)
+			}
+			info, statErr := f.Stat()
+			if statErr != nil {
+				f.Close()
+				return fmt.Errorf("wal: stat active segment after reopen: %w", statErr)
+			}
+			w.current = f
+			w.currentSize = info.Size()
+		}
+
+		if markErr != nil {
+			return markErr
+		}
+		w.pendingCount.Add(int64(-found))
+	}
+
+	return nil
 }
 
 // markStatusInSegment scans segPath for an entry matching payloadID, rewrites
@@ -211,10 +280,108 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 		return false, fmt.Errorf("wal: close temp file: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, segPath); err != nil {
+	if err := fsutil.RobustRename(tmpPath, segPath); err != nil {
 		return false, fmt.Errorf("wal: rename temp to segment: %w", err)
 	}
 
 	done = true
 	return true, nil
+}
+
+// markStatusBatchInSegment scans segPath and rewrites all entries whose
+// payload_id is in the remaining set. Returns the count of entries matched
+// and removes matched IDs from the remaining set. One segment rewrite for
+// any number of matches — O(N) instead of O(N²).
+func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]struct{}, status string) (int, error) {
+	f, err := os.Open(segPath)
+	if err != nil {
+		return 0, fmt.Errorf("wal: open segment %q: %w", segPath, err)
+	}
+
+	var lines []string
+	found := 0
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
+			lines = append(lines, line)
+			continue
+		}
+
+		jsonBytes := []byte(parts[0])
+		var entry Entry
+		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+			lines = append(lines, line)
+			continue
+		}
+
+		if _, ok := remaining[entry.PayloadID]; ok {
+			entry.Status = status
+			updated, marshalErr := json.Marshal(entry)
+			if marshalErr != nil {
+				f.Close()
+				return 0, fmt.Errorf("wal: marshal updated entry: %w", marshalErr)
+			}
+			checksum := crc32.ChecksumIEEE(updated)
+			if w.integrityMode == IntegrityModeMAC {
+				mac := computeHMAC(updated, w.macKey)
+				line = fmt.Sprintf("%s\t%08x\t%s", updated, checksum, mac)
+			} else {
+				line = fmt.Sprintf("%s\t%08x", updated, checksum)
+			}
+			delete(remaining, entry.PayloadID)
+			found++
+		}
+
+		lines = append(lines, line)
+	}
+
+	scanErr := scanner.Err()
+	f.Close()
+
+	if scanErr != nil {
+		return 0, fmt.Errorf("wal: scan segment %q: %w", segPath, scanErr)
+	}
+	if found == 0 {
+		return 0, nil
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(segPath), "wal-*.tmp")
+	if err != nil {
+		return 0, fmt.Errorf("wal: create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	done := false
+	defer func() {
+		tmp.Close()
+		if !done {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	_ = tmp.Chmod(0600)
+
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(tmp, line); err != nil {
+			return 0, fmt.Errorf("wal: write temp file: %w", err)
+		}
+	}
+
+	if err := tmp.Sync(); err != nil {
+		return 0, fmt.Errorf("wal: fsync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return 0, fmt.Errorf("wal: close temp file: %w", err)
+	}
+
+	if err := fsutil.RobustRename(tmpPath, segPath); err != nil {
+		return 0, fmt.Errorf("wal: rename temp to segment: %w", err)
+	}
+
+	done = true
+	return found, nil
 }

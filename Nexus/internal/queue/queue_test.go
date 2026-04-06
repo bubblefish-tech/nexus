@@ -78,6 +78,10 @@ func (u *countingUpdater) MarkDelivered(_ string) error {
 	u.delivered.Add(1)
 	return nil
 }
+func (u *countingUpdater) MarkDeliveredBatch(ids []string) error {
+	u.delivered.Add(int64(len(ids)))
+	return nil
+}
 func (u *countingUpdater) MarkPermanentFailure(_ string) error {
 	u.permanent.Add(1)
 	return nil
@@ -86,7 +90,8 @@ func (u *countingUpdater) MarkPermanentFailure(_ string) error {
 // noopUpdater never returns errors and discards all calls.
 type noopUpdater struct{}
 
-func (u *noopUpdater) MarkDelivered(_ string) error      { return nil }
+func (u *noopUpdater) MarkDelivered(_ string) error        { return nil }
+func (u *noopUpdater) MarkDeliveredBatch(_ []string) error { return nil }
 func (u *noopUpdater) MarkPermanentFailure(_ string) error { return nil }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
