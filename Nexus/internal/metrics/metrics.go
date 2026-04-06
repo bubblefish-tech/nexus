@@ -179,6 +179,39 @@ type Metrics struct {
 	// primary corruption.
 	// Reference: Update U1.7.
 	AuditShadowRecoveriesTotal prometheus.Counter
+
+	// ── Audit (Interaction Log) — API & Emission ───────────────────────────
+	// AuditRecordsTotal counts interaction records written, labeled by
+	// operation_type and policy_decision.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditRecordsTotal *prometheus.CounterVec
+
+	// AuditLogBytes is the current interaction log file size in bytes.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditLogBytes prometheus.Gauge
+
+	// AuditLogRotationTotal counts interaction log file rotations.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditLogRotationTotal prometheus.Counter
+
+	// AuditQueryLatency is the /api/audit/log query latency.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditQueryLatency prometheus.Histogram
+
+	// ── Retrieval Firewall ──────────────────────────────────────────────────
+	// FirewallFilteredTotal counts memories filtered (removed) by the retrieval
+	// firewall, labeled by source and label that triggered the filter.
+	// Reference: Tech Spec Addendum Section A2.6, A3.8.
+	FirewallFilteredTotal *prometheus.CounterVec
+
+	// FirewallDeniedTotal counts queries fully denied by the retrieval firewall,
+	// labeled by source.
+	// Reference: Tech Spec Addendum Section A2.6, A3.8.
+	FirewallDeniedTotal *prometheus.CounterVec
+
+	// FirewallLatency is the retrieval firewall filtering duration, labeled by
+	// source. Reference: Tech Spec Addendum Section A3.8.
+	FirewallLatency *prometheus.HistogramVec
 }
 
 // New creates a Metrics with a private Prometheus registry. All metrics are
@@ -381,6 +414,52 @@ func New() *Metrics {
 		Help: "Records recovered from shadow after primary corruption.",
 	})
 
+	// ── Audit (Interaction Log) — API & Emission ───────────────────────────
+	m.AuditRecordsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_audit_records_total",
+			Help: "Interaction records written by operation_type and policy_decision.",
+		},
+		[]string{"operation_type", "policy_decision"},
+	)
+	m.AuditLogBytes = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_audit_log_bytes",
+		Help: "Current interaction log file size in bytes.",
+	})
+	m.AuditLogRotationTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_log_rotation_total",
+		Help: "Interaction log file rotations.",
+	})
+	m.AuditQueryLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "bubblefish_audit_query_latency_seconds",
+		Help:    "/api/audit/log query latency.",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	// ── Retrieval Firewall ──────────────────────────────────────────────────
+	m.FirewallFilteredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_retrieval_firewall_filtered_total",
+			Help: "Memories filtered by retrieval firewall.",
+		},
+		[]string{"source", "label"},
+	)
+	m.FirewallDeniedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_retrieval_firewall_denied_total",
+			Help: "Queries fully denied by retrieval firewall.",
+		},
+		[]string{"source"},
+	)
+	m.FirewallLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "bubblefish_retrieval_firewall_latency_seconds",
+			Help:    "Retrieval firewall filtering duration.",
+			Buckets: []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005},
+		},
+		[]string{"source"},
+	)
+
 	// Register all application metrics on the private registry.
 	reg.MustRegister(
 		m.PayloadProcessingLatency,
@@ -413,6 +492,13 @@ func New() *Metrics {
 		m.AuditShadowErrorsTotal,
 		m.AuditCRCFailuresTotal,
 		m.AuditShadowRecoveriesTotal,
+		m.AuditRecordsTotal,
+		m.AuditLogBytes,
+		m.AuditLogRotationTotal,
+		m.AuditQueryLatency,
+		m.FirewallFilteredTotal,
+		m.FirewallDeniedTotal,
+		m.FirewallLatency,
 	)
 
 	return m

@@ -45,6 +45,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
@@ -55,6 +56,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/eventsink"
+	"github.com/BubbleFish-Nexus/internal/firewall"
 	"github.com/BubbleFish-Nexus/internal/jwtauth"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
@@ -116,6 +118,25 @@ type Daemon struct {
 	// hot reload to verify compiled config signatures.
 	// NEVER log this value.
 	signingKey []byte
+
+	// retrievalFirewall is the retrieval firewall engine. Nil when
+	// [daemon.retrieval_firewall] enabled = false.
+	// Reference: Tech Spec Addendum Section A3.1.
+	retrievalFirewall *firewall.RetrievalFirewall
+
+	// auditLogger is the interaction log writer. Nil when
+	// [daemon.audit] enabled = false.
+	// Reference: Tech Spec Addendum Section A2.3.
+	auditLogger *audit.AuditLogger
+
+	// auditReader reads and queries the interaction log. Nil when
+	// [daemon.audit] enabled = false.
+	// Reference: Tech Spec Addendum Section A2.5.
+	auditReader *audit.AuditReader
+
+	// auditRateLimiter rate-limits /api/audit/* queries per admin token.
+	// Reference: Tech Spec Addendum Section A2.5.
+	auditRateLimiter *rateLimiter
 
 	// walHealthy tracks whether the WAL watchdog considers the WAL healthy.
 	// 1 = healthy, 0 = unhealthy. Checked by /ready to return 503.
@@ -418,6 +439,100 @@ func (d *Daemon) Start() error {
 		)
 	}
 
+	// Initialise retrieval firewall if enabled.
+	// Reference: Tech Spec Addendum Section A3.1.
+	if cfg.Daemon.RetrievalFirewall.Enabled {
+		d.retrievalFirewall = firewall.New(cfg.Daemon.RetrievalFirewall, d.logger).
+			WithMetrics(
+				d.metrics.FirewallFilteredTotal,
+				d.metrics.FirewallDeniedTotal,
+				d.metrics.FirewallLatency,
+			)
+		d.logger.Info("daemon: retrieval firewall enabled",
+			"component", "daemon",
+			"tier_order", cfg.Daemon.RetrievalFirewall.TierOrder,
+			"default_tier", cfg.Daemon.RetrievalFirewall.DefaultTier,
+		)
+	}
+
+	// Initialise audit logger and reader if enabled.
+	// Reference: Tech Spec Addendum Section A2.3, A2.5.
+	if cfg.Daemon.Audit.Enabled {
+		logFile := cfg.Daemon.Audit.LogFile
+		if logFile == "" {
+			logFile = "~/.bubblefish/Nexus/logs/interactions.jsonl"
+		}
+		// Expand ~ prefix to the user home directory.
+		if strings.HasPrefix(logFile, "~/") || strings.HasPrefix(logFile, "~\\") {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return fmt.Errorf("daemon: expand audit log_file: %w", homeErr)
+			}
+			logFile = filepath.Join(home, logFile[2:])
+		}
+
+		var auditOpts []audit.LoggerOption
+		auditOpts = append(auditOpts, audit.WithLogger(d.logger))
+
+		maxSize := int64(cfg.Daemon.Audit.MaxFileSizeMB) * 1024 * 1024
+		if maxSize > 0 {
+			auditOpts = append(auditOpts, audit.WithMaxFileSize(maxSize))
+		}
+		auditOpts = append(auditOpts, audit.WithDualWrite(cfg.Daemon.Audit.AuditDualWriteEnabled()))
+
+		// Audit integrity: SEPARATE key from WAL.
+		if cfg.Daemon.Audit.Integrity.Mode == "mac" {
+			if cfg.Daemon.Audit.Integrity.MacKeyFile == "" {
+				return fmt.Errorf("daemon: audit integrity mode %q requires mac_key_file", "mac")
+			}
+			resolved, resolveErr := config.ResolveEnv(cfg.Daemon.Audit.Integrity.MacKeyFile, d.logger)
+			if resolveErr != nil {
+				return fmt.Errorf("daemon: resolve audit mac_key_file: %w", resolveErr)
+			}
+			auditOpts = append(auditOpts, audit.WithIntegrityMode("mac", []byte(resolved)))
+		}
+
+		// Audit encryption: SEPARATE key from WAL.
+		if cfg.Daemon.Audit.Encryption.Enabled {
+			if cfg.Daemon.Audit.Encryption.KeyFile == "" {
+				return fmt.Errorf("daemon: audit encryption enabled but key_file is missing")
+			}
+			resolved, resolveErr := config.ResolveEnv(cfg.Daemon.Audit.Encryption.KeyFile, d.logger)
+			if resolveErr != nil {
+				return fmt.Errorf("daemon: resolve audit encryption key_file: %w", resolveErr)
+			}
+			auditOpts = append(auditOpts, audit.WithEncryption([]byte(resolved)))
+		}
+
+		al, alErr := audit.NewAuditLogger(logFile, auditOpts...)
+		if alErr != nil {
+			return fmt.Errorf("daemon: open audit logger: %w", alErr)
+		}
+		d.auditLogger = al
+
+		// Build reader options mirroring the logger config.
+		var readerOpts []audit.ReaderOption
+		readerOpts = append(readerOpts, audit.WithReaderLogger(d.logger))
+		readerOpts = append(readerOpts, audit.WithReaderDualWrite(cfg.Daemon.Audit.AuditDualWriteEnabled()))
+		if cfg.Daemon.Audit.Integrity.Mode == "mac" {
+			resolved, _ := config.ResolveEnv(cfg.Daemon.Audit.Integrity.MacKeyFile, d.logger)
+			readerOpts = append(readerOpts, audit.WithReaderIntegrity("mac", []byte(resolved)))
+		}
+		if cfg.Daemon.Audit.Encryption.Enabled {
+			resolved, _ := config.ResolveEnv(cfg.Daemon.Audit.Encryption.KeyFile, d.logger)
+			readerOpts = append(readerOpts, audit.WithReaderEncryption([]byte(resolved)))
+		}
+		d.auditReader = audit.NewAuditReader(logFile, readerOpts...)
+		d.auditRateLimiter = newRateLimiter()
+
+		d.logger.Info("daemon: audit interaction log enabled",
+			"component", "daemon",
+			"log_file", logFile,
+			"max_file_size_mb", cfg.Daemon.Audit.MaxFileSizeMB,
+			"dual_write", cfg.Daemon.Audit.AuditDualWriteEnabled(),
+		)
+	}
+
 	// Initialise event sink (webhooks) if enabled.
 	// Reference: Tech Spec Section 10.
 	if cfg.Daemon.Events.Enabled && len(cfg.Daemon.Events.Sinks) > 0 {
@@ -655,6 +770,16 @@ func (d *Daemon) Stop() error {
 		// Reference: Tech Spec Section 14.2 — drain in Stage 3.
 		if d.eventSink != nil {
 			d.eventSink.Stop()
+		}
+
+		// Close audit logger.
+		if d.auditLogger != nil {
+			if err := d.auditLogger.Close(); err != nil {
+				d.logger.Error("daemon: close audit logger",
+					"component", "daemon",
+					"error", err,
+				)
+			}
 		}
 
 		// Close security event log.

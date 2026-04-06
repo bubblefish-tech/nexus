@@ -92,6 +92,11 @@ func (d *Daemon) buildRouter() http.Handler {
 		// Reliability demo — admin only.
 		// Reference: Tech Spec Section 12, Section 13.3, Phase R-26.
 		r.Post("/api/demo/reliability", d.handleDemoReliability)
+		// Audit Query API — admin only.
+		// Reference: Tech Spec Addendum Section A2.5, A6.
+		r.Get("/api/audit/log", d.handleAuditLog)
+		r.Get("/api/audit/stats", d.handleAuditStats)
+		r.Get("/api/audit/export", d.handleAuditExport)
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(

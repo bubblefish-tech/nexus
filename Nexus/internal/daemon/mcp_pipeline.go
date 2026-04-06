@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/query"
@@ -158,6 +159,25 @@ func (d *Daemon) Write(ctx context.Context, params mcp.WriteParams) (mcp.WriteRe
 	)
 	d.metrics.ThroughputPerSource.WithLabelValues(src.Name).Inc()
 
+	// Emit interaction record for MCP write path.
+	// Reference: Tech Spec Addendum Section A2.4.
+	d.emitAuditRecord(audit.InteractionRecord{
+		RecordID:       audit.NewRecordID(),
+		RequestID:      requestID,
+		Timestamp:      time.Now().UTC(),
+		Source:         src.Name,
+		ActorType:      actorType,
+		ActorID:        actorID,
+		OperationType:  "write",
+		Endpoint:       "mcp:write",
+		HTTPMethod:     "MCP",
+		HTTPStatusCode: 200,
+		PayloadID:      payloadID,
+		Destination:    dest,
+		Subject:        subject,
+		PolicyDecision: "allowed",
+	})
+
 	return mcp.WriteResult{PayloadID: payloadID, Status: "accepted"}, nil
 }
 
@@ -212,7 +232,8 @@ func (d *Daemon) Search(ctx context.Context, params mcp.SearchParams) (mcp.Searc
 		WithSemanticCache(d.semanticCache).
 		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency).
 		WithRetrievalConfig(cfg.Retrieval).
-		WithDecayCounter(d.metrics.TemporalDecayApplied)
+		WithDecayCounter(d.metrics.TemporalDecayApplied).
+		WithFirewall(d.retrievalFirewall)
 	cascResult, err := runner.Run(ctx, src, cq)
 	if err != nil {
 		return mcp.SearchResult{}, fmt.Errorf("mcp: cascade: %w", err)
@@ -220,8 +241,43 @@ func (d *Daemon) Search(ctx context.Context, params mcp.SearchParams) (mcp.Searc
 
 	// Stage 0 denial → propagate as error.
 	if cascResult.Denial != nil {
+		d.emitAuditRecord(audit.InteractionRecord{
+			RecordID:       audit.NewRecordID(),
+			Timestamp:      time.Now().UTC(),
+			Source:         src.Name,
+			OperationType:  "query",
+			Endpoint:       "mcp:search",
+			HTTPMethod:     "MCP",
+			HTTPStatusCode: 403,
+			Subject:        params.Subject,
+			PolicyDecision: "denied",
+			PolicyReason:   cascResult.Denial.Reason,
+		})
 		return mcp.SearchResult{}, fmt.Errorf("mcp: policy_denied: %s", cascResult.Denial.Reason)
 	}
+
+	// Emit interaction record for MCP search path.
+	mcpSearchRec := audit.InteractionRecord{
+		RecordID:         audit.NewRecordID(),
+		Timestamp:        time.Now().UTC(),
+		Source:           src.Name,
+		OperationType:    "query",
+		Endpoint:         "mcp:search",
+		HTTPMethod:       "MCP",
+		HTTPStatusCode:   200,
+		Subject:          params.Subject,
+		RetrievalProfile: cascResult.Profile,
+		StagesHit:        []string{query.StageName(cascResult.RetrievalStage)},
+		ResultCount:      len(cascResult.Records),
+		CacheHit:         cascResult.RetrievalStage <= 2 && cascResult.RetrievalStage >= 0,
+		PolicyDecision:   "allowed",
+	}
+	if cascResult.FirewallResult != nil && cascResult.FirewallResult.Filtered {
+		mcpSearchRec.PolicyDecision = "filtered"
+		mcpSearchRec.SensitivityLabelsFiltered = cascResult.FirewallResult.FilteredLabels
+		mcpSearchRec.TierFiltered = cascResult.FirewallResult.TierFiltered
+	}
+	d.emitAuditRecord(mcpSearchRec)
 
 	return mcp.SearchResult{
 		Records:             cascResult.Records,

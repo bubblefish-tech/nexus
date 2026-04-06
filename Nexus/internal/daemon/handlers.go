@@ -33,6 +33,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tidwall/gjson"
 
+	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/demo"
 	"github.com/BubbleFish-Nexus/internal/destination"
@@ -93,9 +94,10 @@ type nexusMetadata struct {
 	Profile                  string           `json:"profile"`
 	Stage                    string           `json:"stage"`
 	RetrievalStage           int              `json:"retrieval_stage"`
-	SemanticUnavailable      bool             `json:"semantic_unavailable,omitempty"`
-	SemanticUnavailableReason string           `json:"semantic_unavailable_reason,omitempty"`
-	Debug                    *query.DebugInfo `json:"debug,omitempty"`
+	SemanticUnavailable        bool             `json:"semantic_unavailable,omitempty"`
+	SemanticUnavailableReason  string           `json:"semantic_unavailable_reason,omitempty"`
+	RetrievalFirewallFiltered  bool             `json:"retrieval_firewall_filtered,omitempty"`
+	Debug                      *query.DebugInfo `json:"debug,omitempty"`
 }
 
 // healthResponse is returned by /health and /ready.
@@ -205,6 +207,19 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 	// Admin tokens are not permitted on write endpoints.
 	if isAdminFromContext(r.Context()) {
+		d.emitAuditRecord(audit.InteractionRecord{
+			RecordID:       audit.NewRecordID(),
+			RequestID:      middleware.GetReqID(r.Context()),
+			Timestamp:      writeStart,
+			EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+			OperationType:  "write",
+			Endpoint:       r.URL.Path,
+			HTTPMethod:     r.Method,
+			HTTPStatusCode: http.StatusUnauthorized,
+			PolicyDecision: "denied",
+			PolicyReason:   "wrong_token_class",
+			LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+		})
 		d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
 			"admin token cannot be used for write operations", 0)
 		return
@@ -221,6 +236,21 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract item 12.
 	if !src.CanWrite {
 		d.emitPolicyDenied(r, src.Name, src.Namespace, "write", src.TargetDest, "source does not have write permission")
+		d.emitAuditRecord(audit.InteractionRecord{
+			RecordID:       audit.NewRecordID(),
+			RequestID:      middleware.GetReqID(r.Context()),
+			Timestamp:      writeStart,
+			Source:         src.Name,
+			EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+			OperationType:  "write",
+			Endpoint:       r.URL.Path,
+			HTTPMethod:     r.Method,
+			HTTPStatusCode: http.StatusForbidden,
+			Destination:    src.TargetDest,
+			PolicyDecision: "denied",
+			PolicyReason:   "source_not_permitted_to_write",
+			LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+		})
 		d.writeErrorResponse(w, r, http.StatusForbidden, "source_not_permitted_to_write",
 			"this source does not have write permission", 0)
 		return
@@ -307,6 +337,22 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 				"payload_id", existingPayloadID,
 				"request_id", middleware.GetReqID(r.Context()),
 			)
+			d.emitAuditRecord(audit.InteractionRecord{
+				RecordID:       audit.NewRecordID(),
+				RequestID:      middleware.GetReqID(r.Context()),
+				Timestamp:      writeStart,
+				Source:         src.Name,
+				EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+				OperationType:  "write",
+				Endpoint:       r.URL.Path,
+				HTTPMethod:     r.Method,
+				HTTPStatusCode: http.StatusOK,
+				PayloadID:      existingPayloadID,
+				IdempotencyKey: idempotencyKey,
+				IsDuplicate:    true,
+				PolicyDecision: "allowed",
+				LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+			})
 			d.writeJSON(w, http.StatusOK, writeResponse{
 				PayloadID: existingPayloadID,
 				Status:    "accepted",
@@ -331,6 +377,20 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		)
 		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
 		d.emitRateLimitHit(r, src.Name, rpm)
+		d.emitAuditRecord(audit.InteractionRecord{
+			RecordID:       audit.NewRecordID(),
+			RequestID:      middleware.GetReqID(r.Context()),
+			Timestamp:      writeStart,
+			Source:         src.Name,
+			EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+			OperationType:  "write",
+			Endpoint:       r.URL.Path,
+			HTTPMethod:     r.Method,
+			HTTPStatusCode: http.StatusTooManyRequests,
+			PolicyDecision: "denied",
+			PolicyReason:   "rate_limit_exceeded",
+			LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+		})
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
@@ -532,6 +592,30 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	d.metrics.PayloadProcessingLatency.WithLabelValues(src.Name).Observe(time.Since(writeStart).Seconds())
 	d.metrics.QueueDepth.Set(float64(d.queue.Len()))
 
+	// Step 19a — Emit interaction record. Failure MUST NOT cause request failure.
+	// Reference: Tech Spec Addendum Section A2.4.
+	d.emitAuditRecord(audit.InteractionRecord{
+		RecordID:             audit.NewRecordID(),
+		RequestID:            requestID,
+		Timestamp:            writeStart,
+		Source:               src.Name,
+		ActorType:            actorType,
+		ActorID:              actorID,
+		EffectiveIP:          effectiveClientIPFromContext(r.Context()),
+		OperationType:        "write",
+		Endpoint:             r.URL.Path,
+		HTTPMethod:           r.Method,
+		HTTPStatusCode:       http.StatusOK,
+		PayloadID:            payloadID,
+		Destination:          dest,
+		Subject:              subject,
+		IdempotencyKey:       idempotencyKey,
+		SensitivityLabelsSet: sensitivityLabels,
+		PolicyDecision:       "allowed",
+		LatencyMs:            float64(time.Since(writeStart).Microseconds()) / 1000.0,
+		WALAppendMs:          float64(time.Since(walStart).Microseconds()) / 1000.0,
+	})
+
 	// Step 13 — Return 200 + payload_id.
 	d.writeJSON(w, http.StatusOK, writeResponse{
 		PayloadID: payloadID,
@@ -577,6 +661,20 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// Reference: Phase 0C Behavioral Contract item 12.
 	if !src.CanRead {
 		d.emitPolicyDenied(r, src.Name, src.Namespace, "read", chi.URLParam(r, "destination"), "source does not have read permission")
+		d.emitAuditRecord(audit.InteractionRecord{
+			RecordID:       audit.NewRecordID(),
+			RequestID:      middleware.GetReqID(r.Context()),
+			Timestamp:      queryStart,
+			Source:         src.Name,
+			EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+			OperationType:  "query",
+			Endpoint:       r.URL.Path,
+			HTTPMethod:     r.Method,
+			HTTPStatusCode: http.StatusForbidden,
+			PolicyDecision: "denied",
+			PolicyReason:   "source_not_permitted_to_read",
+			LatencyMs:      float64(time.Since(queryStart).Microseconds()) / 1000.0,
+		})
 		d.writeErrorResponse(w, r, http.StatusForbidden, "source_not_permitted_to_read",
 			"this source does not have read permission", 0)
 		return
@@ -592,6 +690,20 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if allowed, retryAfter := d.rl.Allow(src.Name+":read", rpm); !allowed {
 		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
 		d.emitRateLimitHit(r, src.Name, rpm)
+		d.emitAuditRecord(audit.InteractionRecord{
+			RecordID:       audit.NewRecordID(),
+			RequestID:      middleware.GetReqID(r.Context()),
+			Timestamp:      queryStart,
+			Source:         src.Name,
+			EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+			OperationType:  "query",
+			Endpoint:       r.URL.Path,
+			HTTPMethod:     r.Method,
+			HTTPStatusCode: http.StatusTooManyRequests,
+			PolicyDecision: "denied",
+			PolicyReason:   "rate_limit_exceeded",
+			LatencyMs:      float64(time.Since(queryStart).Microseconds()) / 1000.0,
+		})
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
@@ -670,7 +782,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency).
 		WithRetrievalConfig(qcfg.Retrieval).
 		WithDecayCounter(d.metrics.TemporalDecayApplied).
-		WithDebug(debugStages)
+		WithDebug(debugStages).
+		WithFirewall(d.retrievalFirewall)
 	cascResult, err := runner.Run(r.Context(), src, cq)
 	if err != nil {
 		d.logger.Error("daemon: cascade failed",
@@ -688,6 +801,27 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// Stage 0 denial → 403.
 	if cascResult.Denial != nil {
 		d.emitPolicyDenied(r, src.Name, subject, "read", destName, cascResult.Denial.Reason)
+		// Emit specific retrieval firewall denied event when the denial
+		// originates from the retrieval firewall.
+		if cascResult.Denial.Code == "retrieval_firewall_denied" {
+			d.emitRetrievalFirewallDenied(r, src.Name, subject, cascResult.Denial.Reason)
+			d.metrics.FirewallDeniedTotal.WithLabelValues(src.Name).Inc()
+		}
+		d.emitAuditRecord(audit.InteractionRecord{
+			RecordID:       audit.NewRecordID(),
+			RequestID:      middleware.GetReqID(r.Context()),
+			Timestamp:      queryStart,
+			Source:         src.Name,
+			EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+			OperationType:  "query",
+			Endpoint:       r.URL.Path,
+			HTTPMethod:     r.Method,
+			HTTPStatusCode: http.StatusForbidden,
+			Subject:        subject,
+			PolicyDecision: "denied",
+			PolicyReason:   cascResult.Denial.Reason,
+			LatencyMs:      float64(time.Since(queryStart).Microseconds()) / 1000.0,
+		})
 		d.writeErrorResponse(w, r, http.StatusForbidden, cascResult.Denial.Code,
 			cascResult.Denial.Reason, 0)
 		return
@@ -724,6 +858,49 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
 		Debug:                     cascResult.Debug,
 	}
+
+	// When retrieval firewall filtered results, set the metadata flag and
+	// emit a security event. Reference: Tech Spec Addendum Section A3.5, A3.7.
+	if cascResult.FirewallResult != nil && cascResult.FirewallResult.Filtered {
+		meta.RetrievalFirewallFiltered = true
+		d.emitRetrievalFirewallFiltered(r, src.Name, subject,
+			cascResult.FirewallResult.FilteredLabels,
+			cascResult.FirewallResult.TierFiltered,
+			cascResult.FirewallResult.CountRemoved,
+			cascResult.FirewallResult.CountRemaining,
+		)
+		// When ALL results removed, increment denied metric.
+		if cascResult.FirewallResult.CountRemaining == 0 {
+			d.metrics.FirewallDeniedTotal.WithLabelValues(src.Name).Inc()
+		}
+	}
+
+	// Step 14a — Emit interaction record for the read path.
+	// Reference: Tech Spec Addendum Section A2.4.
+	queryAuditRec := audit.InteractionRecord{
+		RecordID:         audit.NewRecordID(),
+		RequestID:        middleware.GetReqID(r.Context()),
+		Timestamp:        queryStart,
+		Source:           src.Name,
+		EffectiveIP:      effectiveClientIPFromContext(r.Context()),
+		OperationType:    "query",
+		Endpoint:         r.URL.Path,
+		HTTPMethod:       r.Method,
+		HTTPStatusCode:   http.StatusOK,
+		Subject:          subject,
+		RetrievalProfile: cascResult.Profile,
+		StagesHit:        []string{query.StageName(cascResult.RetrievalStage)},
+		ResultCount:      len(cascResult.Records),
+		CacheHit:         cascResult.RetrievalStage <= 2 && cascResult.RetrievalStage >= 0,
+		PolicyDecision:   "allowed",
+		LatencyMs:        float64(queryDuration.Microseconds()) / 1000.0,
+	}
+	if cascResult.FirewallResult != nil && cascResult.FirewallResult.Filtered {
+		queryAuditRec.PolicyDecision = "filtered"
+		queryAuditRec.SensitivityLabelsFiltered = cascResult.FirewallResult.FilteredLabels
+		queryAuditRec.TierFiltered = cascResult.FirewallResult.TierFiltered
+	}
+	d.emitAuditRecord(queryAuditRec)
 
 	// SSE streaming — when client sends Accept: text/event-stream.
 	// Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 8.
@@ -1074,6 +1251,25 @@ func (d *Daemon) handleOpenAIWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.metrics.PayloadProcessingLatency.WithLabelValues(src.Name).Observe(time.Since(writeStart).Seconds())
+
+	// Emit interaction record for OpenAI write path.
+	// Reference: Tech Spec Addendum Section A2.4.
+	d.emitAuditRecord(audit.InteractionRecord{
+		RecordID:       audit.NewRecordID(),
+		RequestID:      middleware.GetReqID(r.Context()),
+		Timestamp:      writeStart,
+		Source:         src.Name,
+		ActorType:      src.DefaultActorType,
+		EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+		OperationType:  "write",
+		Endpoint:       r.URL.Path,
+		HTTPMethod:     r.Method,
+		HTTPStatusCode: http.StatusOK,
+		Destination:    dest,
+		Subject:        subject,
+		PolicyDecision: "allowed",
+		LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+	})
 
 	d.writeJSON(w, http.StatusOK, openAIMemoriesResponse{
 		PayloadIDs: payloadIDs,
