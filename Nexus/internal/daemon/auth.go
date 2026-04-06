@@ -134,12 +134,18 @@ func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		result, ok := d.authenticate(r)
 		if !ok {
+			d.emitAuthFailure(r, "unknown")
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
 				"invalid or missing API key", 0)
 			return
 		}
 		if result.isAdmin || result.isMCP {
 			// Admin and MCP tokens must not be used on data endpoints.
+			tokenClass := "admin"
+			if result.isMCP {
+				tokenClass = "mcp"
+			}
+			d.emitAuthFailure(r, tokenClass)
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
 				"wrong token class for this endpoint", 0)
 			return
@@ -158,16 +164,20 @@ func (d *Daemon) requireAdminToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		result, ok := d.authenticate(r)
 		if !ok {
+			d.emitAuthFailure(r, "unknown")
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
 				"invalid or missing admin token", 0)
 			return
 		}
 		if !result.isAdmin {
 			// Data-plane and MCP tokens must not be used on admin endpoints.
+			d.emitAuthFailure(r, "wrong_token_class")
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
 				"wrong token class for this endpoint", 0)
 			return
 		}
+		// Emit admin_access for all authenticated admin requests.
+		d.emitAdminAccess(r)
 		next.ServeHTTP(w, r)
 	})
 }

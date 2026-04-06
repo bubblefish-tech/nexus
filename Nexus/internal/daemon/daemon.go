@@ -53,6 +53,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/queue"
+	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
@@ -83,6 +84,10 @@ type Daemon struct {
 
 	reloadWatcher *hotreload.Watcher
 	mcpServer     *mcp.Server // nil when MCP is disabled or failed to start
+
+	// securityLog is the structured security event logger. Nil when
+	// security_events.enabled is false. Reference: Tech Spec Section 11.2.
+	securityLog *securitylog.Logger
 
 	// trustedProxies holds parsed CIDR networks for determining effective
 	// client IP from forwarded headers. Nil when no trusted proxies are
@@ -183,6 +188,16 @@ func (d *Daemon) Start() error {
 					slog.String("event_type", eventType),
 				}, attrs...)...,
 			)
+			if d.securityLog != nil {
+				details := make(map[string]interface{}, len(attrs))
+				for _, a := range attrs {
+					details[a.Key] = a.Value.Any()
+				}
+				d.securityLog.Emit(securitylog.Event{
+					EventType: eventType,
+					Details:   details,
+				})
+			}
 		}
 
 		if err := signing.VerifyAll(compiledDir, d.signingKey, onEvent, d.logger); err != nil {
@@ -249,6 +264,16 @@ func (d *Daemon) Start() error {
 				slog.String("event_type", eventType),
 			}, attrs...)...,
 		)
+		if d.securityLog != nil {
+			details := make(map[string]interface{}, len(attrs))
+			for _, a := range attrs {
+				details[a.Key] = a.Value.Any()
+			}
+			d.securityLog.Emit(securitylog.Event{
+				EventType: eventType,
+				Details:   details,
+			})
+		}
 	}))
 
 	w, err := wal.Open(walPath, cfg.Daemon.WAL.MaxSegmentSizeMB, d.logger, walOpts...)
@@ -345,6 +370,29 @@ func (d *Daemon) Start() error {
 			"component", "daemon",
 			"interval_seconds", cfg.Consistency.IntervalSeconds,
 			"sample_size", cfg.Consistency.SampleSize,
+		)
+	}
+
+	// Initialise structured security event logger if enabled.
+	// Reference: Tech Spec Section 11.2, Section 9.2.18.
+	if cfg.SecurityEvents.Enabled && cfg.SecurityEvents.LogFile != "" {
+		logFile := cfg.SecurityEvents.LogFile
+		// Expand ~ prefix to the user home directory.
+		if strings.HasPrefix(logFile, "~/") || strings.HasPrefix(logFile, "~\\") {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return fmt.Errorf("daemon: expand security events log_file: %w", homeErr)
+			}
+			logFile = filepath.Join(home, logFile[2:])
+		}
+		sl, slErr := securitylog.New(logFile, d.logger)
+		if slErr != nil {
+			return fmt.Errorf("daemon: open security event log %q: %w", logFile, slErr)
+		}
+		d.securityLog = sl
+		d.logger.Info("daemon: security event logging enabled",
+			"component", "daemon",
+			"log_file", logFile,
 		)
 	}
 
@@ -517,6 +565,16 @@ func (d *Daemon) Stop() error {
 				if firstErr == nil {
 					firstErr = err
 				}
+			}
+		}
+
+		// Close security event log.
+		if d.securityLog != nil {
+			if err := d.securityLog.Close(); err != nil {
+				d.logger.Error("daemon: close security event log",
+					"component", "daemon",
+					"error", err,
+				)
 			}
 		}
 

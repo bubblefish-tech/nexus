@@ -208,6 +208,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	// Step 1 — CanWrite check.
 	// Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract item 12.
 	if !src.CanWrite {
+		d.emitPolicyDenied(r, src.Name, src.Namespace, "write", src.TargetDest, "source does not have write permission")
 		d.writeErrorResponse(w, r, http.StatusForbidden, "source_not_permitted_to_write",
 			"this source does not have write permission", 0)
 		return
@@ -233,11 +234,13 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	// Full policy engine is in Phase 1.
 	dest := src.TargetDest
 	if len(src.Policy.AllowedDestinations) > 0 && !containsString(src.Policy.AllowedDestinations, dest) {
+		d.emitPolicyDenied(r, src.Name, subject, "write", dest, "destination not permitted for this source")
 		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
 			"destination not permitted for this source", 0)
 		return
 	}
 	if len(src.Policy.AllowedOperations) > 0 && !containsString(src.Policy.AllowedOperations, "write") {
+		d.emitPolicyDenied(r, src.Name, subject, "write", dest, "write operation not permitted for this source")
 		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
 			"write operation not permitted for this source", 0)
 		return
@@ -315,6 +318,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 			"request_id", middleware.GetReqID(r.Context()),
 		)
 		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
+		d.emitRateLimitHit(r, src.Name, rpm)
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
@@ -512,6 +516,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// unauthorised sources do not consume rate-limit budget.
 	// Reference: Phase 0C Behavioral Contract item 12.
 	if !src.CanRead {
+		d.emitPolicyDenied(r, src.Name, src.Namespace, "read", chi.URLParam(r, "destination"), "source does not have read permission")
 		d.writeErrorResponse(w, r, http.StatusForbidden, "source_not_permitted_to_read",
 			"this source does not have read permission", 0)
 		return
@@ -526,6 +531,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	if allowed, retryAfter := d.rl.Allow(src.Name+":read", rpm); !allowed {
 		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
+		d.emitRateLimitHit(r, src.Name, rpm)
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
@@ -614,6 +620,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	// Stage 0 denial → 403.
 	if cascResult.Denial != nil {
+		d.emitPolicyDenied(r, src.Name, subject, "read", destName, cascResult.Denial.Reason)
 		d.writeErrorResponse(w, r, http.StatusForbidden, cascResult.Denial.Code,
 			cascResult.Denial.Reason, 0)
 		return
@@ -824,6 +831,7 @@ func (d *Daemon) handleOpenAIWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !src.CanWrite {
+		d.emitPolicyDenied(r, src.Name, src.Namespace, "write", src.TargetDest, "source does not have write permission")
 		d.writeErrorResponse(w, r, http.StatusForbidden, "source_not_permitted_to_write",
 			"this source does not have write permission", 0)
 		return
@@ -866,11 +874,13 @@ func (d *Daemon) handleOpenAIWrite(w http.ResponseWriter, r *http.Request) {
 	// Policy gate.
 	dest := src.TargetDest
 	if len(src.Policy.AllowedDestinations) > 0 && !containsString(src.Policy.AllowedDestinations, dest) {
+		d.emitPolicyDenied(r, src.Name, src.Namespace, "write", dest, "destination not permitted for this source")
 		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
 			"destination not permitted for this source", 0)
 		return
 	}
 	if len(src.Policy.AllowedOperations) > 0 && !containsString(src.Policy.AllowedOperations, "write") {
+		d.emitPolicyDenied(r, src.Name, src.Namespace, "write", dest, "write operation not permitted for this source")
 		d.writeErrorResponse(w, r, http.StatusForbidden, "policy_denied",
 			"write operation not permitted for this source", 0)
 		return

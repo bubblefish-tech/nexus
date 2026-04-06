@@ -78,6 +78,10 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Use(d.requireAdminToken)
 		r.Get("/api/status", d.handleAdminStatus)
 		r.Get("/api/lint", d.handleLint)
+		// Structured security events — admin only.
+		// Reference: Tech Spec Section 12, Phase R-17.
+		r.Get("/api/security/events", d.handleSecurityEvents)
+		r.Get("/api/security/summary", d.handleSecuritySummary)
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(
