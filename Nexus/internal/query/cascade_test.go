@@ -23,8 +23,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/BubbleFish-Nexus/internal/embedding"
 	"github.com/BubbleFish-Nexus/internal/query"
 )
 
@@ -477,5 +479,332 @@ func TestCascade_StageOrder_PolicyBlocksBeforeQuery(t *testing.T) {
 	}
 	if called {
 		t.Error("querier was called after Stage 0 denial — stage execution order violated")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase R-6 mock types
+// ---------------------------------------------------------------------------
+
+// mockSemanticQuerier implements both Querier and SemanticSearcher.
+type mockSemanticQuerier struct {
+	mockQuerier
+	semanticResult []destination.ScoredRecord
+	semanticCalled bool
+}
+
+func (m *mockSemanticQuerier) CanSemanticSearch() bool { return true }
+
+func (m *mockSemanticQuerier) SemanticSearch(_ context.Context, _ []float32, _ destination.QueryParams) ([]destination.ScoredRecord, error) {
+	m.semanticCalled = true
+	return m.semanticResult, nil
+}
+
+// mockEmbedder implements embedding.EmbeddingClient for testing.
+type mockEmbedder struct {
+	called bool
+}
+
+var _ embedding.EmbeddingClient = (*mockEmbedder)(nil)
+
+func (m *mockEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	m.called = true
+	return []float32{0.1, 0.2, 0.3}, nil
+}
+
+func (m *mockEmbedder) Dimensions() int { return 3 }
+func (m *mockEmbedder) Close() error    { return nil }
+
+// ---------------------------------------------------------------------------
+// Phase R-6 Verification Gate: profile=fast skips stages 2+4
+// ---------------------------------------------------------------------------
+
+func TestCascade_Fast_SkipsStages2And4(t *testing.T) {
+	records := []destination.TranslatedPayload{makeRecord("p1", "hello"), makeRecord("p2", "world")}
+	embedder := &mockEmbedder{}
+	sq := &mockSemanticQuerier{
+		mockQuerier: mockQuerier{
+			result: destination.QueryResult{Records: records},
+		},
+		semanticResult: []destination.ScoredRecord{
+			{Payload: records[0], Score: 0.95},
+		},
+	}
+
+	runner := query.New(sq, nil).
+		WithExactCache(cache.NewExactCache(1<<20, nil)).
+		WithSemanticCache(cache.NewSemanticCache(100, nil)).
+		WithEmbeddingClient(embedder, nil).
+		WithRetrievalConfig(config.RetrievalConfig{
+			DefaultProfile: "balanced",
+		})
+
+	src := &config.Source{
+		Name:      "s",
+		Namespace: "ns",
+		CanRead:   true,
+		Policy: config.SourcePolicyConfig{
+			Cache: config.PolicyCacheConfig{
+				ReadFromCache: true,
+				WriteToCache:  true,
+			},
+		},
+	}
+
+	cq := query.CanonicalQuery{
+		Destination: "mem",
+		Namespace:   "ns",
+		Q:           "hello",
+		Limit:       20,
+		Profile:     "fast",
+	}
+
+	result, err := runner.Run(context.Background(), src, cq)
+	if err != nil {
+		t.Fatalf("cascade Run failed: %v", err)
+	}
+
+	// Verification: _nexus.profile must be "fast".
+	if result.Profile != "fast" {
+		t.Errorf("profile = %q, want %q", result.Profile, "fast")
+	}
+
+	// Verification: embedding should NOT have been called (stages 2+4 skipped).
+	if embedder.called {
+		t.Error("embedding was called; stages 2+4 should be skipped for profile=fast")
+	}
+
+	// Verification: semantic search should NOT have been called.
+	if sq.semanticCalled {
+		t.Error("semantic search was called; stage 4 should be skipped for profile=fast")
+	}
+
+	// Stage 3 should have run and produced results.
+	if result.RetrievalStage != 3 {
+		t.Errorf("retrieval_stage = %d, want 3", result.RetrievalStage)
+	}
+
+	// SemanticUnavailable should be set since we skipped semantic.
+	if !result.SemanticUnavailable {
+		t.Error("SemanticUnavailable should be true when profile=fast")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase R-6 Verification Gate: profile=deep skips stage 1, oversample=500
+// ---------------------------------------------------------------------------
+
+func TestCascade_Deep_SkipsStage1(t *testing.T) {
+	records := []destination.TranslatedPayload{makeRecord("p1", "hello")}
+	sq := &mockQuerier{
+		result: destination.QueryResult{Records: records},
+	}
+
+	ec := cache.NewExactCache(1<<20, nil)
+
+	cq := query.CanonicalQuery{
+		Destination: "mem",
+		Namespace:   "ns",
+		Q:           "hello",
+		Limit:       20,
+		Profile:     "deep",
+	}
+
+	// Pre-populate the exact cache with a recognisable entry so we can verify
+	// the cascade does NOT return it.
+	cacheKey := cache.BuildKey("s", cq.Destination, cq.Profile,
+		cq.Namespace, cq.Subject, cq.Q, cq.Limit, cq.CursorOffset, "0000000000000000")
+	ec.Put(cacheKey, "mem", cache.CacheEntry{
+		Records: []destination.TranslatedPayload{
+			{PayloadID: "cached", Content: "should not appear"},
+		},
+	})
+
+	runner := query.New(sq, nil).
+		WithExactCache(ec).
+		WithRetrievalConfig(config.RetrievalConfig{DefaultProfile: "balanced"})
+
+	src := &config.Source{
+		Name:      "s",
+		Namespace: "ns",
+		CanRead:   true,
+		Policy: config.SourcePolicyConfig{
+			Cache: config.PolicyCacheConfig{
+				ReadFromCache: true,
+				WriteToCache:  true,
+			},
+		},
+	}
+
+	result, err := runner.Run(context.Background(), src, cq)
+	if err != nil {
+		t.Fatalf("cascade Run failed: %v", err)
+	}
+
+	// Verification: exact cache must NOT be used for profile=deep.
+	if result.RetrievalStage == 1 {
+		t.Error("stage 1 (exact cache) should be skipped for profile=deep")
+	}
+	if result.RetrievalStage != 3 {
+		t.Errorf("retrieval_stage = %d, want 3", result.RetrievalStage)
+	}
+	if len(result.Records) > 0 && result.Records[0].PayloadID == "cached" {
+		t.Error("got cached record; stage 1 should have been skipped for profile=deep")
+	}
+}
+
+func TestCascade_Deep_OverSample500(t *testing.T) {
+	// The deep profile requests an over-sample factor of 500. The cascade caps
+	// at MaxQueryLimit (200), so the querier receives 200 — which is larger
+	// than the original requested limit of 20, proving over-sampling kicked in.
+	records := []destination.TranslatedPayload{makeRecord("p1", "hello")}
+	embedder := &mockEmbedder{}
+	sq := &mockSemanticQuerier{
+		mockQuerier: mockQuerier{
+			result: destination.QueryResult{Records: records},
+		},
+		semanticResult: []destination.ScoredRecord{
+			{Payload: records[0], Score: 0.90},
+		},
+	}
+
+	runner := query.New(sq, nil).
+		WithEmbeddingClient(embedder, nil).
+		WithRetrievalConfig(config.RetrievalConfig{
+			DefaultProfile: "balanced",
+		})
+
+	src := &config.Source{
+		Name:      "s",
+		Namespace: "ns",
+		CanRead:   true,
+	}
+
+	cq := query.CanonicalQuery{
+		Destination: "mem",
+		Namespace:   "ns",
+		Q:           "hello",
+		Limit:       20,
+		Profile:     "deep",
+	}
+
+	_, err := runner.Run(context.Background(), src, cq)
+	if err != nil {
+		t.Fatalf("cascade Run failed: %v", err)
+	}
+
+	// Over-sampling should bump the limit from 20 to MaxQueryLimit (200).
+	// The deep profile's over-sample factor of 500 is capped at MaxQueryLimit.
+	if sq.lastParams.Limit != destination.MaxQueryLimit {
+		t.Errorf("querier limit = %d, want %d (MaxQueryLimit, capped from over-sample 500)",
+			sq.lastParams.Limit, destination.MaxQueryLimit)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase R-6 Verification Gate: AllowedProfiles policy denial → 403 policy_denied
+// ---------------------------------------------------------------------------
+
+func TestCascade_AllowedProfiles_DeniesUnlisted(t *testing.T) {
+	mq := &mockQuerier{result: destination.QueryResult{Records: []destination.TranslatedPayload{}}}
+	runner := query.New(mq, nil)
+
+	src := &config.Source{
+		Name:      "s",
+		Namespace: "ns",
+		CanRead:   true,
+		Policy: config.SourcePolicyConfig{
+			AllowedProfiles: []string{"fast", "balanced"},
+		},
+	}
+
+	cq := query.CanonicalQuery{
+		Destination: "mem",
+		Namespace:   "ns",
+		Q:           "hello",
+		Limit:       20,
+		Profile:     "deep", // not in allowed_profiles
+	}
+
+	result, err := runner.Run(context.Background(), src, cq)
+	if err != nil {
+		t.Fatalf("cascade Run failed: %v", err)
+	}
+	if result.Denial == nil {
+		t.Fatal("expected policy denial, got nil")
+	}
+	if result.Denial.Code != "policy_denied" {
+		t.Errorf("denial code = %q, want %q", result.Denial.Code, "policy_denied")
+	}
+}
+
+func TestCascade_AllowedProfiles_PermitsListed(t *testing.T) {
+	mq := &mockQuerier{result: destination.QueryResult{Records: []destination.TranslatedPayload{}}}
+	runner := query.New(mq, nil)
+
+	src := &config.Source{
+		Name:      "s",
+		Namespace: "ns",
+		CanRead:   true,
+		Policy: config.SourcePolicyConfig{
+			AllowedProfiles: []string{"fast", "balanced"},
+		},
+	}
+
+	cq := query.CanonicalQuery{
+		Destination: "mem",
+		Namespace:   "ns",
+		Limit:       20,
+		Profile:     "fast", // in allowed_profiles
+	}
+
+	result, err := runner.Run(context.Background(), src, cq)
+	if err != nil {
+		t.Fatalf("cascade Run failed: %v", err)
+	}
+	if result.Denial != nil {
+		t.Errorf("unexpected denial: %v", result.Denial)
+	}
+}
+
+func TestCascade_AllowedProfiles_EmptyAllowsAll(t *testing.T) {
+	mq := &mockQuerier{result: destination.QueryResult{Records: []destination.TranslatedPayload{}}}
+	runner := query.New(mq, nil)
+
+	src := &config.Source{
+		Name:      "s",
+		Namespace: "ns",
+		CanRead:   true,
+		// No AllowedProfiles set — all profiles should be allowed.
+	}
+
+	cq := query.CanonicalQuery{
+		Destination: "mem",
+		Namespace:   "ns",
+		Limit:       20,
+		Profile:     "deep",
+	}
+
+	result, err := runner.Run(context.Background(), src, cq)
+	if err != nil {
+		t.Fatalf("cascade Run failed: %v", err)
+	}
+	if result.Denial != nil {
+		t.Errorf("unexpected denial: %v", result.Denial)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase R-6: Normalize rejects invalid profile
+// ---------------------------------------------------------------------------
+
+func TestNormalize_InvalidProfile_ReturnsError(t *testing.T) {
+	_, err := query.Normalize(destination.QueryParams{
+		Destination: "mem",
+		Limit:       20,
+		Profile:     "turbo",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid profile, got nil")
 	}
 }

@@ -23,7 +23,11 @@
 // Reference: Tech Spec Section 3.4 — The 6-Stage Retrieval Cascade.
 package query
 
-import "github.com/BubbleFish-Nexus/internal/destination"
+import (
+	"errors"
+
+	"github.com/BubbleFish-Nexus/internal/destination"
+)
 
 // CanonicalQuery is the normalised, validated form of a query request. It is
 // produced from raw QueryParams by Normalize and is the single input type for
@@ -77,7 +81,10 @@ func Normalize(p destination.QueryParams) (CanonicalQuery, error) {
 
 	profile := p.Profile
 	if profile == "" {
-		profile = "balanced"
+		profile = ProfileBalanced
+	}
+	if !ValidProfile(profile) {
+		return CanonicalQuery{}, errors.New("invalid retrieval profile: must be fast, balanced, or deep")
 	}
 
 	return CanonicalQuery{

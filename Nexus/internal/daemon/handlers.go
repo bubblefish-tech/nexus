@@ -575,8 +575,14 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		ActorType:   actorTypeFilter,
 	})
 	if err != nil {
-		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_cursor",
-			"cursor is not a valid opaque pagination token", 0)
+		// Distinguish profile validation errors from cursor decode errors.
+		if !query.ValidProfile(profile) {
+			d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_profile",
+				"profile must be one of: fast, balanced, deep", 0)
+		} else {
+			d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_cursor",
+				"cursor is not a valid opaque pagination token", 0)
+		}
 		return
 	}
 

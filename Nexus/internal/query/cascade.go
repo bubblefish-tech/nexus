@@ -179,15 +179,15 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 	}
 
 	// ── Stage 1: Exact Cache ────────────────────────────────────────────────
-	// Active when: policy.read_from_cache = true AND profile != "deep".
+	// Active when: ProfileEnabled(1, profile) AND policy.read_from_cache = true.
 	// Key: SHA256(scope_hash + dest + params + policy_hash).
 	// Scope isolation: source identity is embedded in the key so source A
 	// cannot retrieve source B's cached entries.
 	// Watermark check: entries are stale when a write was delivered after they
 	// were cached; stale entries produce a miss.
-	// Reference: Tech Spec Section 3.4 — Stage 1.
+	// Reference: Tech Spec Section 3.4 — Stage 1, Section 3.5.
 	var cacheKey [32]byte
-	useCache := cr.exactCache != nil && src.Policy.Cache.ReadFromCache && q.Profile != "deep"
+	useCache := cr.exactCache != nil && src.Policy.Cache.ReadFromCache && ProfileEnabled(1, q.Profile)
 	if useCache {
 		ph := sourcePolicyHash(src.Policy.Cache)
 		cacheKey = cache.BuildKey(src.Name, q.Destination, q.Profile,
@@ -228,9 +228,9 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 	if cr.embeddingClient == nil {
 		semanticSkipped = true
 		skipReason = "embedding not configured"
-	} else if q.Profile == "fast" {
+	} else if !ProfileEnabled(4, q.Profile) {
 		semanticSkipped = true
-		skipReason = "profile=fast skips semantic retrieval"
+		skipReason = "profile=" + q.Profile + " skips semantic retrieval"
 	} else {
 		// Check destination semantic search capability before computing embedding.
 		ss, isSearcher := cr.querier.(destination.SemanticSearcher)
@@ -265,14 +265,14 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 	}
 
 	// ── Stage 2: Semantic Cache ─────────────────────────────────────────────
-	// Active when: embedding computed + semantic cache configured + policy
-	// allows reads from cache + profile != fast (already checked above).
+	// Active when: ProfileEnabled(2, profile) AND embedding computed AND
+	// semantic cache configured AND policy allows reads from cache.
 	//
 	// On a hit: short-circuit and return cached results (skipping Stages 3–5).
 	// On a miss: continue to Stage 3.
 	//
-	// Reference: Tech Spec Section 3.4 — Stage 2, Section 3.7.
-	if queryVecOK && cr.semanticCache != nil && src.Policy.Cache.ReadFromCache {
+	// Reference: Tech Spec Section 3.4 — Stage 2, Section 3.5.
+	if ProfileEnabled(2, q.Profile) && queryVecOK && cr.semanticCache != nil && src.Policy.Cache.ReadFromCache {
 		scopeKey := cache.SemanticScopeKey(src.Name, q.Destination, q.Profile, q.Namespace)
 		threshold := src.Policy.Cache.SemanticSimilarityThreshold
 		if threshold <= 0 {
@@ -379,7 +379,7 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		finalStage      int
 	)
 
-	if !semanticSkipped && len(stage4Records) > 0 && len(records) > 0 {
+	if ProfileEnabled(5, q.Profile) && !semanticSkipped && len(stage4Records) > 0 && len(records) > 0 {
 		// ── Stage 5: Both stages have results — full hybrid merge ────────────
 		decayCfg := ResolveDecay(cr.retrieval, src.Policy.Decay, q.Profile)
 		finalRecords = HybridMerge(records, stage4Records, q.Limit, decayCfg.Enabled, decayCfg, time.Now())
@@ -508,6 +508,15 @@ func runStage0(src *config.Source, q CanonicalQuery) *PolicyDenial {
 		return &PolicyDenial{
 			Code:   "retrieval_mode_not_allowed",
 			Reason: "retrieval profile not permitted for this source",
+		}
+	}
+	// AllowedProfiles is the Phase R-6 profile whitelist. When non-empty, the
+	// requested profile must appear in the list or the request is denied.
+	// Reference: Tech Spec Section 3.5 — allowed_profiles.
+	if len(src.Policy.AllowedProfiles) > 0 && !containsString(src.Policy.AllowedProfiles, q.Profile) {
+		return &PolicyDenial{
+			Code:   "policy_denied",
+			Reason: "retrieval profile not in allowed_profiles for this source",
 		}
 	}
 	return nil
