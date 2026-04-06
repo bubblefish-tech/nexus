@@ -154,6 +154,43 @@ func (d *Daemon) emitRateLimitHit(r *http.Request, source string, rpm int) {
 	})
 }
 
+// emitRetrievalFirewallFiltered emits a retrieval_firewall_filtered security
+// event when the retrieval firewall removes memories from the result set.
+// Reference: Tech Spec Addendum Section A3.7.
+func (d *Daemon) emitRetrievalFirewallFiltered(r *http.Request, source, subject string, labelsBlocked []string, tierBlocked bool, countFiltered, countRemaining int) {
+	d.emitSecurityEvent(securitylog.Event{
+		EventType: "retrieval_firewall_filtered",
+		Source:    source,
+		Subject:   subject,
+		IP:        effectiveClientIPFromContext(r.Context()),
+		Endpoint:  r.URL.Path,
+		Details: map[string]interface{}{
+			"labels_blocked":  labelsBlocked,
+			"tier_blocked":    tierBlocked,
+			"count_filtered":  countFiltered,
+			"count_remaining": countRemaining,
+			"request_id":      middleware.GetReqID(r.Context()),
+		},
+	})
+}
+
+// emitRetrievalFirewallDenied emits a retrieval_firewall_denied security event
+// when a query is fully denied by the retrieval firewall pre-query check.
+// Reference: Tech Spec Addendum Section A3.7.
+func (d *Daemon) emitRetrievalFirewallDenied(r *http.Request, source, subject, reason string) {
+	d.emitSecurityEvent(securitylog.Event{
+		EventType: "retrieval_firewall_denied",
+		Source:    source,
+		Subject:   subject,
+		IP:        effectiveClientIPFromContext(r.Context()),
+		Endpoint:  r.URL.Path,
+		Details: map[string]interface{}{
+			"reason":     reason,
+			"request_id": middleware.GetReqID(r.Context()),
+		},
+	})
+}
+
 // emitAdminAccess emits an admin_access security event.
 func (d *Daemon) emitAdminAccess(r *http.Request) {
 	d.emitSecurityEvent(securitylog.Event{

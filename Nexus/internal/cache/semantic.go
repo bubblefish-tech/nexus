@@ -150,7 +150,7 @@ func NewSemanticCache(maxEntries int, stats *SemanticStats) *SemanticCache {
 // derive different scope keys even for identical query parameters.
 func SemanticScopeKey(sourceName, dest, profile, namespace string) [32]byte {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s", sourceName, dest, profile, namespace)
+	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s", sourceName, dest, profile, namespace)
 	var out [32]byte
 	copy(out[:], h.Sum(nil))
 	return out

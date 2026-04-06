@@ -44,7 +44,11 @@ func openTestWAL(t *testing.T) (*WAL, string) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	t.Cleanup(func() { w.Close() })
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	})
 	return w, dir
 }
 
@@ -73,7 +77,11 @@ func reopen(t *testing.T, dir string) *WAL {
 	if err != nil {
 		t.Fatalf("reopen WAL: %v", err)
 	}
-	t.Cleanup(func() { w.Close() })
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	})
 	return w
 }
 
@@ -94,7 +102,11 @@ func writeRawLine(t *testing.T, segPath, line string) {
 	if err != nil {
 		t.Fatalf("writeRawLine open: %v", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 	if _, err := fmt.Fprintln(f, line); err != nil {
 		t.Fatalf("writeRawLine write: %v", err)
 	}
@@ -116,7 +128,9 @@ func currentSegment(t *testing.T, dir string) string {
 func TestWALAppendCRC32(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 10)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -152,7 +166,9 @@ func TestWALAppendCRC32(t *testing.T) {
 func TestWALReplayCorruptEntry(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 10)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -198,7 +214,9 @@ func TestWALReplayAllDelivered(t *testing.T) {
 			t.Fatalf("MarkDelivered(%s): %v", e.PayloadID, err)
 		}
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	w2 := reopen(t, dir)
 	replayed := replayAll(t, w2)
@@ -219,7 +237,9 @@ func TestWALReplayPartialDelivered(t *testing.T) {
 			t.Fatalf("MarkDelivered: %v", err)
 		}
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	w2 := reopen(t, dir)
 	replayed := replayAll(t, w2)
@@ -244,7 +264,9 @@ func TestWALReplayEmpty(t *testing.T) {
 func TestWALCrashMidWrite(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 5)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 
@@ -254,7 +276,9 @@ func TestWALCrashMidWrite(t *testing.T) {
 		t.Fatalf("open segment: %v", err)
 	}
 	_, _ = fmt.Fprint(f, `{"version":2,"payload_id":"partial","status":"PENDING"`)
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	w2 := reopen(t, dir)
 	replayed := replayAll(t, w2)
@@ -281,7 +305,9 @@ func TestWALLargeEntry(t *testing.T) {
 	if err := w.Append(entry); err != nil {
 		t.Fatalf("Append large entry: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	w2 := reopen(t, dir)
 	replayed := replayAll(t, w2)
@@ -301,7 +327,9 @@ func TestWALCrashMidRotation(t *testing.T) {
 	w, dir := openTestWAL(t)
 	// Write 5 entries to the first segment.
 	appendN(t, w, 5)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	// Simulate a second segment (created during rotation before crash).
 	// Entry 3 has the same idempotency key as the one written above — it must
@@ -328,9 +356,13 @@ func TestWALCrashMidRotation(t *testing.T) {
 		e.Timestamp = time.Now().UTC()
 		data, _ := json.Marshal(e)
 		crc := fmt.Sprintf("%08x", crc32.ChecksumIEEE(data))
-		fmt.Fprintf(f, "%s\t%s\n", data, crc)
+		if _, err := fmt.Fprintf(f, "%s\t%s\n", data, crc); err != nil {
+			t.Fatalf("write seg2 entry: %v", err)
+		}
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Logf("close seg2: %v", err)
+	}
 
 	// Reopen: WAL will use seg2 as the active segment, seg1 as an older segment.
 	w2 := reopen(t, dir)
@@ -369,7 +401,9 @@ func TestWALMarkDeliveredTempFileLocation(t *testing.T) {
 	}
 
 	// The rewritten segment must show entries[1] as DELIVERED.
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
 	if err != nil {
@@ -401,7 +435,9 @@ func TestWALFilePermissions(t *testing.T) {
 
 	w, dir := openTestWAL(t)
 	appendN(t, w, 1)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 	info, err := os.Stat(seg)
@@ -429,7 +465,7 @@ func TestWALNilLoggerPanics(t *testing.T) {
 		}
 	}()
 	dir := t.TempDir()
-	Open(dir, 50, nil) //nolint: intentional nil to trigger panic
+	_, _ = Open(dir, 50, nil) // intentional nil logger to trigger panic
 }
 
 // TestWALAppendStatusAlwaysPending verifies that Append always writes PENDING
@@ -446,7 +482,9 @@ func TestWALAppendStatusAlwaysPending(t *testing.T) {
 	if err := w.Append(entry); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	w2 := reopen(t, dir)
 	replayed := replayAll(t, w2)
@@ -463,16 +501,25 @@ func TestWALAppendStatusAlwaysPending(t *testing.T) {
 func TestWALReplayMalformedJSON(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 3)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 
 	// Append a line with valid CRC but invalid JSON.
 	badJSON := []byte(`{not valid json`)
 	crc := fmt.Sprintf("%08x", crc32.ChecksumIEEE(badJSON))
-	f, _ := os.OpenFile(seg, os.O_APPEND|os.O_WRONLY, 0600)
-	fmt.Fprintf(f, "%s\t%s\n", badJSON, crc)
-	f.Close()
+	f, err := os.OpenFile(seg, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("open segment for bad JSON append: %v", err)
+	}
+	if _, err := fmt.Fprintf(f, "%s\t%s\n", badJSON, crc); err != nil {
+		t.Fatalf("write bad JSON line: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Logf("close segment: %v", err)
+	}
 
 	w2 := reopen(t, dir)
 	replayed := replayAll(t, w2)
@@ -574,7 +621,9 @@ func TestPendingCount_ReplayInitialises(t *testing.T) {
 	if err := w.MarkDelivered("p1"); err != nil {
 		t.Fatalf("MarkDelivered p1: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	// Reopen — PendingCount starts at 0, Replay should set it to 3.
 	w2 := reopen(t, dir)

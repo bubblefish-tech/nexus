@@ -263,7 +263,9 @@ func writeMemories(opts Options) (map[string]string, error) {
 			return nil, fmt.Errorf("POST %s: %w", key, err)
 		}
 		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("demo: close response body", "error", err)
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("POST %s: status %d: %s", key, resp.StatusCode, string(respBody))
@@ -310,7 +312,11 @@ func queryAndAssert(opts Options, expectedIDs map[string]string) (*Result, error
 	if err != nil {
 		return nil, fmt.Errorf("GET query: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -454,7 +460,7 @@ func waitReady(baseURL string, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(baseURL + "/ready")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}

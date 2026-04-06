@@ -61,14 +61,20 @@ func TestPhase9_CrashRecovery_GoldenScenario(t *testing.T) {
 	}
 
 	// Simulate kill -9: close the file handle directly, no graceful shutdown.
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	// Phase 2: "Restart" — reopen WAL from the same directory and replay.
 	w2, err := Open(dir, 50, testLogger())
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer w2.Close()
+	defer func() {
+		if err := w2.Close(); err != nil {
+			t.Logf("close w2: %v", err)
+		}
+	}()
 
 	replayed := make(map[string]bool)
 	var replayCount int
@@ -128,7 +134,11 @@ func TestPhase9_CrashRecovery_MidRotation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create segment: %v", err)
 		}
-		defer f.Close()
+		defer func() {
+			if err := f.Close(); err != nil {
+				t.Logf("close segment: %v", err)
+			}
+		}()
 		for i := start; i < end; i++ {
 			e := Entry{
 				Version:        2,
@@ -142,9 +152,13 @@ func TestPhase9_CrashRecovery_MidRotation(t *testing.T) {
 			}
 			data, _ := json.Marshal(e)
 			crc := crc32.ChecksumIEEE(data)
-			fmt.Fprintf(f, "%s\t%08x\n", data, crc)
+			if _, err := fmt.Fprintf(f, "%s\t%08x\n", data, crc); err != nil {
+				t.Fatalf("write segment entry %d: %v", i, err)
+			}
 		}
-		os.Chmod(path, 0600)
+		if err := os.Chmod(path, 0600); err != nil {
+			t.Logf("chmod segment: %v", err)
+		}
 	}
 
 	writeSegment(seg1, 0, 25)
@@ -154,7 +168,11 @@ func TestPhase9_CrashRecovery_MidRotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	seen := make(map[string]int)
 	err = w.Replay(func(e Entry) {
@@ -187,7 +205,9 @@ func TestPhase9_CRC32CorruptionDetection(t *testing.T) {
 
 	// Write 10 valid entries.
 	appendN(t, w, 10)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	// Corrupt one entry by modifying a byte in the JSON portion.
 	seg := currentSegment(t, dir)
@@ -236,7 +256,9 @@ func TestPhase9_CRC32CorruptionDetection(t *testing.T) {
 func TestPhase9_CRC32_MultipleCorruptions(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 20)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)

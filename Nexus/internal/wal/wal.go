@@ -189,7 +189,9 @@ func (w *WAL) openCurrentSegment() error {
 	}
 	info, err := f.Stat()
 	if err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			slog.Error("wal: close segment after stat failure", "err", closeErr)
+		}
 		return fmt.Errorf("wal: stat segment: %w", err)
 	}
 	w.current = f
@@ -311,7 +313,11 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 	if err != nil {
 		return fmt.Errorf("wal: open segment for replay %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Error("wal: close segment after replay", "path", path, "err", err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
@@ -460,7 +466,11 @@ func (w *WAL) scanDelivered(path string, out *[]Entry) error {
 	if err != nil {
 		return fmt.Errorf("wal: open segment for scan %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Error("wal: close segment after scan", "path", path, "err", err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)

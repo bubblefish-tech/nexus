@@ -101,7 +101,9 @@ func runStart() {
 			Logger:        logger,
 			OnStop: func() {
 				// Tray "Stop" menu item triggers daemon shutdown.
-				d.Stop()
+				if err := d.Stop(); err != nil {
+					slog.Error("tray: stop daemon", "error", err)
+				}
 			},
 		})
 	}()

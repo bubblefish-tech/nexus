@@ -194,7 +194,7 @@ func TestDestinationChangeRejected(t *testing.T) {
 func TestSourceChangeApplied(t *testing.T) {
 	var mu sync.RWMutex
 	oldCfg := makeTestConfig("src", "key-old", "dest1", "sqlite")
-	current := oldCfg
+	var current *config.Config
 	newCfg := makeTestConfig("src", "key-new", "dest1", "sqlite")
 
 	var applyCount atomic.Int64

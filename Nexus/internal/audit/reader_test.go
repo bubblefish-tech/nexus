@@ -70,7 +70,9 @@ func TestAuditReader_BasicQuery(t *testing.T) {
 		rec := makeRecord("claude", "write", "allowed", now.Add(time.Duration(i)*time.Second))
 		writeRawRecord(t, f, rec)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
@@ -99,7 +101,9 @@ func TestAuditReader_FilterBySource(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("cursor", "write", "allowed", now.Add(time.Second)))
 	writeRawRecord(t, f, makeRecord("claude", "query", "allowed", now.Add(2*time.Second)))
 	writeRawRecord(t, f, makeRecord("cursor", "query", "denied", now.Add(3*time.Second)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
@@ -130,7 +134,9 @@ func TestAuditReader_FilterByOperation(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now))
 	writeRawRecord(t, f, makeRecord("claude", "query", "allowed", now.Add(time.Second)))
 	writeRawRecord(t, f, makeRecord("claude", "admin", "allowed", now.Add(2*time.Second)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{Operation: "query"})
@@ -155,7 +161,9 @@ func TestAuditReader_FilterByPolicyDecision(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now))
 	writeRawRecord(t, f, makeRecord("claude", "write", "denied", now.Add(time.Second)))
 	writeRawRecord(t, f, makeRecord("claude", "query", "filtered", now.Add(2*time.Second)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{PolicyDecision: "denied"})
@@ -181,7 +189,9 @@ func TestAuditReader_FilterByTimeRange(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", base.Add(1*time.Hour)))
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", base.Add(2*time.Hour)))
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", base.Add(3*time.Hour)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
@@ -212,7 +222,9 @@ func TestAuditReader_Pagination(t *testing.T) {
 		rec := makeRecord("test", "write", "allowed", now.Add(time.Duration(i)*time.Second))
 		writeRawRecord(t, f, rec)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
@@ -276,7 +288,9 @@ func TestAuditReader_LimitCappedAt1000(t *testing.T) {
 
 	now := time.Now().UTC()
 	writeRawRecord(t, f, makeRecord("test", "write", "allowed", now))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{Limit: 5000})
@@ -297,7 +311,9 @@ func TestAuditReader_DefaultLimit100(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	writeRawRecord(t, f, makeRecord("test", "write", "allowed", time.Now().UTC()))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
@@ -324,7 +340,9 @@ func TestAuditReader_CRC32Mismatch_SkipsCorruptEntry(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now))
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now.Add(time.Second)))
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now.Add(2*time.Second)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	// Corrupt the second line (flip a byte in the JSON).
 	data, err := os.ReadFile(logFile)
@@ -376,7 +394,9 @@ func TestAuditReader_MultipleRotatedFiles(t *testing.T) {
 	}
 	writeRawRecord(t, f1, makeRecord("source-a", "write", "allowed", now))
 	writeRawRecord(t, f1, makeRecord("source-a", "write", "allowed", now.Add(time.Second)))
-	f1.Close()
+	if err := f1.Close(); err != nil {
+		t.Logf("close rotated1: %v", err)
+	}
 
 	// Rotated file 2.
 	f2, err := os.OpenFile(rotated2, os.O_CREATE|os.O_WRONLY, 0600)
@@ -384,7 +404,9 @@ func TestAuditReader_MultipleRotatedFiles(t *testing.T) {
 		t.Fatalf("create rotated2: %v", err)
 	}
 	writeRawRecord(t, f2, makeRecord("source-b", "query", "allowed", now.Add(2*time.Second)))
-	f2.Close()
+	if err := f2.Close(); err != nil {
+		t.Logf("close rotated2: %v", err)
+	}
 
 	// Current file.
 	f3, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY, 0600)
@@ -393,7 +415,9 @@ func TestAuditReader_MultipleRotatedFiles(t *testing.T) {
 	}
 	writeRawRecord(t, f3, makeRecord("source-c", "admin", "denied", now.Add(3*time.Second)))
 	writeRawRecord(t, f3, makeRecord("source-c", "write", "allowed", now.Add(4*time.Second)))
-	f3.Close()
+	if err := f3.Close(); err != nil {
+		t.Logf("close current: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
@@ -428,7 +452,9 @@ func TestAuditReader_Count(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now))
 	writeRawRecord(t, f, makeRecord("cursor", "write", "denied", now.Add(time.Second)))
 	writeRawRecord(t, f, makeRecord("claude", "query", "allowed", now.Add(2*time.Second)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
@@ -468,7 +494,9 @@ func TestAuditReader_FilterByActorID(t *testing.T) {
 	writeRawRecord(t, f, rec1)
 	writeRawRecord(t, f, rec2)
 	writeRawRecord(t, f, rec3)
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{ActorID: "user-alice"})
@@ -498,7 +526,9 @@ func TestAuditReader_FilterBySubjectAndDestination(t *testing.T) {
 	rec2.Destination = "postgres"
 	writeRawRecord(t, f, rec1)
 	writeRawRecord(t, f, rec2)
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
@@ -546,7 +576,9 @@ func TestAuditReader_HMACValidation(t *testing.T) {
 			t.Fatalf("Log[%d]: %v", i, err)
 		}
 	}
-	al.Close()
+	if err := al.Close(); err != nil {
+		t.Logf("close: %v", err)
+	}
 
 	// Read with correct key.
 	reader := NewAuditReader(logFile,
@@ -600,7 +632,9 @@ func TestAuditReader_EmptyLogFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
@@ -644,7 +678,9 @@ func TestAuditReader_CombinedFilters(t *testing.T) {
 	writeRawRecord(t, f, makeRecord("claude", "query", "denied", now.Add(time.Second)))
 	writeRawRecord(t, f, makeRecord("cursor", "write", "allowed", now.Add(2*time.Second)))
 	writeRawRecord(t, f, makeRecord("claude", "write", "denied", now.Add(3*time.Second)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 
@@ -688,7 +724,9 @@ func TestAuditReader_ShadowFallback_CorruptPrimary(t *testing.T) {
 			t.Fatalf("Log[%d]: %v", i, err)
 		}
 	}
-	al.Close()
+	if err := al.Close(); err != nil {
+		t.Logf("close: %v", err)
+	}
 
 	// Corrupt one record in primary (flip a byte in line 3).
 	data, _ := os.ReadFile(logFile)
@@ -702,7 +740,9 @@ func TestAuditReader_ShadowFallback_CorruptPrimary(t *testing.T) {
 			}
 		}
 	}
-	os.WriteFile(logFile, data, 0600)
+	if err := os.WriteFile(logFile, data, 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	// Shadow should still be intact.
 	reader := NewAuditReader(logFile, WithReaderDualWrite(true))
@@ -747,7 +787,9 @@ func TestAuditReader_BothCorrupt_SkipsEntry(t *testing.T) {
 			t.Fatalf("Log[%d]: %v", i, err)
 		}
 	}
-	al.Close()
+	if err := al.Close(); err != nil {
+		t.Logf("close: %v", err)
+	}
 
 	// Corrupt the same record (line 3) in BOTH primary and shadow.
 	for _, path := range []string{logFile, shadowFile} {
@@ -762,7 +804,9 @@ func TestAuditReader_BothCorrupt_SkipsEntry(t *testing.T) {
 				}
 			}
 		}
-		os.WriteFile(path, data, 0600)
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatalf("WriteFile %s: %v", path, err)
+		}
 	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(true))
@@ -802,7 +846,9 @@ func TestAuditReader_RotationMarkerSkipped(t *testing.T) {
 	writeRawRecord(t, f, marker)
 
 	writeRawRecord(t, f, makeRecord("claude", "write", "allowed", now.Add(3*time.Second)))
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
@@ -844,7 +890,9 @@ func TestAuditReader_CrashMidRotation_DedupByRecordID(t *testing.T) {
 		}
 		writeRawRecord(t, f1, rec)
 	}
-	f1.Close()
+	if err := f1.Close(); err != nil {
+		t.Logf("close rotated: %v", err)
+	}
 
 	// Write the SAME records to "new" current file (crash replay scenario).
 	f2, _ := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY, 0600)
@@ -867,7 +915,9 @@ func TestAuditReader_CrashMidRotation_DedupByRecordID(t *testing.T) {
 		PolicyDecision: "allowed",
 	}
 	writeRawRecord(t, f2, unique)
-	f2.Close()
+	if err := f2.Close(); err != nil {
+		t.Logf("close current: %v", err)
+	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))
 	result, err := reader.Query(AuditFilter{})
@@ -910,7 +960,9 @@ func TestAuditReader_EncryptionRoundTrip(t *testing.T) {
 			t.Fatalf("Log[%d]: %v", i, err)
 		}
 	}
-	al.Close()
+	if err := al.Close(); err != nil {
+		t.Logf("close: %v", err)
+	}
 
 	reader := NewAuditReader(logFile,
 		WithReaderEncryption(encKey),
@@ -945,7 +997,9 @@ func TestAuditReader_ShadowExcludedFromPrimaryDiscovery(t *testing.T) {
 		now := time.Now().UTC()
 		rec := makeRecord("test", "write", "allowed", now)
 		writeRawRecord(t, f, rec)
-		f.Close()
+		if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 	}
 
 	reader := NewAuditReader(logFile, WithReaderDualWrite(false))

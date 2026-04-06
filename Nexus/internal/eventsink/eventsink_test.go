@@ -111,7 +111,11 @@ func TestSummaryModeStripsContent(t *testing.T) {
 	var receivedContent json.RawMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var ev Event
-		json.NewDecoder(r.Body).Decode(&ev)
+		if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
+			t.Errorf("decode: %v", err)
+			w.WriteHeader(500)
+			return
+		}
 		receivedContent = ev.Content
 		w.WriteHeader(200)
 	}))
@@ -149,7 +153,11 @@ func TestFullModeIncludesContent(t *testing.T) {
 	var receivedContent json.RawMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var ev Event
-		json.NewDecoder(r.Body).Decode(&ev)
+		if err := json.NewDecoder(r.Body).Decode(&ev); err != nil {
+			t.Errorf("decode: %v", err)
+			w.WriteHeader(500)
+			return
+		}
 		receivedContent = ev.Content
 		w.WriteHeader(200)
 	}))

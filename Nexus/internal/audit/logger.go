@@ -175,7 +175,9 @@ func (l *AuditLogger) openFile() error {
 
 	info, err := f.Stat()
 	if err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			l.logger.Warn("audit: close log file after stat failure", "error", closeErr)
+		}
 		return fmt.Errorf("audit: stat log file: %w", err)
 	}
 
@@ -344,7 +346,9 @@ func (l *AuditLogger) writeToFile(fp **os.File, path, line, label string) error 
 
 	_, err := fmt.Fprint(*fp, line)
 	if err != nil {
-		(*fp).Close()
+		if closeErr := (*fp).Close(); closeErr != nil {
+			l.logger.Warn("audit: close file after write failure", "label", label, "error", closeErr)
+		}
 		*fp = nil
 		return fmt.Errorf("audit: write %s: %w", label, err)
 	}

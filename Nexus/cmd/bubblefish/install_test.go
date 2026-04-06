@@ -129,7 +129,9 @@ func TestWriteDestinationUnknown(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	destDir := filepath.Join(dir, "destinations")
-	os.MkdirAll(destDir, 0700)
+	if err := os.MkdirAll(destDir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 
 	err := writeDestination(dir, "badtype", false)
 	if err == nil {
@@ -521,7 +523,9 @@ func TestWritePostgresDestination(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	destDir := filepath.Join(dir, "destinations")
-	os.MkdirAll(destDir, 0700)
+	if err := os.MkdirAll(destDir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 
 	if err := writePostgresDestination(dir, "postgres://u:p@h/d", false); err != nil {
 		t.Fatalf("writePostgresDestination: %v", err)
@@ -540,7 +544,9 @@ func TestWriteOpenBrainDestination(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	destDir := filepath.Join(dir, "destinations")
-	os.MkdirAll(destDir, 0700)
+	if err := os.MkdirAll(destDir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 
 	if err := writeOpenBrainDestination(dir, "https://x.supabase.co", "secret", false); err != nil {
 		t.Fatalf("writeOpenBrainDestination: %v", err)

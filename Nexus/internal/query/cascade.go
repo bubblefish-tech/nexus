@@ -28,6 +28,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/embedding"
+	"github.com/BubbleFish-Nexus/internal/firewall"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -85,6 +86,12 @@ type CascadeResult struct {
 	// SemanticUnavailableReason is a human-readable explanation for why semantic
 	// search was skipped. Set when SemanticUnavailable is true.
 	SemanticUnavailableReason string
+
+	// FirewallResult holds the outcome of the retrieval firewall PostFilter.
+	// Non-nil when the firewall is enabled and executed. The handler uses this
+	// to populate the interaction record and set _nexus.retrieval_firewall_filtered.
+	// Reference: Tech Spec Addendum Section A3.5.
+	FirewallResult *firewall.FilterResult
 
 	// Debug holds optional per-stage diagnostic information. Populated only
 	// when the cascade is run in debug mode. Reference: Tech Spec Section 7.3.
@@ -145,6 +152,7 @@ type CascadeRunner struct {
 	decayCounter     prometheus.Counter    // Phase 6: bubblefish_temporal_decay_applied_total
 	destinations     map[string]*config.Destination // Phase R-7: per-dest/collection decay
 	debug            bool // when true, populate DebugInfo in CascadeResult
+	fw               *firewall.RetrievalFirewall  // Phase R-31: retrieval firewall
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -229,6 +237,16 @@ func (cr *CascadeRunner) WithDebug(enabled bool) *CascadeRunner {
 	return cr
 }
 
+// WithFirewall attaches a RetrievalFirewall to the runner, enabling pre-query
+// tier/namespace checks in Stage 0 and post-retrieval label/tier filtering
+// after Stage 5. When fw is nil or not enabled, all firewall logic is skipped.
+//
+// Reference: Tech Spec Addendum Section A3.5.
+func (cr *CascadeRunner) WithFirewall(fw *firewall.RetrievalFirewall) *CascadeRunner {
+	cr.fw = fw
+	return cr
+}
+
 // Run executes the 6-stage retrieval cascade for the given source policy and
 // canonical query. Stages execute strictly in order 0 → 5. Each stage may
 // produce results and short-circuit, pass through to the next stage, or block
@@ -261,6 +279,25 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		)
 		return CascadeResult{Denial: denial, Profile: q.Profile}, nil
 	}
+
+	// ── Stage 0+: Retrieval Firewall PreQuery ───────────────────────────────
+	// Checks namespace isolation and tier validity BEFORE any data is fetched.
+	// Reference: Tech Spec Addendum Section A3.5 — Pre-query.
+	if cr.fw != nil && cr.fw.Enabled() {
+		if fwDenial := cr.fw.PreQuery(src, q.Namespace); fwDenial != nil {
+			cr.logger.Warn("query: retrieval firewall denied request",
+				"component", "cascade",
+				"source", src.Name,
+				"code", fwDenial.Code,
+				"reason", fwDenial.Reason,
+			)
+			return CascadeResult{
+				Denial:  &PolicyDenial{Code: fwDenial.Code, Reason: fwDenial.Reason},
+				Profile: q.Profile,
+			}, nil
+		}
+	}
+
 	if dbg != nil {
 		dbg.StagesHit = append(dbg.StagesHit, "policy_gate")
 		dbg.PerStageLatencyMs["policy_gate"] = float64(time.Since(s0Start).Microseconds()) / 1000.0
@@ -284,13 +321,20 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 			"subject", q.Subject,
 			"results", len(records),
 		)
-		return CascadeResult{
+		res := CascadeResult{
 			Records:        records,
 			NextCursor:     nextCursor,
 			HasMore:        hasMore,
 			Profile:        q.Profile,
 			RetrievalStage: StageFastPath,
-		}, nil
+		}
+		// Apply retrieval firewall PostFilter to fast path results.
+		if cr.fw != nil && cr.fw.Enabled() && len(records) > 0 {
+			fr := cr.fw.PostFilter(src, records)
+			res.Records = fr.Records
+			res.FirewallResult = &fr
+		}
+		return res, nil
 	}
 
 	// ── Stage 1: Exact Cache ────────────────────────────────────────────────
@@ -313,12 +357,19 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 				"source", src.Name,
 				"destination", q.Destination,
 			)
+			recs := entry.Records
 			result := CascadeResult{
-				Records:        entry.Records,
+				Records:        recs,
 				NextCursor:     entry.NextCursor,
 				HasMore:        entry.HasMore,
 				Profile:        q.Profile,
 				RetrievalStage: 1,
+			}
+			// Apply retrieval firewall PostFilter to cached results.
+			if cr.fw != nil && cr.fw.Enabled() && len(recs) > 0 {
+				fr := cr.fw.PostFilter(src, recs)
+				result.Records = fr.Records
+				result.FirewallResult = &fr
 			}
 			if dbg != nil {
 				dbg.StagesHit = append(dbg.StagesHit, "exact_cache")
@@ -408,12 +459,19 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 				"source", src.Name,
 				"destination", q.Destination,
 			)
+			recs := entry.Records
 			result := CascadeResult{
-				Records:        entry.Records,
+				Records:        recs,
 				NextCursor:     entry.NextCursor,
 				HasMore:        entry.HasMore,
 				Profile:        q.Profile,
 				RetrievalStage: 2,
+			}
+			// Apply retrieval firewall PostFilter to cached results.
+			if cr.fw != nil && cr.fw.Enabled() && len(recs) > 0 {
+				fr := cr.fw.PostFilter(src, recs)
+				result.Records = fr.Records
+				result.FirewallResult = &fr
 			}
 			if dbg != nil {
 				dbg.StagesHit = append(dbg.StagesHit, "semantic_cache")
@@ -563,6 +621,27 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		finalStage = 3
 	}
 
+	// ── Retrieval Firewall PostFilter ────────────────────────────────────────
+	// Removes memories the source cannot see based on blocked_labels,
+	// max_classification_tier, required_labels, and namespace isolation.
+	// Executes after retrieval, before projection. NOT bypassable.
+	//
+	// Reference: Tech Spec Addendum Section A3.5 — Post-retrieval.
+	var fwResult *firewall.FilterResult
+	if cr.fw != nil && cr.fw.Enabled() && len(finalRecords) > 0 {
+		fr := cr.fw.PostFilter(src, finalRecords)
+		fwResult = &fr
+		finalRecords = fr.Records
+		if fr.Filtered {
+			cr.logger.Info("query: retrieval firewall filtered results",
+				"component", "cascade",
+				"source", src.Name,
+				"removed", fr.CountRemoved,
+				"remaining", fr.CountRemaining,
+			)
+		}
+	}
+
 	// ── Exact Cache write-back ───────────────────────────────────────────────
 	// Store final results in the exact cache for future identical requests when
 	// the source policy permits caching writes.
@@ -592,6 +671,7 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		HasMore:        finalHasMore,
 		Profile:        q.Profile,
 		RetrievalStage: finalStage,
+		FirewallResult: fwResult,
 	}
 
 	// Populate debug info for the non-cache path.
@@ -636,7 +716,7 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 // similarity threshold used in Stage 2.
 func sourcePolicyHash(p config.PolicyCacheConfig) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "rfc=%v\x00wtc=%v\x00ttl=%d\x00sst=%.6f",
+	_, _ = fmt.Fprintf(h, "rfc=%v\x00wtc=%v\x00ttl=%d\x00sst=%.6f",
 		p.ReadFromCache, p.WriteToCache, p.MaxTTLSeconds, p.SemanticSimilarityThreshold)
 	return fmt.Sprintf("%x", h.Sum(nil))[:16] // first 8 bytes (16 hex chars) is sufficient
 }

@@ -194,7 +194,11 @@ func (d *SupabaseDestination) Write(p TranslatedPayload) error {
 	if err != nil {
 		return fmt.Errorf("destination: supabase: write: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
@@ -221,7 +225,11 @@ func (d *SupabaseDestination) Ping() error {
 	if err != nil {
 		return fmt.Errorf("destination: supabase: ping: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256))
 
 	if resp.StatusCode >= 500 {
@@ -252,7 +260,11 @@ func (d *SupabaseDestination) Exists(payloadID string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("destination: supabase: exists: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256))
@@ -312,7 +324,11 @@ func (d *SupabaseDestination) Query(params QueryParams) (QueryResult, error) {
 	if err != nil {
 		return QueryResult{}, fmt.Errorf("destination: supabase: query: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256))
@@ -376,7 +392,11 @@ func (d *SupabaseDestination) SemanticSearch(ctx context.Context, vec []float32,
 	if err != nil {
 		return nil, fmt.Errorf("destination: supabase: semantic search: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))

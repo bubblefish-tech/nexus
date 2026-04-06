@@ -42,7 +42,11 @@ func openTestWALWithMAC(t *testing.T) (*WAL, string) {
 	if err != nil {
 		t.Fatalf("Open with MAC: %v", err)
 	}
-	t.Cleanup(func() { w.Close() })
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Logf("close WAL: %v", err)
+		}
+	})
 	return w, dir
 }
 
@@ -55,7 +59,11 @@ func reopenWithMAC(t *testing.T, dir string) *WAL {
 	if err != nil {
 		t.Fatalf("reopen with MAC: %v", err)
 	}
-	t.Cleanup(func() { w.Close() })
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Logf("close WAL: %v", err)
+		}
+	})
 	return w
 }
 
@@ -66,7 +74,9 @@ func reopenWithMAC(t *testing.T, dir string) *WAL {
 func TestIntegrityMACWriteFormat(t *testing.T) {
 	w, dir := openTestWALWithMAC(t)
 	appendN(t, w, 10)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Logf("close WAL: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -119,7 +129,7 @@ func TestIntegrityMACWriteFormat(t *testing.T) {
 func TestIntegrityMACTamperDetected(t *testing.T) {
 	w, dir := openTestWALWithMAC(t)
 	appendN(t, w, 10)
-	w.Close()
+	if err := w.Close(); err != nil { t.Fatalf("close: %v", err) }
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -169,7 +179,11 @@ func TestIntegrityMACTamperDetected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer w2.Close()
+	defer func() {
+		if err := w2.Close(); err != nil {
+			t.Logf("close w2: %v", err)
+		}
+	}()
 
 	replayed := replayAll(t, w2)
 
@@ -199,7 +213,7 @@ func TestIntegrityMACTamperDetected(t *testing.T) {
 func TestIntegrityMACCRCFailsBeforeHMAC(t *testing.T) {
 	w, dir := openTestWALWithMAC(t)
 	appendN(t, w, 5)
-	w.Close()
+	if err := w.Close(); err != nil { t.Fatalf("close: %v", err) }
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -231,7 +245,11 @@ func TestIntegrityMACCRCFailsBeforeHMAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer w2.Close()
+	defer func() {
+		if err := w2.Close(); err != nil {
+			t.Logf("close w2: %v", err)
+		}
+	}()
 
 	replayed := replayAll(t, w2)
 
@@ -286,7 +304,7 @@ func TestIntegrityMACEmptyKey(t *testing.T) {
 func TestIntegrityCRC32OnlyFormat(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 5)
-	w.Close()
+	if err := w.Close(); err != nil { t.Fatalf("close: %v", err) }
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -315,7 +333,9 @@ func TestIntegrityMACMarkDelivered(t *testing.T) {
 	if err := w.MarkDelivered(entries[2].PayloadID); err != nil {
 		t.Fatalf("MarkDelivered: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -387,7 +407,9 @@ func TestIntegrityMACMarkDeliveredReplayCorrect(t *testing.T) {
 			t.Fatalf("MarkDelivered: %v", err)
 		}
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	w2 := reopenWithMAC(t, dir)
 	replayed := replayAll(t, w2)
@@ -412,7 +434,9 @@ func TestIntegrityMACPreUpgradeEntries(t *testing.T) {
 		t.Fatalf("Open crc32: %v", err)
 	}
 	appendN(t, w1, 5)
-	w1.Close()
+	if err := w1.Close(); err != nil {
+		t.Logf("close w1: %v", err)
+	}
 
 	// Reopen in MAC mode. Old entries have no HMAC field — they must still be
 	// replayed without error or integrity failure.
@@ -467,7 +491,9 @@ func TestComputeAndValidateHMAC(t *testing.T) {
 func TestIntegrityMACMixedReplay(t *testing.T) {
 	w, dir := openTestWALWithMAC(t)
 	appendN(t, w, 3) // 3 MAC entries
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	// Manually append a 2-field (CRC-only) line to simulate pre-upgrade entry.
 	seg := currentSegment(t, dir)
@@ -508,7 +534,9 @@ func TestIntegrityMACMarkPermanentFailure(t *testing.T) {
 	if err := w.MarkPermanentFailure(entries[1].PayloadID); err != nil {
 		t.Fatalf("MarkPermanentFailure: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	seg := currentSegment(t, dir)
 	data, err := os.ReadFile(seg)
@@ -560,7 +588,9 @@ func TestIntegrityMACSegmentRotation(t *testing.T) {
 			t.Fatalf("Append(%d): %v", i, err)
 		}
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	// Verify all segments have valid 3-field lines.
 	segs, _ := filepath.Glob(filepath.Join(dir, "wal-*.jsonl"))

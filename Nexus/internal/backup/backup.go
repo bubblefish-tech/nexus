@@ -343,7 +343,11 @@ func backupSQLite(dbPath, destDir, baseDir string, manifest *Manifest, logger *s
 	if err != nil {
 		return fmt.Errorf("open sqlite: %w", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Default().Debug("close db", "err", err)
+		}
+	}()
 
 	// VACUUM INTO creates a complete, defragmented copy at the target path.
 	// The target file must NOT already exist.
@@ -389,13 +393,21 @@ func copyFileWithHash(src, dst string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer in.Close()
+	defer func() {
+		if err := in.Close(); err != nil {
+			slog.Default().Debug("close db", "err", err)
+		}
+	}()
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
+	defer func() {
+		if err := out.Close(); err != nil {
+			slog.Default().Debug("close db", "err", err)
+		}
+	}()
 
 	h := sha256.New()
 	w := io.MultiWriter(out, h)
@@ -416,13 +428,21 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() {
+		if err := in.Close(); err != nil {
+			slog.Default().Debug("close db", "err", err)
+		}
+	}()
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() {
+		if err := out.Close(); err != nil {
+			slog.Default().Debug("close db", "err", err)
+		}
+	}()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return err
@@ -436,7 +456,11 @@ func sha256File(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Default().Debug("close db", "err", err)
+		}
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

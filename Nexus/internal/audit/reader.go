@@ -378,7 +378,11 @@ func (r *AuditReader) readRawLines(path string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Default().Debug("close audit file", "path", path, "err", err)
+		}
+	}()
 
 	const maxScanBuf = 10 * 1024 * 1024 // 10 MB
 	scanner := bufio.NewScanner(f)

@@ -216,7 +216,11 @@ func TestWriteCSV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open output: %v", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	cr := csv.NewReader(f)
 	rows, err := cr.ReadAll()

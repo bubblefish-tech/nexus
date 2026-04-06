@@ -146,7 +146,9 @@ func OpenSQLite(path string, logger *slog.Logger) (*SQLiteDestination, error) {
 	}
 
 	if err := d.applyPragmasAndSchema(); err != nil {
-		db.Close()
+		if err := db.Close(); err != nil {
+			slog.Default().Debug("close db", "err", err)
+		}
 		return nil, err
 	}
 
@@ -327,7 +329,11 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 	if err != nil {
 		return nil, fmt.Errorf("destination: sqlite: semantic search: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Default().Debug("close rows", "err", err)
+		}
+	}()
 
 	scored := make([]ScoredRecord, 0, candidateLimit)
 	for rows.Next() {
@@ -521,7 +527,11 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 	if err != nil {
 		return QueryResult{}, fmt.Errorf("destination: sqlite: query: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("destination: sqlite: close rows", "error", err)
+		}
+	}()
 
 	records := make([]TranslatedPayload, 0, limit)
 	for rows.Next() {
@@ -681,7 +691,11 @@ func (d *SQLiteDestination) QueryConflicts(params ConflictParams) ([]ConflictGro
 	if err != nil {
 		return nil, fmt.Errorf("destination: sqlite: query conflicts: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("destination: sqlite: close rows", "error", err)
+		}
+	}()
 
 	type groupKey struct {
 		subject    string
@@ -784,7 +798,11 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	if err != nil {
 		return QueryResult{}, fmt.Errorf("destination: sqlite: time travel query: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("destination: sqlite: close rows", "error", err)
+		}
+	}()
 
 	records := make([]TranslatedPayload, 0, limit)
 	for rows.Next() {

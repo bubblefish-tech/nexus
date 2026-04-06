@@ -78,7 +78,11 @@ func get(t *testing.T, client *http.Client, url, token string) (int, []byte) {
 	if err != nil {
 		t.Fatalf("get: do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("close response body: %v", err)
+		}
+	}()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body
 }
@@ -101,7 +105,11 @@ func post(t *testing.T, client *http.Client, url, token, idemKey, body string) (
 	if err != nil {
 		t.Fatalf("post: do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("close response body: %v", err)
+		}
+	}()
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, b, resp.Header
 }
@@ -350,14 +358,22 @@ target_destination = "sqlite"
 // CHECK 5b — env: pointing to unset var also fails with SCHEMA_ERROR.
 func TestVerify_EnvUnset_SchemaError(t *testing.T) {
 	dir := t.TempDir()
-	os.Unsetenv("NEXUS_VERIFY_NONEXISTENT_KEY")
+	if err := os.Unsetenv("NEXUS_VERIFY_NONEXISTENT_KEY"); err != nil {
+		t.Fatalf("Unsetenv: %v", err)
+	}
 
 	daemonTOML := "[daemon]\nport = 8080\nbind = \"127.0.0.1\"\nadmin_token = \"admin-key\"\n"
-	os.MkdirAll(filepath.Join(dir, "sources"), 0700)
-	os.WriteFile(filepath.Join(dir, "daemon.toml"), []byte(daemonTOML), 0600)
+	if err := os.MkdirAll(filepath.Join(dir, "sources"), 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "daemon.toml"), []byte(daemonTOML), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	srcTOML := "[source]\nname = \"bad\"\napi_key = \"env:NEXUS_VERIFY_NONEXISTENT_KEY\"\nnamespace = \"bad\"\ncan_read = true\ncan_write = true\ntarget_destination = \"sqlite\"\n"
-	os.WriteFile(filepath.Join(dir, "sources", "bad.toml"), []byte(srcTOML), 0600)
+	if err := os.WriteFile(filepath.Join(dir, "sources", "bad.toml"), []byte(srcTOML), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	_, err := config.Load(dir, nil)
 	if err == nil {
@@ -385,16 +401,26 @@ func TestVerify_FileReference_ResolvesAndLogsPathNotValue(t *testing.T) {
 	}
 
 	daemonTOML := "[daemon]\nport = 8080\nbind = \"127.0.0.1\"\nadmin_token = \"admin-key\"\n"
-	os.MkdirAll(filepath.Join(dir, "sources"), 0700)
-	os.MkdirAll(filepath.Join(dir, "destinations"), 0700)
-	os.WriteFile(filepath.Join(dir, "daemon.toml"), []byte(daemonTOML), 0600)
+	if err := os.MkdirAll(filepath.Join(dir, "sources"), 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "destinations"), 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "daemon.toml"), []byte(daemonTOML), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	// Use file: reference with forward slashes (TOML safe on Windows).
 	tomlPath := filepath.ToSlash(secretPath)
 	srcTOML := fmt.Sprintf("[source]\nname = \"s\"\napi_key = \"file:%s\"\nnamespace = \"s\"\ncan_read = true\ncan_write = true\ntarget_destination = \"sqlite\"\n", tomlPath)
-	os.WriteFile(filepath.Join(dir, "sources", "s.toml"), []byte(srcTOML), 0600)
-	os.WriteFile(filepath.Join(dir, "destinations", "sqlite.toml"),
-		[]byte("[destination]\nname = \"sqlite\"\ntype = \"sqlite\"\ndb_path = \"/tmp/v.db\"\n"), 0600)
+	if err := os.WriteFile(filepath.Join(dir, "sources", "s.toml"), []byte(srcTOML), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "destinations", "sqlite.toml"),
+		[]byte("[destination]\nname = \"sqlite\"\ntype = \"sqlite\"\ndb_path = \"/tmp/v.db\"\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	cfg, err := config.Load(dir, nil)
 	if err != nil {
@@ -535,7 +561,9 @@ func TestVerify_HealthAndReady_NoAuth(t *testing.T) {
 		t.Fatalf("CHECK 9 FAIL: /health status=%d (want 200), body=%s", statusH, bodyH)
 	}
 	var hResp struct{ Status string `json:"status"` }
-	json.Unmarshal(bodyH, &hResp)
+	if err := json.Unmarshal(bodyH, &hResp); err != nil {
+		t.Fatalf("unmarshal /health response: %v", err)
+	}
 	if hResp.Status != "ok" {
 		t.Fatalf("CHECK 9 FAIL: /health status field=%q want ok", hResp.Status)
 	}
@@ -546,7 +574,9 @@ func TestVerify_HealthAndReady_NoAuth(t *testing.T) {
 		t.Fatalf("CHECK 9 FAIL: /ready status=%d (want 200), body=%s", statusR, bodyR)
 	}
 	var rResp struct{ Status string `json:"status"` }
-	json.Unmarshal(bodyR, &rResp)
+	if err := json.Unmarshal(bodyR, &rResp); err != nil {
+		t.Fatalf("unmarshal /ready response: %v", err)
+	}
 	if rResp.Status != "ready" {
 		t.Fatalf("CHECK 9 FAIL: /ready status field=%q want ready", rResp.Status)
 	}

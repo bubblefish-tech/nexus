@@ -106,7 +106,9 @@ func runDev() {
 			DashboardPort: cfg.Daemon.Web.Port,
 			Logger:        logger,
 			OnStop: func() {
-				d.Stop()
+				if err := d.Stop(); err != nil {
+					slog.Error("stop daemon", "err", err)
+				}
 			},
 		})
 	}()

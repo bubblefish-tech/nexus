@@ -134,7 +134,10 @@ func runAuditQuery(args []string) {
 	before := fs.String("before", "", "records before this timestamp (RFC3339)")
 	limit := fs.Int("limit", 100, "max records (1-1000)")
 	offset := fs.Int("offset", 0, "pagination offset")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish audit query: parse flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	reader, err := buildReaderFromConfig()
 	if err != nil {
@@ -241,7 +244,10 @@ func computeStats(records []audit.InteractionRecord, total int) auditCLIStats {
 // Reference: Tech Spec Addendum Section A5.
 func runAuditStats(args []string) {
 	fs := flag.NewFlagSet("audit stats", flag.ExitOnError)
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish audit stats: parse flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	reader, err := buildReaderFromConfig()
 	if err != nil {
@@ -283,7 +289,11 @@ func writeCSV(path string, records []audit.InteractionRecord) error {
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Error("close export file", "err", err)
+		}
+	}()
 
 	cw := csv.NewWriter(f)
 	if err := cw.Write(csvHeaders); err != nil {
@@ -333,7 +343,10 @@ func runAuditExport(args []string) {
 	source := fs.String("source", "", "filter by source name")
 	operation := fs.String("operation", "", "filter: write, query, admin")
 	output := fs.String("output", "", "output file path (default: stdout)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish audit export: parse flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	if *format != "json" && *format != "csv" {
 		fmt.Fprintf(os.Stderr, "bubblefish audit export: unsupported format %q (use json or csv)\n", *format)
@@ -412,7 +425,11 @@ func writeJSONFile(path string, records []audit.InteractionRecord) error {
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Error("close export file", "err", err)
+		}
+	}()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
@@ -436,7 +453,10 @@ func runAuditTail(args []string) {
 	actorType := fs.String("actor-type", "", "filter: user, agent, system")
 	operation := fs.String("operation", "", "filter: write, query, admin")
 	follow := fs.Bool("follow", true, "continue watching for new entries")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish audit tail: parse flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	reader, err := buildReaderFromConfig()
 	if err != nil {

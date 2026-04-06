@@ -240,8 +240,12 @@ func sendWrite(client *http.Client, opts Options, index int) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return dur, fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -375,7 +379,11 @@ func sendQuery(client *http.Client, opts Options) (float64, *debugPayload, error
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -450,7 +458,11 @@ func runEval(opts Options) (*EvalResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query daemon: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Default().Debug("close body", "err", err)
+		}
+	}()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("query HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))

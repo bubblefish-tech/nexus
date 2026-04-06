@@ -40,7 +40,11 @@ func newTestDaemonWithSecurityLog(t *testing.T) *Daemon {
 	if err != nil {
 		t.Fatalf("securitylog.New: %v", err)
 	}
-	t.Cleanup(func() { sl.Close() })
+	t.Cleanup(func() {
+		if err := sl.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	})
 
 	d := &Daemon{
 		cfg: &config.Config{

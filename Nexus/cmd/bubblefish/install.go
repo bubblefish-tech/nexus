@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ type promptFunc func(w io.Writer, r io.Reader, prompt string) (string, error)
 
 // stdinPrompt is the default promptFunc that reads from stdin.
 func stdinPrompt(w io.Writer, r io.Reader, prompt string) (string, error) {
-	fmt.Fprint(w, prompt)
+	_, _ = fmt.Fprint(w, prompt)
 	scanner := bufio.NewScanner(r)
 	if scanner.Scan() {
 		return strings.TrimSpace(scanner.Text()), nil
@@ -84,7 +85,10 @@ func runInstall(args []string) {
 	profile := fs.String("profile", "", "install profile: openwebui")
 	oauthTemplate := fs.String("oauth-template", "", "generate OAuth template: caddy, traefik")
 	force := fs.Bool("force", false, "overwrite existing config")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish install: %v\n", err)
+		os.Exit(1)
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -222,26 +226,26 @@ func doInstall(opts installOptions) error {
 	}
 
 	// Print results — NEVER silent.
-	fmt.Fprintf(w, "bubblefish install: ok — v%s\n", version.Version)
-	fmt.Fprintf(w, "  config directory: %s\n", configDir)
-	fmt.Fprintf(w, "  mode:            %s\n", opts.mode)
-	fmt.Fprintf(w, "  destination:     %s\n", destType)
-	fmt.Fprintf(w, "  admin token:     %s\n", adminKey)
-	fmt.Fprintf(w, "  source API key:  %s\n", sourceKey)
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintf(w, "bubblefish install: ok — v%s\n", version.Version)
+	_, _ = fmt.Fprintf(w, "  config directory: %s\n", configDir)
+	_, _ = fmt.Fprintf(w, "  mode:            %s\n", opts.mode)
+	_, _ = fmt.Fprintf(w, "  destination:     %s\n", destType)
+	_, _ = fmt.Fprintf(w, "  admin token:     %s\n", adminKey)
+	_, _ = fmt.Fprintf(w, "  source API key:  %s\n", sourceKey)
+	_, _ = fmt.Fprintln(w)
 
 	// Print next steps — Simple Mode prints exactly three.
 	if opts.mode == "simple" {
-		fmt.Fprintln(w, "Next steps:")
-		fmt.Fprintln(w, "  1. bubblefish start")
-		fmt.Fprintf(w, "  2. curl -X POST http://localhost:8080/inbound/default -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' -d '{\"message\":{\"content\":\"Hello\",\"role\":\"user\"},\"model\":\"test\"}'\n", sourceKey)
-		fmt.Fprintln(w, "  3. (Optional) Configure Open WebUI or Claude Desktop with the generated API key.")
+		_, _ = fmt.Fprintln(w, "Next steps:")
+		_, _ = fmt.Fprintln(w, "  1. bubblefish start")
+		_, _ = fmt.Fprintf(w, "  2. curl -X POST http://localhost:8080/inbound/default -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' -d '{\"message\":{\"content\":\"Hello\",\"role\":\"user\"},\"model\":\"test\"}'\n", sourceKey)
+		_, _ = fmt.Fprintln(w, "  3. (Optional) Configure Open WebUI or Claude Desktop with the generated API key.")
 	} else {
-		fmt.Fprintln(w, "Next steps:")
-		fmt.Fprintln(w, "  1. Review config:  cat "+daemonPath)
-		fmt.Fprintln(w, "  2. Build config:   bubblefish build")
-		fmt.Fprintln(w, "  3. Start daemon:   bubblefish start")
-		fmt.Fprintln(w, "  4. Health check:   bubblefish doctor")
+		_, _ = fmt.Fprintln(w, "Next steps:")
+		_, _ = fmt.Fprintln(w, "  1. Review config:  cat "+daemonPath)
+		_, _ = fmt.Fprintln(w, "  2. Build config:   bubblefish build")
+		_, _ = fmt.Fprintln(w, "  3. Start daemon:   bubblefish start")
+		_, _ = fmt.Fprintln(w, "  4. Health check:   bubblefish doctor")
 	}
 	return nil
 }
@@ -444,36 +448,40 @@ decay_mode = "exponential"
 // reports success or failure. It never blocks install on failure — only warns.
 // Reference: Tech Spec Section 2.2.2 (doctor connectivity check).
 func checkPostgresConnectivity(w io.Writer, dsn string) {
-	fmt.Fprintf(w, "  doctor: checking PostgreSQL connectivity...\n")
+	_, _ = fmt.Fprintf(w, "  doctor: checking PostgreSQL connectivity...\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		fmt.Fprintf(w, "  doctor: PostgreSQL UNREACHABLE — %v\n", err)
+		_, _ = fmt.Fprintf(w, "  doctor: PostgreSQL UNREACHABLE — %v\n", err)
 		return
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("doctor: close postgres db", "error", err)
+		}
+	}()
 
 	if err := db.PingContext(ctx); err != nil {
-		fmt.Fprintf(w, "  doctor: PostgreSQL UNREACHABLE — %v\n", err)
+		_, _ = fmt.Fprintf(w, "  doctor: PostgreSQL UNREACHABLE — %v\n", err)
 		return
 	}
-	fmt.Fprintf(w, "  doctor: PostgreSQL OK\n")
+	_, _ = fmt.Fprintf(w, "  doctor: PostgreSQL OK\n")
 }
 
 // checkOpenBrainConnectivity attempts an HTTP HEAD against the Supabase REST
 // endpoint and reports success or failure. Never blocks install on failure.
 // Reference: Tech Spec Section 2.2.2 (doctor connectivity check).
 func checkOpenBrainConnectivity(w io.Writer, baseURL, apiKey string) {
-	fmt.Fprintf(w, "  doctor: checking OpenBrain/Supabase connectivity...\n")
+	_, _ = fmt.Fprintf(w, "  doctor: checking OpenBrain/Supabase connectivity...\n")
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	endpoint := strings.TrimRight(baseURL, "/") + "/rest/v1/"
 
 	req, err := http.NewRequest(http.MethodHead, endpoint, nil)
 	if err != nil {
-		fmt.Fprintf(w, "  doctor: OpenBrain UNREACHABLE — %v\n", err)
+		_, _ = fmt.Fprintf(w, "  doctor: OpenBrain UNREACHABLE — %v\n", err)
 		return
 	}
 	req.Header.Set("apikey", apiKey)
@@ -481,15 +489,15 @@ func checkOpenBrainConnectivity(w io.Writer, baseURL, apiKey string) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintf(w, "  doctor: OpenBrain UNREACHABLE — %v\n", err)
+		_, _ = fmt.Fprintf(w, "  doctor: OpenBrain UNREACHABLE — %v\n", err)
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		fmt.Fprintf(w, "  doctor: OpenBrain OK (HTTP %d)\n", resp.StatusCode)
+		_, _ = fmt.Fprintf(w, "  doctor: OpenBrain OK (HTTP %d)\n", resp.StatusCode)
 	} else {
-		fmt.Fprintf(w, "  doctor: OpenBrain WARNING — HTTP %d (check URL and key)\n", resp.StatusCode)
+		_, _ = fmt.Fprintf(w, "  doctor: OpenBrain WARNING — HTTP %d (check URL and key)\n", resp.StatusCode)
 	}
 }
 

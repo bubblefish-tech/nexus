@@ -87,7 +87,7 @@ func NewExactCache(maxBytes int64, stats *Stats) *ExactCache {
 // Reference: Tech Spec Section 3.4 — Stage 1 (cache key derivation).
 func BuildKey(sourceScope, dest, profile, namespace, subject, q string, limit, offset int, policyHash string) [32]byte {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d\x00%s",
+	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d\x00%s",
 		sourceScope, dest, profile, namespace, subject, q, limit, offset, policyHash)
 	var out [32]byte
 	copy(out[:], h.Sum(nil))

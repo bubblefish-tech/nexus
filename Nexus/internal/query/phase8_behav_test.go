@@ -33,7 +33,7 @@ import (
 // tests can build cache keys that match what the cascade runner computes.
 func testPolicyHash(p config.PolicyCacheConfig) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "rfc=%v\x00wtc=%v\x00ttl=%d\x00sst=%.6f",
+	_, _ = fmt.Fprintf(h, "rfc=%v\x00wtc=%v\x00ttl=%d\x00sst=%.6f",
 		p.ReadFromCache, p.WriteToCache, p.MaxTTLSeconds, p.SemanticSimilarityThreshold)
 	return fmt.Sprintf("%x", h.Sum(nil))[:16]
 }

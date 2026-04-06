@@ -203,7 +203,9 @@ func TestLoad_EnvResolution(t *testing.T) {
 
 func TestLoad_EnvResolution_NonExistent(t *testing.T) {
 	dir := t.TempDir()
-	os.Unsetenv("NONEXISTENT_KEY_XYZ")
+	if err := os.Unsetenv("NONEXISTENT_KEY_XYZ"); err != nil {
+		t.Fatalf("Unsetenv: %v", err)
+	}
 	writeTOML(t, filepath.Join(dir, "daemon.toml"), minimalDaemonTOML("admin-key"))
 	writeTOML(t, filepath.Join(dir, "sources", "src.toml"), minimalSourceTOML("src", "env:NONEXISTENT_KEY_XYZ", "sqlite"))
 	_, err := config.Load(dir, nil)
@@ -289,11 +291,17 @@ func TestResolveEnv_File(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	defer os.Remove(f.Name())
+	defer func() {
+		if err := os.Remove(f.Name()); err != nil {
+			t.Logf("remove: %v", err)
+		}
+	}()
 	if _, err := f.WriteString("  file-secret\n"); err != nil {
 		t.Fatalf("WriteString: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	val, err := config.ResolveEnv("file:"+f.Name(), nil)
 	if err != nil {

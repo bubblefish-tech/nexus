@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -94,7 +95,11 @@ func (c *ollamaClient) Embed(ctx context.Context, text string) ([]float32, error
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbeddingUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.Default().Debug("ollama: close response body", "error", cerr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))

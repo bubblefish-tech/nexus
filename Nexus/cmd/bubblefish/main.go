@@ -118,7 +118,9 @@ func runMCPTest() {
 		os.Exit(1)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	if err := ln.Close(); err != nil {
+		slog.Error("mcp test: close listener", "error", err)
+	}
 
 	// Start temporary MCP server with TestPipeline (no real daemon required).
 	pipeline := &mcp.TestPipeline{}
@@ -129,7 +131,11 @@ func runMCPTest() {
 		fmt.Fprintf(os.Stderr, "bubblefish mcp test: start failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer srv.Stop()
+	defer func() {
+		if err := srv.Stop(); err != nil {
+			slog.Error("mcp test: stop server", "error", err)
+		}
+	}()
 
 	// Wait briefly for the listener to be ready.
 	time.Sleep(10 * time.Millisecond)
@@ -162,7 +168,7 @@ func runMCPTest() {
 		fmt.Fprintf(os.Stderr, "bubblefish mcp test: call nexus_status: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	b, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}

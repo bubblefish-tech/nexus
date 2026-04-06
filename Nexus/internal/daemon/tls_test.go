@@ -69,7 +69,9 @@ func generateTestCert(t *testing.T) (certPath, keyPath string) {
 	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
 		t.Fatalf("encode cert: %v", err)
 	}
-	certFile.Close()
+	if err := certFile.Close(); err != nil {
+		t.Fatalf("close cert: %v", err)
+	}
 
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
@@ -82,7 +84,9 @@ func generateTestCert(t *testing.T) (certPath, keyPath string) {
 	if err := pem.Encode(keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}); err != nil {
 		t.Fatalf("encode key: %v", err)
 	}
-	keyFile.Close()
+	if err := keyFile.Close(); err != nil {
+		t.Fatalf("close key: %v", err)
+	}
 
 	return certPath, keyPath
 }
@@ -121,7 +125,9 @@ func generateTestCA(t *testing.T) string {
 	if err := pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
 		t.Fatalf("encode CA cert: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close CA cert file: %v", err)
+	}
 
 	return caPath
 }

@@ -40,7 +40,11 @@ func TestEmitAndRecent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	l.Emit(Event{
@@ -92,13 +96,19 @@ func TestFileContainsJSONLines(t *testing.T) {
 
 	l.Emit(Event{EventType: "auth_failure", IP: "1.2.3.4"})
 	l.Emit(Event{EventType: "rate_limit_hit", Source: "claude"})
-	l.Close()
+	if err := l.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
 
 	f, err := os.Open(logFile)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	lineCount := 0
@@ -127,7 +137,11 @@ func TestSummarize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	events := []Event{
 		{EventType: "auth_failure", Source: "unknown"},
@@ -176,7 +190,11 @@ func TestRingBufferEviction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	// Override maxRing to test eviction.
 	l.maxRing = 3
@@ -205,7 +223,11 @@ func TestConcurrentEmit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	const goroutines = 10
 	const eventsPerGoroutine = 50
@@ -235,7 +257,11 @@ func TestFilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	// Check file exists and is writable.
 	info, err := os.Stat(logFile)
@@ -269,7 +295,11 @@ func TestTimestampAutoSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	before := time.Now().UTC()
 	l.Emit(Event{EventType: "auth_failure"})

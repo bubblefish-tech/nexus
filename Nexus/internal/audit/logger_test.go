@@ -39,7 +39,11 @@ func TestAuditLogger_BasicWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	rec := InteractionRecord{
 		RecordID:       NewRecordID(),
@@ -106,7 +110,11 @@ func TestAuditLogger_CRC32OnEveryRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	const count = 100
 	for i := 0; i < count; i++ {
@@ -128,7 +136,11 @@ func TestAuditLogger_CRC32OnEveryRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
@@ -162,7 +174,11 @@ func TestAuditLogger_HMACMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	rec := InteractionRecord{
 		RecordID:       NewRecordID(),
@@ -217,7 +233,11 @@ func TestAuditLogger_Rotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	// Write enough records to trigger rotation.
 	for i := 0; i < 20; i++ {
@@ -265,7 +285,11 @@ func TestAuditLogger_ConcurrentWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	const goroutines = 50
 	const writesPerGoroutine = 20
@@ -322,7 +346,9 @@ func TestAuditLogger_ConcurrentWrites(t *testing.T) {
 				t.Errorf("%s line %d: CRC32 mismatch (data corruption)", path, lineCount)
 			}
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Logf("close %s: %v", path, err)
+		}
 
 		expected := goroutines * writesPerGoroutine
 		if lineCount != expected {
@@ -341,7 +367,9 @@ func TestAuditLogger_AppendFailureDoesNotPanic(t *testing.T) {
 	}
 
 	// Close the file to simulate unwritable state.
-	al.Close()
+	if err := al.Close(); err != nil {
+		t.Logf("close: %v", err)
+	}
 
 	rec := InteractionRecord{
 		RecordID:       NewRecordID(),
@@ -356,7 +384,9 @@ func TestAuditLogger_AppendFailureDoesNotPanic(t *testing.T) {
 	if err == nil {
 		t.Log("Log after close succeeded (file was reopened)")
 		// Clean up the reopened file.
-		al.Close()
+		if err := al.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
 	}
 	// The key assertion: we reached this line without panic.
 }
@@ -380,7 +410,11 @@ func TestAuditLogger_AutoGeneratesRecordID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	// Log a record WITHOUT setting RecordID.
 	rec := InteractionRecord{
@@ -416,7 +450,11 @@ func TestAuditLogger_FilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	// Write one record so the file exists.
 	rec := InteractionRecord{
@@ -453,7 +491,11 @@ func TestAuditLogger_NoMemoryContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	rec := InteractionRecord{
 		RecordID:       NewRecordID(),
@@ -487,7 +529,11 @@ func TestAuditLogger_DeletedFileRecreated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	// Write first record.
 	rec := InteractionRecord{
@@ -503,10 +549,14 @@ func TestAuditLogger_DeletedFileRecreated(t *testing.T) {
 
 	// Simulate file deletion while daemon is running.
 	al.mu.Lock()
-	al.file.Close()
+	if err := al.file.Close(); err != nil {
+		t.Logf("close file: %v", err)
+	}
 	al.file = nil
 	al.mu.Unlock()
-	os.Remove(logFile)
+	if err := os.Remove(logFile); err != nil {
+		t.Logf("remove logFile: %v", err)
+	}
 
 	// Next write should recreate the file.
 	rec.RecordID = NewRecordID()
@@ -530,7 +580,11 @@ func TestAuditLogger_DualWrite_BothFilesExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	rec := InteractionRecord{
 		RecordID:       NewRecordID(),
@@ -568,7 +622,11 @@ func TestAuditLogger_DualWrite_IdenticalRecordCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	const count = 50
 	for i := 0; i < count; i++ {
@@ -603,7 +661,11 @@ func TestAuditLogger_DualWriteDisabled_NoShadow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	rec := InteractionRecord{
 		RecordID:       NewRecordID(),
@@ -639,7 +701,11 @@ func TestAuditLogger_EncryptionMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	rec := InteractionRecord{
 		RecordID:       NewRecordID(),
@@ -698,7 +764,11 @@ func TestAuditLogger_EncryptionPlusHMAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	for i := 0; i < 5; i++ {
 		rec := InteractionRecord{
@@ -752,7 +822,11 @@ func TestAuditLogger_RotationMarkerPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	// Write enough to trigger rotation.
 	for i := 0; i < 20; i++ {
@@ -795,7 +869,11 @@ func TestAuditLogger_DualWrite_RotationCreatesShadow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger: %v", err)
 	}
-	defer al.Close()
+	defer func() {
+		if err := al.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	for i := 0; i < 20; i++ {
 		rec := InteractionRecord{
@@ -825,7 +903,11 @@ func countFileLines(t *testing.T, path string) int {
 	if err != nil {
 		t.Fatalf("Open %s: %v", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	n := 0

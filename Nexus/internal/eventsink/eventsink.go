@@ -266,6 +266,6 @@ func (s *Sink) send(url string, body []byte, timeout time.Duration) bool {
 		)
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }

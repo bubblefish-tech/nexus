@@ -361,7 +361,9 @@ func TestPhase9_ScopeIsolation_TwoSources(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"results"`
 	}
-	json.Unmarshal(body, &respA)
+	if err := json.Unmarshal(body, &respA); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
 
 	for _, r := range respA.Results {
 		if r.Source == "source-b" {
@@ -380,7 +382,9 @@ func TestPhase9_ScopeIsolation_TwoSources(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"results"`
 	}
-	json.Unmarshal(body, &respB)
+	if err := json.Unmarshal(body, &respB); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
 
 	for _, r := range respB.Results {
 		if r.Source == "source-a" {
@@ -481,32 +485,6 @@ type statusRecorder struct {
 func (s *statusRecorder) Header() http.Header        { return http.Header{} }
 func (s *statusRecorder) Write(b []byte) (int, error) { return len(b), nil }
 func (s *statusRecorder) WriteHeader(code int)        { s.code = code }
-
-// multiSource creates a config with two sources for scope isolation tests.
-func multiSourceDaemon(t *testing.T, sources []*config.Source, keys map[string][]byte) *daemon.Daemon {
-	t.Helper()
-	cfg := &config.Config{
-		Daemon: config.DaemonConfig{
-			Port: 0,
-			Bind: "127.0.0.1",
-			RateLimit: config.GlobalRateLimitConfig{
-				GlobalRequestsPerMinute: 1000,
-			},
-			QueueSize: 100,
-		},
-		Retrieval:          config.RetrievalConfig{DefaultProfile: "balanced"},
-		Sources:            sources,
-		Destinations:       []*config.Destination{{Name: "sqlite", Type: "sqlite"}},
-		ResolvedSourceKeys: keys,
-		ResolvedAdminKey:   []byte("admin-key"),
-	}
-	return daemon.NewTestDaemon(t, cfg)
-}
-
-// retryAfterValue extracts the Retry-After header value.
-func retryAfterValue(h http.Header) string {
-	return h.Get("Retry-After")
-}
 
 // suppressUnused avoids unused import warnings.
 var _ = strings.Contains

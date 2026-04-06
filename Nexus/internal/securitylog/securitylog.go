@@ -46,13 +46,15 @@ type Event struct {
 
 // Summary holds aggregated counts for /api/security/summary.
 type Summary struct {
-	AuthFailures          int            `json:"auth_failures"`
-	PolicyDenials         int            `json:"policy_denials"`
-	RateLimitHits         int            `json:"rate_limit_hits"`
-	WALTamperDetected     int            `json:"wal_tamper_detected"`
-	ConfigSignatureInvalid int           `json:"config_signature_invalid"`
-	AdminAccess           int            `json:"admin_access"`
-	BySource              map[string]int `json:"by_source"`
+	AuthFailures               int            `json:"auth_failures"`
+	PolicyDenials              int            `json:"policy_denials"`
+	RateLimitHits              int            `json:"rate_limit_hits"`
+	WALTamperDetected          int            `json:"wal_tamper_detected"`
+	ConfigSignatureInvalid     int            `json:"config_signature_invalid"`
+	AdminAccess                int            `json:"admin_access"`
+	RetrievalFirewallFiltered  int            `json:"retrieval_firewall_filtered"`
+	RetrievalFirewallDenied    int            `json:"retrieval_firewall_denied"`
+	BySource                   map[string]int `json:"by_source"`
 }
 
 // Logger is an append-only, mutex-protected security event logger.
@@ -152,6 +154,10 @@ func (l *Logger) Summarize() Summary {
 			s.ConfigSignatureInvalid++
 		case "admin_access":
 			s.AdminAccess++
+		case "retrieval_firewall_filtered":
+			s.RetrievalFirewallFiltered++
+		case "retrieval_firewall_denied":
+			s.RetrievalFirewallDenied++
 		}
 		if e.Source != "" {
 			s.BySource[e.Source]++

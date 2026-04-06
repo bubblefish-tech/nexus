@@ -185,7 +185,7 @@ func TestBehav_Phase5_Check2_ProviderUnreachable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer ec.Close()
+	defer func() { if err := ec.Close(); err != nil { t.Logf("close: %v", err) } }()
 
 	// Verify the client itself reports ErrEmbeddingUnavailable on HTTP 500.
 	_, embedErr := ec.Embed(context.Background(), "test")

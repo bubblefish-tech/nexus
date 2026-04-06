@@ -58,7 +58,11 @@ func postWithActorType(t *testing.T, handler http.Handler, url, token, body, act
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	resp := rr.Result()
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("close response body: %v", err)
+		}
+	}()
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, b
 }
@@ -72,7 +76,11 @@ func queryWithActorType(t *testing.T, handler http.Handler, url, token string) (
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	resp := rr.Result()
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("close response body: %v", err)
+		}
+	}()
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, b
 }

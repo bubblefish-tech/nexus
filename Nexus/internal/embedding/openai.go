@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -103,7 +104,11 @@ func (c *openAIClient) Embed(ctx context.Context, text string) ([]float32, error
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbeddingUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.Default().Debug("openai: close response body", "error", cerr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		// Read and discard body to allow connection reuse; cap read size.

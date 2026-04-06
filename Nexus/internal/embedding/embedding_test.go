@@ -91,7 +91,11 @@ func TestOpenAIClient_Embed_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	got, err := client.Embed(context.Background(), "hello world")
 	if err != nil {
@@ -124,7 +128,11 @@ func TestOpenAIClient_Embed_ProviderError_ReturnsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	_, err = client.Embed(context.Background(), "test")
 	if err == nil {
@@ -159,7 +167,11 @@ func TestOpenAIClient_Embed_Timeout_ReturnsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -194,7 +206,7 @@ func TestCompatibleClient_Embed_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() { if err := client.Close(); err != nil { t.Logf("close: %v", err) } }()
 
 	got, err := client.Embed(context.Background(), "test")
 	if err != nil {
@@ -227,7 +239,7 @@ func TestOllamaClient_Embed_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() { if err := client.Close(); err != nil { t.Logf("close: %v", err) } }()
 
 	got, err := client.Embed(context.Background(), "hello")
 	if err != nil {
@@ -252,7 +264,7 @@ func TestOllamaClient_Embed_Unreachable_ReturnsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() { if err := client.Close(); err != nil { t.Logf("close: %v", err) } }()
 
 	_, err = client.Embed(context.Background(), "test")
 	if err == nil {
@@ -304,7 +316,7 @@ func TestFactory_NilClient_IsNilInterface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	var ec embedding.EmbeddingClient = client
+	var ec = client
 	if ec != nil {
 		t.Fatal("expected nil EmbeddingClient interface when disabled")
 	}
@@ -328,7 +340,11 @@ func TestClient_Dimensions_ReturnsConfiguredValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Logf("Close: %v", err)
+		}
+	}()
 
 	if client.Dimensions() != 768 {
 		t.Errorf("Dimensions() = %d; want 768", client.Dimensions())

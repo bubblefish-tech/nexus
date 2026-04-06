@@ -76,15 +76,6 @@ type rpcError struct {
 // MCP-specific request/response shapes
 // ---------------------------------------------------------------------------
 
-type initializeParams struct {
-	ProtocolVersion string          `json:"protocolVersion"`
-	Capabilities    json.RawMessage `json:"capabilities"`
-	ClientInfo      struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	} `json:"clientInfo"`
-}
-
 type initializeResult struct {
 	ProtocolVersion string                 `json:"protocolVersion"`
 	Capabilities    map[string]interface{} `json:"capabilities"`

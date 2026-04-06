@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,7 +101,10 @@ func (w *WAL) markStatus(payloadID, status string) error {
 			}
 			info, statErr := f.Stat()
 			if statErr != nil {
-				f.Close()
+				// Already returning an error; close is best-effort here.
+				if closeErr := f.Close(); closeErr != nil {
+					slog.Error("wal: close segment after stat failure", "err", closeErr)
+				}
 				return fmt.Errorf("wal: stat active segment after reopen: %w", statErr)
 			}
 			w.current = f
@@ -160,7 +164,10 @@ func (w *WAL) markStatusBatch(payloadIDs []string, status string) error {
 			}
 			info, statErr := f.Stat()
 			if statErr != nil {
-				f.Close()
+				// Already returning an error; close is best-effort here.
+				if closeErr := f.Close(); closeErr != nil {
+					slog.Error("wal: close segment after stat failure", "err", closeErr)
+				}
 				return fmt.Errorf("wal: stat active segment after reopen: %w", statErr)
 			}
 			w.current = f
@@ -215,7 +222,9 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 			updated, marshalErr := json.Marshal(entry)
 			if marshalErr != nil {
 				// Abort before any write — close file and surface error.
-				f.Close()
+				if closeErr := f.Close(); closeErr != nil {
+					slog.Error("wal: close segment after stat failure", "err", closeErr)
+				}
 				return false, fmt.Errorf("wal: marshal updated entry: %w", marshalErr)
 			}
 			checksum := crc32.ChecksumIEEE(updated)
@@ -236,7 +245,9 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 
 	scanErr := scanner.Err()
 	// Close the source file before rename so Windows allows overwrite.
-	f.Close()
+	if err := f.Close(); err != nil {
+		slog.Error("wal: close segment file", "path", segPath, "error", err)
+	}
 
 	if scanErr != nil {
 		return false, fmt.Errorf("wal: scan segment %q: %w", segPath, scanErr)
@@ -256,15 +267,20 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 	defer func() {
 		// On success done=true; the file was renamed away so Close/Remove are
 		// no-ops. On failure, clean up the temp file.
-		tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			slog.Error("wal: close temp file in cleanup", "err", closeErr)
+		}
 		if !done {
-			os.Remove(tmpPath) // nolint: best-effort cleanup on failure path
+			// Best-effort removal of the temp file on the failure path.
+			if removeErr := os.Remove(tmpPath); removeErr != nil {
+				slog.Error("wal: remove temp file in cleanup", "path", tmpPath, "err", removeErr)
+			}
 		}
 	}()
 
 	// Best-effort chmod: mandatory on Unix (0600), advisory on Windows.
 	// The rename replaces the segment so permissions must match.
-	_ = tmp.Chmod(0600) // nolint: non-fatal on Windows; original segment is 0600
+	_ = tmp.Chmod(0600)
 
 	for _, line := range lines {
 		if _, err := fmt.Fprintln(tmp, line); err != nil {
@@ -323,7 +339,9 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 			entry.Status = status
 			updated, marshalErr := json.Marshal(entry)
 			if marshalErr != nil {
-				f.Close()
+				if closeErr := f.Close(); closeErr != nil {
+					slog.Error("wal: close segment file", "path", segPath, "error", closeErr)
+				}
 				return 0, fmt.Errorf("wal: marshal updated entry: %w", marshalErr)
 			}
 			checksum := crc32.ChecksumIEEE(updated)
@@ -341,7 +359,9 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 	}
 
 	scanErr := scanner.Err()
-	f.Close()
+	if err := f.Close(); err != nil {
+		slog.Error("wal: close segment file", "path", segPath, "error", err)
+	}
 
 	if scanErr != nil {
 		return 0, fmt.Errorf("wal: scan segment %q: %w", segPath, scanErr)
@@ -357,9 +377,14 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 	tmpPath := tmp.Name()
 	done := false
 	defer func() {
-		tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			slog.Error("wal: close temp file in cleanup", "err", closeErr)
+		}
 		if !done {
-			os.Remove(tmpPath)
+			// Best-effort removal of the temp file on the failure path.
+			if removeErr := os.Remove(tmpPath); removeErr != nil {
+				slog.Error("wal: remove temp file in cleanup", "path", tmpPath, "err", removeErr)
+			}
 		}
 	}()
 

@@ -188,7 +188,7 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	// Dashboard HTML — all dynamic content uses textContent, NEVER inner HTML.
-	fmt.Fprint(w, dashboardHTML)
+	_, _ = fmt.Fprint(w, dashboardHTML)
 }
 
 // handleStatus returns dashboard status as JSON.
@@ -198,7 +198,7 @@ func (d *Dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"version": version.Version,
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 // handleSSE serves Server-Sent Events for live pipeline visualization.
@@ -219,7 +219,7 @@ func (d *Dashboard) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	// Send initial keepalive.
-	fmt.Fprintf(w, "data: {\"type\":\"connected\",\"version\":%q}\n\n", version.Version)
+	_, _ = fmt.Fprintf(w, "data: {\"type\":\"connected\",\"version\":%q}\n\n", version.Version)
 	flusher.Flush()
 
 	// Keep connection alive with periodic heartbeats until client disconnects.
@@ -231,7 +231,7 @@ func (d *Dashboard) handleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			fmt.Fprintf(w, ": heartbeat\n\n")
+			_, _ = fmt.Fprintf(w, ": heartbeat\n\n")
 			flusher.Flush()
 		}
 	}
@@ -243,7 +243,7 @@ func (d *Dashboard) handleSSE(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleSecurity(w http.ResponseWriter, r *http.Request) {
 	if d.cfg.SecurityProvider == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"sources":       []SourcePolicyInfo{},
 			"auth_failures": []AuthFailureInfo{},
 			"lint_findings": []LintFinding{},
@@ -252,7 +252,7 @@ func (d *Dashboard) handleSecurity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"sources":       d.cfg.SecurityProvider.SourcePolicies(),
 		"auth_failures": d.cfg.SecurityProvider.AuthFailures(100),
 		"lint_findings": d.cfg.SecurityProvider.LintFindings(),
@@ -263,7 +263,7 @@ func (d *Dashboard) handleSecurity(w http.ResponseWriter, r *http.Request) {
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"error":   code,
 		"message": message,
 	})

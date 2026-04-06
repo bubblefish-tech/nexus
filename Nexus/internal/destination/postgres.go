@@ -321,7 +321,11 @@ func (d *PostgresDestination) Query(params QueryParams) (QueryResult, error) {
 	if err != nil {
 		return QueryResult{}, fmt.Errorf("destination: postgres: query: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Default().Debug("close rows", "err", err)
+		}
+	}()
 
 	records := make([]TranslatedPayload, 0, limit)
 	for rows.Next() {
@@ -408,7 +412,11 @@ func (d *PostgresDestination) SemanticSearch(ctx context.Context, vec []float32,
 	if err != nil {
 		return nil, fmt.Errorf("destination: postgres: semantic search: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Default().Debug("close rows", "err", err)
+		}
+	}()
 
 	scored := make([]ScoredRecord, 0, limit)
 	for rows.Next() {

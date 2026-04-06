@@ -127,7 +127,9 @@ func TestValidateRSA(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(rsaJWKS(t, &key.PublicKey, "test-kid"))
+		if _, err := w.Write(rsaJWKS(t, &key.PublicKey, "test-kid")); err != nil {
+			t.Logf("write JWKS: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -163,7 +165,9 @@ func TestValidateEC(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(ecJWKS(t, &key.PublicKey, "ec-kid"))
+		if _, err := w.Write(ecJWKS(t, &key.PublicKey, "ec-kid")); err != nil {
+			t.Logf("write JWKS: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -195,12 +199,16 @@ func TestValidateExpired(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(rsaJWKS(t, &key.PublicKey, "kid1"))
+		if _, err := w.Write(rsaJWKS(t, &key.PublicKey, "kid1")); err != nil {
+			t.Logf("write JWKS: %v", err)
+		}
 	}))
 	defer srv.Close()
 
 	v := New(Config{JWKSUrl: srv.URL, ClaimToSource: "sub", Logger: testLogger(t)})
-	v.FetchJWKS()
+	if err := v.FetchJWKS(); err != nil {
+		t.Fatalf("FetchJWKS: %v", err)
+	}
 
 	token := signJWT(t, key, "kid1", map[string]interface{}{
 		"sub": "claude",
@@ -221,7 +229,9 @@ func TestValidateAudienceMismatch(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(rsaJWKS(t, &key.PublicKey, "kid1"))
+		if _, err := w.Write(rsaJWKS(t, &key.PublicKey, "kid1")); err != nil {
+			t.Logf("write JWKS: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -231,7 +241,9 @@ func TestValidateAudienceMismatch(t *testing.T) {
 		Audience:      "nexus-api",
 		Logger:        testLogger(t),
 	})
-	v.FetchJWKS()
+	if err := v.FetchJWKS(); err != nil {
+		t.Fatalf("FetchJWKS: %v", err)
+	}
 
 	token := signJWT(t, key, "kid1", map[string]interface{}{
 		"sub": "claude",
@@ -253,7 +265,9 @@ func TestValidateAudienceMatch(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(rsaJWKS(t, &key.PublicKey, "kid1"))
+		if _, err := w.Write(rsaJWKS(t, &key.PublicKey, "kid1")); err != nil {
+			t.Logf("write JWKS: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -263,7 +277,9 @@ func TestValidateAudienceMatch(t *testing.T) {
 		Audience:      "nexus-api",
 		Logger:        testLogger(t),
 	})
-	v.FetchJWKS()
+	if err := v.FetchJWKS(); err != nil {
+		t.Fatalf("FetchJWKS: %v", err)
+	}
 
 	// String audience.
 	token := signJWT(t, key, "kid1", map[string]interface{}{
@@ -326,16 +342,22 @@ func TestValidateUnknownKidTriggersRefresh(t *testing.T) {
 		fetchCount++
 		if fetchCount == 1 {
 			// First fetch: return a key with a different kid.
-			w.Write(rsaJWKS(t, &key.PublicKey, "old-kid"))
+			if _, err := w.Write(rsaJWKS(t, &key.PublicKey, "old-kid")); err != nil {
+				t.Logf("write JWKS: %v", err)
+			}
 		} else {
 			// Subsequent fetches: return the rotated key.
-			w.Write(rsaJWKS(t, &key.PublicKey, "rotated-kid"))
+			if _, err := w.Write(rsaJWKS(t, &key.PublicKey, "rotated-kid")); err != nil {
+				t.Logf("write JWKS: %v", err)
+			}
 		}
 	}))
 	defer srv.Close()
 
 	v := New(Config{JWKSUrl: srv.URL, ClaimToSource: "sub", Logger: testLogger(t)})
-	v.FetchJWKS()
+	if err := v.FetchJWKS(); err != nil {
+		t.Fatalf("FetchJWKS: %v", err)
+	}
 
 	// Force lastRefresh to be old enough to allow refresh.
 	v.mu.Lock()
@@ -365,12 +387,16 @@ func TestValidateMissingClaim(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(rsaJWKS(t, &key.PublicKey, "kid1"))
+		if _, err := w.Write(rsaJWKS(t, &key.PublicKey, "kid1")); err != nil {
+			t.Logf("write JWKS: %v", err)
+		}
 	}))
 	defer srv.Close()
 
 	v := New(Config{JWKSUrl: srv.URL, ClaimToSource: "group", Logger: testLogger(t)})
-	v.FetchJWKS()
+	if err := v.FetchJWKS(); err != nil {
+		t.Fatalf("FetchJWKS: %v", err)
+	}
 
 	token := signJWT(t, key, "kid1", map[string]interface{}{
 		"sub": "claude",

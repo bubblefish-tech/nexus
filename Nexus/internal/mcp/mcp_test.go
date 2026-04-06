@@ -99,7 +99,9 @@ func startServer(t *testing.T, pipeline mcp.Pipeline, key string) (*mcp.Server, 
 		t.Fatalf("startServer: find free port: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("startServer: close temp listener: %v", err)
+	}
 
 	srv := mcp.New("127.0.0.1", port, []byte(key), "test-source", pipeline, nil)
 	if err := srv.Start(); err != nil {
@@ -147,7 +149,11 @@ func rpcCall(t *testing.T, client *http.Client, url, key, method string, params 
 	if err != nil {
 		t.Fatalf("rpcCall: do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("close body: %v", err)
+		}
+	}()
 
 	b, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}
@@ -215,7 +221,11 @@ func TestMCPServer_AuthRejectsWrongKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CHECK MCP-2 FAIL: do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("close body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("CHECK MCP-2 FAIL: wrong key returned HTTP %d, want 401", resp.StatusCode)
@@ -560,7 +570,11 @@ func TestMCPServer_PortConflict_ReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen for port: %v", err)
 	}
-	defer ln.Close()
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Logf("close port-occupying listener: %v", err)
+		}
+	}()
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	// Attempt to start MCP on the same port.
@@ -609,7 +623,9 @@ func runSelfTest() error {
 		return fmt.Errorf("find port: %w", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	if err := ln.Close(); err != nil {
+		return fmt.Errorf("close temp listener: %w", err)
+	}
 
 	const testKey = "self-test-mcp-key-phase7"
 	pipeline := &mcp.TestPipeline{}
@@ -617,7 +633,7 @@ func runSelfTest() error {
 	if err := srv.Start(); err != nil {
 		return fmt.Errorf("start: %w", err)
 	}
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	url := "http://" + srv.Addr() + "/mcp"
 	client := &http.Client{Timeout: 4 * time.Second}
@@ -634,7 +650,7 @@ func runSelfTest() error {
 	if err != nil {
 		return fmt.Errorf("call nexus_status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	b, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}
