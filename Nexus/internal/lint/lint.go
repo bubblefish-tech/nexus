@@ -74,6 +74,7 @@ func Run(cfg *config.Config, configDir string) *Result {
 	r := &Result{}
 
 	checkDangerousBind(cfg, r)
+	checkSafeModeTLSDisabled(cfg, r)
 	checkMissingIdempotency(cfg, r)
 	checkUnboundedRateLimits(cfg, r)
 	checkLiteralKeys(cfg, r)
@@ -95,6 +96,25 @@ func checkDangerousBind(cfg *config.Config, r *Result) {
 			Severity: Warn,
 			Check:    "dangerous_bind",
 			Message:  "bind address is 0.0.0.0 without TLS enabled; traffic is unencrypted on all interfaces",
+		})
+	}
+}
+
+// checkSafeModeTLSDisabled warns when deployment mode is "safe" but TLS is
+// not enabled. In safe mode the mode overlay enables TLS by default, so if
+// TLS is disabled the user explicitly turned it off — which contradicts the
+// security intent of safe mode.
+//
+// Reference: Tech Spec Section 6.7, Phase R-13 Behavioral Contract item 5.
+func checkSafeModeTLSDisabled(cfg *config.Config, r *Result) {
+	if !strings.EqualFold(cfg.Daemon.Mode, "safe") {
+		return
+	}
+	if !cfg.Daemon.TLS.Enabled {
+		r.Findings = append(r.Findings, Finding{
+			Severity: Warn,
+			Check:    "safe_mode_tls_disabled",
+			Message:  "deployment mode is \"safe\" but TLS is disabled; safe mode expects TLS to be enabled",
 		})
 	}
 }

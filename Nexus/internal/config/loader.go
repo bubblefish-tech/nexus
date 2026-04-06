@@ -101,8 +101,16 @@ func loadDaemonTOML(path string, logger *slog.Logger) (*Config, error) {
 	}
 
 	var raw daemonTOML
-	if _, err := toml.DecodeFile(path, &raw); err != nil {
+	meta, err := toml.DecodeFile(path, &raw)
+	if err != nil {
 		return nil, fmt.Errorf("config: decode %q: %w", path, err)
+	}
+
+	// Apply deployment mode overlay before general defaults. Mode presets
+	// only fill fields the user did NOT explicitly set in the TOML file.
+	// Reference: Tech Spec Section 2.2.3.
+	if err := applyMode(&raw.Daemon, meta); err != nil {
+		return nil, err
 	}
 
 	// Apply defaults for zero-value fields.

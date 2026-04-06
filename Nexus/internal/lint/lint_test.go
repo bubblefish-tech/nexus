@@ -367,6 +367,40 @@ func TestEventSinkWithRetry_NoWarning(t *testing.T) {
 	assertNoCheck(t, result, "event_sink_no_retry")
 }
 
+// ── Safe Mode TLS Disabled ──────────────────────────────────────────────────
+
+func TestSafeModeTLSDisabled_Warns(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.Mode = "safe"
+	cfg.Daemon.TLS.Enabled = false
+
+	result := Run(cfg, t.TempDir())
+	found := findByCheck(t, result, "safe_mode_tls_disabled")
+	if found.Severity != Warn {
+		t.Fatalf("expected severity warn, got %s", found.Severity)
+	}
+}
+
+func TestSafeModeTLSEnabled_NoWarning(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.Mode = "safe"
+	cfg.Daemon.TLS.Enabled = true
+	cfg.Daemon.TLS.CertFile = "file:/etc/cert.pem"
+	cfg.Daemon.TLS.KeyFile = "file:/etc/key.pem"
+
+	result := Run(cfg, t.TempDir())
+	assertNoCheck(t, result, "safe_mode_tls_disabled")
+}
+
+func TestBalancedMode_NoSafeModeWarning(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Daemon.Mode = "balanced"
+	cfg.Daemon.TLS.Enabled = false
+
+	result := Run(cfg, t.TempDir())
+	assertNoCheck(t, result, "safe_mode_tls_disabled")
+}
+
 // ── WarningCount ────────────────────────────────────────────────────────────
 
 func TestWarningCount(t *testing.T) {
