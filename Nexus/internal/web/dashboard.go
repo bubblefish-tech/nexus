@@ -75,6 +75,48 @@ type SecurityProvider interface {
 	LintFindings() []LintFinding
 }
 
+// AuditRecordInfo is a flat summary of an interaction record for the audit tab.
+// Defined here to avoid importing the audit package into web.
+type AuditRecordInfo struct {
+	RecordID       string  `json:"record_id"`
+	Timestamp      string  `json:"timestamp"`
+	Source         string  `json:"source"`
+	ActorType      string  `json:"actor_type"`
+	ActorID        string  `json:"actor_id"`
+	OperationType  string  `json:"operation_type"`
+	Endpoint       string  `json:"endpoint"`
+	HTTPStatusCode int     `json:"http_status_code"`
+	PolicyDecision string  `json:"policy_decision"`
+	PolicyReason   string  `json:"policy_reason,omitempty"`
+	LatencyMs      float64 `json:"latency_ms"`
+	Destination    string  `json:"destination,omitempty"`
+	Subject        string  `json:"subject,omitempty"`
+	ResultCount    int     `json:"result_count,omitempty"`
+}
+
+// AuditStatsInfo holds summary statistics for the audit tab.
+type AuditStatsInfo struct {
+	TotalRecords      int            `json:"total_records"`
+	InteractionsPerHr map[string]int `json:"interactions_per_hour"`
+	DenialRate        float64        `json:"denial_rate"`
+	FilterRate        float64        `json:"filter_rate"`
+	TopSources        map[string]int `json:"top_sources"`
+	TopActors         map[string]int `json:"top_actors"`
+	ByOperation       map[string]int `json:"by_operation"`
+	ByDecision        map[string]int `json:"by_decision"`
+}
+
+// AuditProvider supplies data for the dashboard audit tab.
+// All methods must be safe for concurrent use.
+//
+// Reference: Tech Spec Addendum Section A2.7.
+type AuditProvider interface {
+	RecentInteractions(limit int) []AuditRecordInfo
+	InteractionsByActor(actorID string, limit int) []AuditRecordInfo
+	PolicyDenials(limit int) []AuditRecordInfo
+	AuditStats() AuditStatsInfo
+}
+
 // Config holds the settings for the web dashboard.
 type Config struct {
 	Port             int
@@ -82,6 +124,7 @@ type Config struct {
 	AdminKey         []byte // Resolved admin token bytes.
 	Logger           *slog.Logger
 	SecurityProvider SecurityProvider // Optional; security tab disabled if nil.
+	AuditProvider   AuditProvider    // Optional; audit tab disabled if nil.
 }
 
 // Dashboard is the web dashboard server. All state is held in struct fields.
@@ -106,6 +149,7 @@ func (d *Dashboard) Start() error {
 	mux.HandleFunc("/api/dashboard/status", d.withAuth(d.handleStatus))
 	mux.HandleFunc("/api/dashboard/events", d.withAuth(d.handleSSE))
 	mux.HandleFunc("/api/dashboard/security", d.withAuth(d.handleSecurity))
+	mux.HandleFunc("/api/dashboard/audit", d.withAuth(d.handleAudit))
 
 	addr := fmt.Sprintf("127.0.0.1:%d", d.cfg.Port)
 	d.server = &http.Server{
@@ -259,6 +303,59 @@ func (d *Dashboard) handleSecurity(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAudit returns audit tab data as JSON: recent interactions, per-agent
+// timeline, policy denials, or statistics depending on the "view" query param.
+//
+// Reference: Tech Spec Addendum Section A2.7.
+func (d *Dashboard) handleAudit(w http.ResponseWriter, r *http.Request) {
+	view := r.URL.Query().Get("view")
+	if view == "" {
+		view = "recent"
+	}
+
+	if d.cfg.AuditProvider == nil {
+		w.Header().Set("Content-Type", "application/json")
+		switch view {
+		case "stats":
+			_ = json.NewEncoder(w).Encode(AuditStatsInfo{
+				InteractionsPerHr: map[string]int{},
+				TopSources:        map[string]int{},
+				TopActors:         map[string]int{},
+				ByOperation:       map[string]int{},
+				ByDecision:        map[string]int{},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"records": []AuditRecordInfo{},
+			})
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	switch view {
+	case "agent":
+		actorID := r.URL.Query().Get("actor_id")
+		records := d.cfg.AuditProvider.InteractionsByActor(actorID, 50)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"records": records,
+		})
+	case "denials":
+		records := d.cfg.AuditProvider.PolicyDenials(50)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"records": records,
+		})
+	case "stats":
+		stats := d.cfg.AuditProvider.AuditStats()
+		_ = json.NewEncoder(w).Encode(stats)
+	default: // "recent"
+		records := d.cfg.AuditProvider.RecentInteractions(50)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"records": records,
+		})
+	}
+}
+
 // writeJSONError writes a standard error response.
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -331,6 +428,7 @@ const dashboardHTML = `<!DOCTYPE html>
   <div class="tab active" data-tab="overview">Overview</div>
   <div class="tab" data-tab="pipeline">Pipeline</div>
   <div class="tab" data-tab="security">Security</div>
+  <div class="tab" data-tab="audit">Audit</div>
 </div>
 <div class="content" id="tab-content">
   <div id="overview-tab" class="tab-panel active">
@@ -365,6 +463,32 @@ const dashboardHTML = `<!DOCTYPE html>
       <tbody id="sec-lint-body"></tbody>
     </table>
   </div>
+  <div id="audit-tab" class="tab-panel">
+    <div class="section-title" id="audit-stats-title">Audit Statistics</div>
+    <div class="status-bar" id="audit-stats-bar" style="padding:0;margin-bottom:1rem;">
+      <div class="status-card"><div class="label">Total Records</div><div class="value" id="audit-total">—</div></div>
+      <div class="status-card"><div class="label">Writes/hr</div><div class="value" id="audit-writes-hr">—</div></div>
+      <div class="status-card"><div class="label">Queries/hr</div><div class="value" id="audit-queries-hr">—</div></div>
+      <div class="status-card"><div class="label">Denial Rate</div><div class="value" id="audit-denial-rate">—</div></div>
+      <div class="status-card"><div class="label">Filter Rate</div><div class="value" id="audit-filter-rate">—</div></div>
+    </div>
+    <div class="section-title">Recent Interactions (last 50)</div>
+    <div style="margin-bottom:0.75rem;display:flex;gap:0.5rem;align-items:center;">
+      <label style="color:#6b7fa3;font-size:0.8rem;">Agent ID:</label>
+      <input type="text" id="audit-agent-filter" placeholder="Filter by actor_id" style="background:#131a2b;border:1px solid #1e2a42;color:#e0e6ed;padding:0.3rem 0.5rem;border-radius:4px;font-size:0.8rem;width:200px;">
+      <button id="audit-agent-btn" style="background:#3b82f6;color:#fff;border:none;padding:0.3rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.8rem;">View Timeline</button>
+      <button id="audit-recent-btn" style="background:#1e2a42;color:#e0e6ed;border:1px solid #1e2a42;padding:0.3rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.8rem;">Recent</button>
+      <button id="audit-denials-btn" style="background:#1e2a42;color:#e0e6ed;border:1px solid #1e2a42;padding:0.3rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.8rem;">Denials</button>
+    </div>
+    <div id="audit-view-label" class="sec-note" style="margin-bottom:0.5rem;">Showing: recent interactions</div>
+    <table id="audit-records-table">
+      <thead><tr>
+        <th>Timestamp</th><th>Source</th><th>Actor</th><th>Operation</th>
+        <th>Endpoint</th><th>Status</th><th>Decision</th><th>Latency</th>
+      </tr></thead>
+      <tbody id="audit-records-body"></tbody>
+    </table>
+  </div>
 </div>
 <script>
 (function() {
@@ -395,6 +519,8 @@ const dashboardHTML = `<!DOCTYPE html>
       });
       // Fetch security data when switching to the security tab.
       if (target === "security") { fetchSecurity(); }
+      // Fetch audit data when switching to the audit tab.
+      if (target === "audit") { fetchAuditRecent(); fetchAuditStats(); }
     });
   });
 
@@ -568,6 +694,154 @@ const dashboardHTML = `<!DOCTYPE html>
       tbody.appendChild(tr);
     });
   }
+
+  // ── Audit tab ──────────────────────────────────────────
+  // INVARIANT: All dynamic content uses textContent. NEVER use inner-HTML.
+
+  var auditRefreshTimer = null;
+
+  function fetchAuditRecent() {
+    var label = document.getElementById("audit-view-label");
+    if (label) label.textContent = "Showing: recent interactions";
+    fetchAuditView("recent");
+  }
+
+  function fetchAuditDenials() {
+    var label = document.getElementById("audit-view-label");
+    if (label) label.textContent = "Showing: policy denials and filtered";
+    fetchAuditView("denials");
+  }
+
+  function fetchAuditAgent() {
+    var input = document.getElementById("audit-agent-filter");
+    var actorID = input ? input.value.trim() : "";
+    if (!actorID) return;
+    var label = document.getElementById("audit-view-label");
+    if (label) label.textContent = "Showing: timeline for " + actorID;
+    fetchAuditView("agent&actor_id=" + encodeURIComponent(actorID));
+  }
+
+  function fetchAuditView(viewParam) {
+    fetch("/api/dashboard/audit?view=" + viewParam, {
+      headers: { "Authorization": "Bearer " + getToken() }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      renderAuditRecords(data.records || []);
+    })
+    .catch(function() {});
+
+    // Auto-refresh every 10 seconds.
+    if (auditRefreshTimer) clearInterval(auditRefreshTimer);
+    auditRefreshTimer = setInterval(function() {
+      fetch("/api/dashboard/audit?view=" + viewParam, {
+        headers: { "Authorization": "Bearer " + getToken() }
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        renderAuditRecords(data.records || []);
+      })
+      .catch(function() {});
+    }, 10000);
+  }
+
+  function fetchAuditStats() {
+    fetch("/api/dashboard/audit?view=stats", {
+      headers: { "Authorization": "Bearer " + getToken() }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var totalEl = document.getElementById("audit-total");
+      var writesEl = document.getElementById("audit-writes-hr");
+      var queriesEl = document.getElementById("audit-queries-hr");
+      var denialEl = document.getElementById("audit-denial-rate");
+      var filterEl = document.getElementById("audit-filter-rate");
+      if (totalEl) totalEl.textContent = data.total_records || 0;
+      var perHr = data.interactions_per_hour || {};
+      if (writesEl) writesEl.textContent = perHr["write"] || 0;
+      if (queriesEl) queriesEl.textContent = perHr["query"] || 0;
+      if (denialEl) denialEl.textContent = ((data.denial_rate || 0) * 100).toFixed(1) + "%";
+      if (filterEl) filterEl.textContent = ((data.filter_rate || 0) * 100).toFixed(1) + "%";
+    })
+    .catch(function() {});
+  }
+
+  // renderAuditRecords populates the interaction records table.
+  // INVARIANT: textContent only, NEVER inner-HTML.
+  function renderAuditRecords(records) {
+    var tbody = document.getElementById("audit-records-body");
+    if (!tbody) return;
+    while (tbody.firstChild) { tbody.removeChild(tbody.firstChild); }
+    if (records.length === 0) {
+      var tr = document.createElement("tr");
+      var td = document.createElement("td");
+      td.setAttribute("colspan", "8");
+      td.textContent = "No interaction records found.";
+      td.style.color = "#6b7fa3";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    records.forEach(function(rec) {
+      var tr = document.createElement("tr");
+
+      var tdTime = document.createElement("td");
+      tdTime.textContent = rec.timestamp || "";
+      tdTime.style.fontSize = "0.75rem";
+      tr.appendChild(tdTime);
+
+      var tdSrc = document.createElement("td");
+      tdSrc.textContent = rec.source || "";
+      tr.appendChild(tdSrc);
+
+      var tdActor = document.createElement("td");
+      tdActor.textContent = rec.actor_id || rec.actor_type || "";
+      tdActor.style.fontSize = "0.8rem";
+      tr.appendChild(tdActor);
+
+      var tdOp = document.createElement("td");
+      var opBadge = document.createElement("span");
+      opBadge.className = "badge " + (rec.operation_type === "write" ? "badge-ok" : "badge-warn");
+      opBadge.textContent = rec.operation_type || "";
+      tdOp.appendChild(opBadge);
+      tr.appendChild(tdOp);
+
+      var tdEndpoint = document.createElement("td");
+      tdEndpoint.textContent = rec.endpoint || "";
+      tdEndpoint.style.fontSize = "0.8rem";
+      tr.appendChild(tdEndpoint);
+
+      var tdStatus = document.createElement("td");
+      var statusBadge = document.createElement("span");
+      var sc = rec.http_status_code || 0;
+      statusBadge.className = "badge " + (sc < 300 ? "badge-ok" : sc < 500 ? "badge-warn" : "badge-error");
+      statusBadge.textContent = sc;
+      tdStatus.appendChild(statusBadge);
+      tr.appendChild(tdStatus);
+
+      var tdDecision = document.createElement("td");
+      var decBadge = document.createElement("span");
+      var dec = rec.policy_decision || "";
+      decBadge.className = "badge " + (dec === "allowed" ? "badge-ok" : dec === "denied" ? "badge-deny" : "badge-warn");
+      decBadge.textContent = dec;
+      tdDecision.appendChild(decBadge);
+      tr.appendChild(tdDecision);
+
+      var tdLatency = document.createElement("td");
+      tdLatency.textContent = (rec.latency_ms || 0).toFixed(1) + "ms";
+      tr.appendChild(tdLatency);
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Wire audit tab buttons.
+  var auditRecentBtn = document.getElementById("audit-recent-btn");
+  var auditDenialsBtn = document.getElementById("audit-denials-btn");
+  var auditAgentBtn = document.getElementById("audit-agent-btn");
+  if (auditRecentBtn) auditRecentBtn.addEventListener("click", fetchAuditRecent);
+  if (auditDenialsBtn) auditDenialsBtn.addEventListener("click", fetchAuditDenials);
+  if (auditAgentBtn) auditAgentBtn.addEventListener("click", fetchAuditAgent);
 
   function getToken() {
     // Token is provided via query param or stored in sessionStorage.

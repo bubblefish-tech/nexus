@@ -80,6 +80,7 @@ func runStart() {
 			AdminKey:         cfg.ResolvedAdminKey,
 			Logger:           logger,
 			SecurityProvider: daemon.NewDashboardSecurityProvider(d),
+			AuditProvider:    daemon.NewDashboardAuditProvider(d),
 		})
 		go func() {
 			if err := dashboard.Start(); err != nil {

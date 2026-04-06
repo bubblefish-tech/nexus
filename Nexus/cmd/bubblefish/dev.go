@@ -82,10 +82,11 @@ func runDev() {
 	var dashboard *web.Dashboard
 	if cfg.Daemon.Web.Port > 0 {
 		dashboard = web.New(web.Config{
-			Port:        cfg.Daemon.Web.Port,
-			RequireAuth: cfg.Daemon.Web.RequireAuth,
-			AdminKey:    cfg.ResolvedAdminKey,
-			Logger:      logger,
+			Port:          cfg.Daemon.Web.Port,
+			RequireAuth:   cfg.Daemon.Web.RequireAuth,
+			AdminKey:      cfg.ResolvedAdminKey,
+			Logger:        logger,
+			AuditProvider: daemon.NewDashboardAuditProvider(d),
 		})
 		go func() {
 			if err := dashboard.Start(); err != nil {
