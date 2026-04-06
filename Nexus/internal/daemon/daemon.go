@@ -43,6 +43,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
@@ -58,6 +60,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/BubbleFish-Nexus/internal/vizpipe"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
 
@@ -99,6 +102,10 @@ type Daemon struct {
 	// daemon.jwt.enabled is false. Reference: Tech Spec Section 6.6.
 	jwtValidator *jwtauth.Validator
 
+	// vizPipe is the live pipeline visualization event pipe. Always initialized
+	// (never nil). Reference: Tech Spec Section 13.2.
+	vizPipe *vizpipe.Pipe
+
 	// trustedProxies holds parsed CIDR networks for determining effective
 	// client IP from forwarded headers. Nil when no trusted proxies are
 	// configured. Reference: Tech Spec Section 6.3.
@@ -135,11 +142,13 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	if logger == nil {
 		panic("daemon: logger must not be nil")
 	}
+	m := metrics.New()
 	d := &Daemon{
 		cfg:     cfg,
 		logger:  logger,
-		metrics: metrics.New(),
+		metrics: m,
 		rl:      newRateLimiter(),
+		vizPipe: vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
 		stopped: make(chan struct{}),
 	}
 	// -1.0 means "not yet computed". Overwritten on first check.
@@ -382,6 +391,9 @@ func (d *Daemon) Start() error {
 			"sample_size", cfg.Consistency.SampleSize,
 		)
 	}
+
+	// Start visualization pipe.
+	d.vizPipe.Start()
 
 	// Initialise structured security event logger if enabled.
 	// Reference: Tech Spec Section 11.2, Section 9.2.18.
@@ -632,6 +644,11 @@ func (d *Daemon) Stop() error {
 					firstErr = err
 				}
 			}
+		}
+
+		// Stop visualization pipe.
+		if d.vizPipe != nil {
+			d.vizPipe.Stop()
 		}
 
 		// Drain event sink workers.
@@ -940,6 +957,13 @@ func expandPath(p string) (string, error) {
 // ---------------------------------------------------------------------------
 // Event sink metrics adapter
 // ---------------------------------------------------------------------------
+
+// vizDropAdapter adapts a prometheus.Counter to the vizpipe.DropMetric interface.
+type vizDropAdapter struct {
+	c prometheus.Counter
+}
+
+func (a *vizDropAdapter) Inc() { a.c.Inc() }
 
 // eventSinkMetrics adapts the Metrics struct to the eventsink.Metrics interface.
 type eventSinkMetrics struct {

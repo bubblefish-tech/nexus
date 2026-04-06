@@ -37,6 +37,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/lint"
+	"github.com/BubbleFish-Nexus/internal/vizpipe"
 	"github.com/BubbleFish-Nexus/internal/query"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
@@ -631,7 +632,25 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d.metrics.ReadLatency.WithLabelValues(src.Name, "/query").Observe(time.Since(queryStart).Seconds())
+	queryDuration := time.Since(queryStart)
+	d.metrics.ReadLatency.WithLabelValues(src.Name, "/query").Observe(queryDuration.Seconds())
+
+	// Emit pipeline visualization event — non-blocking.
+	// Reference: Tech Spec Section 13.2.
+	hitMiss := "miss"
+	if cascResult.RetrievalStage <= 2 {
+		hitMiss = "hit"
+	}
+	d.vizPipe.Emit(vizpipe.Event{
+		RequestID:   middleware.GetReqID(r.Context()),
+		Stage:       query.StageName(cascResult.RetrievalStage),
+		DurationMs:  float64(queryDuration.Milliseconds()),
+		HitMiss:     hitMiss,
+		ResultCount: len(cascResult.Records),
+		Source:      src.Name,
+		Destination: destName,
+		Profile:     cascResult.Profile,
+	})
 
 	meta := nexusMetadata{
 		ResultCount:               len(cascResult.Records),
@@ -1025,6 +1044,52 @@ func (d *Daemon) writeErrorResponse(w http.ResponseWriter, r *http.Request, stat
 		Details:           map[string]interface{}{},
 	}
 	d.writeJSON(w, status, resp)
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline visualization SSE
+// ---------------------------------------------------------------------------
+
+// handleVizEvents serves GET /api/viz/events as a Server-Sent Events stream.
+// Admin auth required (via middleware). Streams live pipeline visualization
+// events to connected dashboard clients.
+//
+// Reference: Tech Spec Section 12, Section 13.2.
+func (d *Daemon) handleVizEvents(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/viz/events").Inc()
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+			"streaming not supported", 0)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ch, unsub := d.vizPipe.Subscribe()
+	defer unsub()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-ch:
+			data, err := vizpipe.MarshalSSE(e)
+			if err != nil {
+				continue
+			}
+			if _, err := w.Write(data); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

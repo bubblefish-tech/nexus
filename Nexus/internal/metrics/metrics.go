@@ -136,6 +136,11 @@ type Metrics struct {
 	// Reference: Tech Spec Section 11.3.
 	TemporalDecayApplied prometheus.Counter
 
+	// ── Visualization ───────────────────────────────────────────────────────
+	// VizEventsDroppedTotal counts pipeline visualization events dropped
+	// (channel full). Reference: Tech Spec Section 11.3.
+	VizEventsDroppedTotal prometheus.Counter
+
 	// ── Event Sink ──────────────────────────────────────────────────────────
 	// EventsDroppedTotal counts event sink events dropped (channel full).
 	// Reference: Tech Spec Section 11.3.
@@ -309,6 +314,12 @@ func New() *Metrics {
 		Help: "Number of times temporal decay reranking was applied in Stage 5.",
 	})
 
+	// ── Visualization ───────────────────────────────────────────────────────
+	m.VizEventsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_visualization_events_dropped_total",
+		Help: "Pipeline visualization events dropped (channel full).",
+	})
+
 	// ── Event Sink ──────────────────────────────────────────────────────────
 	m.EventsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "bubblefish_events_dropped_total",
@@ -352,6 +363,7 @@ func New() *Metrics {
 		m.ConfigLintWarnings,
 		m.EmbeddingLatency,
 		m.TemporalDecayApplied,
+		m.VizEventsDroppedTotal,
 		m.EventsDroppedTotal,
 		m.EventsDeliveredTotal,
 		m.EventsFailedTotal,
