@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/securitylog"
 )
 
 // contextKey is used for type-safe context values within the daemon package.
@@ -134,6 +135,15 @@ func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		result, ok := d.authenticate(r)
 		if !ok {
+			// If JWT is enabled, attempt JWT validation before rejecting.
+			// Reference: Tech Spec Section 6.6.
+			if d.jwtValidator != nil {
+				if src := d.authenticateJWT(r); src != nil {
+					ctx := setSourceInContext(r.Context(), src)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
 			d.emitAuthFailure(r, "unknown")
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
 				"invalid or missing API key", 0)
@@ -208,4 +218,48 @@ func effectiveClientIPFromContext(ctx context.Context) string {
 	}
 	s, _ := v.(string)
 	return s
+}
+
+// authenticateJWT attempts to validate the Bearer token as a JWT and map the
+// configured claim to a source. Returns the matched *config.Source or nil if
+// JWT validation fails or the claim does not match any known source.
+//
+// Reference: Tech Spec Section 6.6.
+func (d *Daemon) authenticateJWT(r *http.Request) *config.Source {
+	token := extractBearerToken(r)
+	if token == "" {
+		return nil
+	}
+
+	result, err := d.jwtValidator.Validate(token)
+	if err != nil {
+		d.logger.Debug("daemon: JWT validation failed",
+			"component", "daemon",
+			"error", err,
+		)
+		d.emitSecurityEvent(securitylog.Event{
+			EventType: "auth_failure",
+			IP:        effectiveClientIPFromContext(r.Context()),
+			Endpoint:  r.URL.Path,
+			Details: map[string]interface{}{
+				"token_class": "jwt",
+				"reason":      err.Error(),
+			},
+		})
+		return nil
+	}
+
+	// Map the JWT claim value to a configured source.
+	cfg := d.getConfig()
+	for _, src := range cfg.Sources {
+		if src.Name == result.SourceName {
+			return src
+		}
+	}
+
+	d.logger.Warn("daemon: JWT claim mapped to unknown source",
+		"component", "daemon",
+		"source", result.SourceName,
+	)
+	return nil
 }

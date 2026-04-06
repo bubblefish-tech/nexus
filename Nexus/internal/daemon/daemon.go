@@ -53,6 +53,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/eventsink"
+	"github.com/BubbleFish-Nexus/internal/jwtauth"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
@@ -93,6 +94,10 @@ type Daemon struct {
 	// eventSink is the webhook event sink. Nil when daemon.events.enabled
 	// is false. Reference: Tech Spec Section 10.
 	eventSink *eventsink.Sink
+
+	// jwtValidator validates JWTs against a cached JWKS. Nil when
+	// daemon.jwt.enabled is false. Reference: Tech Spec Section 6.6.
+	jwtValidator *jwtauth.Validator
 
 	// trustedProxies holds parsed CIDR networks for determining effective
 	// client IP from forwarded headers. Nil when no trusted proxies are
@@ -436,6 +441,34 @@ func (d *Daemon) Start() error {
 	// continue running even if MCP cannot bind.
 	// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
 	d.startMCPServer(cfg)
+
+	// Initialise JWT validator if enabled.
+	// Reference: Tech Spec Section 6.6.
+	if cfg.Daemon.JWT.Enabled {
+		if cfg.Daemon.JWT.JWKSUrl == "" {
+			return fmt.Errorf("daemon: JWT enabled but jwks_url is empty")
+		}
+		v := jwtauth.New(jwtauth.Config{
+			JWKSUrl:       cfg.Daemon.JWT.JWKSUrl,
+			ClaimToSource: cfg.Daemon.JWT.ClaimToSource,
+			Audience:      cfg.Daemon.JWT.Audience,
+			Logger:        d.logger,
+		})
+		if err := v.FetchJWKS(); err != nil {
+			// Non-fatal — log warning and continue. Keys will be refreshed on
+			// first request that fails validation.
+			d.logger.Warn("daemon: initial JWKS fetch failed — JWT auth may fail until refresh succeeds",
+				"component", "daemon",
+				"error", err,
+			)
+		}
+		d.jwtValidator = v
+		d.logger.Info("daemon: JWT authentication enabled",
+			"component", "daemon",
+			"jwks_url", cfg.Daemon.JWT.JWKSUrl,
+			"claim_to_source", cfg.Daemon.JWT.ClaimToSource,
+		)
+	}
 
 	// Parse trusted proxies for effective_client_ip resolution.
 	// Reference: Tech Spec Section 6.3.
