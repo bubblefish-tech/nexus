@@ -138,7 +138,35 @@ func (d *Daemon) Start() error {
 		"path", walPath,
 	)
 
-	w, err := wal.Open(walPath, cfg.Daemon.WAL.MaxSegmentSizeMB, d.logger)
+	// Build WAL options from config.
+	var walOpts []wal.Option
+	if cfg.Daemon.WAL.Integrity.Mode == wal.IntegrityModeMAC {
+		if cfg.Daemon.WAL.Integrity.MacKeyFile == "" {
+			return fmt.Errorf("daemon: integrity mode %q requires mac_key_file", wal.IntegrityModeMAC)
+		}
+		resolved, resolveErr := config.ResolveEnv(cfg.Daemon.WAL.Integrity.MacKeyFile, d.logger)
+		if resolveErr != nil {
+			return fmt.Errorf("daemon: resolve WAL mac_key_file: %w", resolveErr)
+		}
+		if resolved == "" {
+			return fmt.Errorf("daemon: WAL mac_key_file resolved to empty value")
+		}
+		walOpts = append(walOpts, wal.WithIntegrity(wal.IntegrityModeMAC, []byte(resolved)))
+		d.logger.Info("daemon: WAL integrity mode enabled",
+			"component", "daemon",
+			"mode", wal.IntegrityModeMAC,
+		)
+	}
+	walOpts = append(walOpts, wal.WithSecurityEvent(func(eventType string, attrs ...slog.Attr) {
+		d.logger.LogAttrs(nil, slog.LevelWarn, "daemon: security event",
+			append([]slog.Attr{
+				slog.String("component", "wal"),
+				slog.String("event_type", eventType),
+			}, attrs...)...,
+		)
+	}))
+
+	w, err := wal.Open(walPath, cfg.Daemon.WAL.MaxSegmentSizeMB, d.logger, walOpts...)
 	if err != nil {
 		return fmt.Errorf("daemon: open WAL: %w", err)
 	}
@@ -216,6 +244,7 @@ func (d *Daemon) Start() error {
 
 	// Set initial WAL metrics.
 	d.metrics.WALCRCFailures.Add(float64(d.wal.CRCFailures()))
+	d.metrics.WALIntegrityFailures.Add(float64(d.wal.IntegrityFailures()))
 	d.metrics.WALHealthy.Set(1)
 
 	// Start WAL watchdog — updates WAL health and disk metrics periodically.

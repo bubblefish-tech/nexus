@@ -38,6 +38,9 @@ import (
 	"time"
 )
 
+// Option configures a WAL instance. Pass to Open.
+type Option func(*WAL)
+
 const (
 	// StatusPending marks an entry that has not yet been delivered.
 	StatusPending = "PENDING"
@@ -82,11 +85,45 @@ type WAL struct {
 	currentSize int64        // protected by mu
 	logger      *slog.Logger
 	crcFailures atomic.Int64 // read without mu via CRCFailures()
+
+	// Integrity mode: IntegrityModeCRC32 (default) or IntegrityModeMAC.
+	// When mode=mac, HMAC-SHA256 is computed over JSON bytes on every write
+	// and validated on every replay. Reference: Tech Spec Section 6.4.1.
+	integrityMode string
+	// macKey is the 32-byte HMAC-SHA256 key. Loaded once at startup via
+	// config.ResolveEnv. NEVER re-read per entry. NEVER logged.
+	macKey []byte
+	// integrityFailures counts HMAC mismatches detected during replay.
+	// Exposed via IntegrityFailures() for Prometheus.
+	integrityFailures atomic.Int64
+	// onSecurityEvent is called when a security-relevant event occurs
+	// (e.g. HMAC mismatch). May be nil.
+	onSecurityEvent SecurityEventFunc
+}
+
+// WithIntegrity configures WAL integrity mode. When mode is "mac", key
+// must be a non-empty HMAC-SHA256 key (typically 32 bytes). The key is
+// stored once and never re-read. Reference: Tech Spec Section 6.4.1.
+func WithIntegrity(mode string, key []byte) Option {
+	return func(w *WAL) {
+		w.integrityMode = mode
+		w.macKey = key
+	}
+}
+
+// WithSecurityEvent registers a callback invoked on security events such
+// as wal_tamper_detected. The callback is invoked synchronously during
+// replay; it must not block.
+func WithSecurityEvent(fn SecurityEventFunc) Option {
+	return func(w *WAL) {
+		w.onSecurityEvent = fn
+	}
 }
 
 // Open opens or creates a WAL rooted at dir. maxSizeMB controls segment
-// rotation (default 50). Panics if logger is nil.
-func Open(dir string, maxSizeMB int64, logger *slog.Logger) (*WAL, error) {
+// rotation (default 50). Panics if logger is nil. Options configure
+// integrity mode and security event callbacks.
+func Open(dir string, maxSizeMB int64, logger *slog.Logger, opts ...Option) (*WAL, error) {
 	if logger == nil {
 		panic("wal: logger must not be nil")
 	}
@@ -97,9 +134,18 @@ func Open(dir string, maxSizeMB int64, logger *slog.Logger) (*WAL, error) {
 		return nil, fmt.Errorf("wal: create directory: %w", err)
 	}
 	w := &WAL{
-		dir:     dir,
-		maxSize: maxSizeMB << 20,
-		logger:  logger,
+		dir:           dir,
+		maxSize:       maxSizeMB << 20,
+		logger:        logger,
+		integrityMode: IntegrityModeCRC32,
+	}
+	for _, opt := range opts {
+		opt(w)
+	}
+	// Fail-fast: integrity=mac requires a non-empty MAC key.
+	// Reference: Tech Spec Section 4.1 — daemon MUST refuse to start.
+	if w.integrityMode == IntegrityModeMAC && len(w.macKey) == 0 {
+		return nil, fmt.Errorf("wal: integrity mode %q requires a non-empty mac key", IntegrityModeMAC)
 	}
 	if err := w.openCurrentSegment(); err != nil {
 		return nil, err
@@ -167,7 +213,13 @@ func (w *WAL) Append(entry Entry) error {
 	}
 
 	checksum := crc32.ChecksumIEEE(data)
-	line := fmt.Sprintf("%s\t%08x\n", data, checksum)
+	var line string
+	if w.integrityMode == IntegrityModeMAC {
+		mac := computeHMAC(data, w.macKey)
+		line = fmt.Sprintf("%s\t%08x\t%s\n", data, checksum, mac)
+	} else {
+		line = fmt.Sprintf("%s\t%08x\n", data, checksum)
+	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -244,27 +296,58 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
 
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := scanner.Text()
 
-		// Partial write (crash mid-write): no tab separator. Skip silently.
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
+		// Split into up to 3 fields: JSON, CRC32, optional HMAC.
+		// 2 fields = CRC-only (default or pre-upgrade entries).
+		// 3 fields = CRC + HMAC (integrity=mac entries).
+		// <2 fields = partial write (crash mid-write). Skip silently.
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
 			continue
 		}
 
 		jsonBytes := []byte(parts[0])
 		storedCRC := parts[1]
+
+		// CRC32 validated first (cheap). Reference: Tech Spec Section 4.1.
 		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
 		if computed != storedCRC {
 			w.crcFailures.Add(1)
 			w.logger.Warn("wal: CRC mismatch — entry skipped",
 				"component", "wal",
 				"segment", path,
+				"line_number", lineNum,
 				"stored_crc", storedCRC,
 				"computed_crc", computed,
 			)
 			continue
+		}
+
+		// HMAC validated second (more expensive). Reference: Tech Spec Section 4.1.
+		// Only checked when integrity=mac AND the line has an HMAC field.
+		// Pre-upgrade entries (2-field lines) are treated as valid when mode=mac
+		// because no tamper check is possible for entries written before upgrade.
+		if w.integrityMode == IntegrityModeMAC && len(parts) == 3 {
+			storedHMAC := parts[2]
+			if !validateHMAC(jsonBytes, w.macKey, storedHMAC) {
+				w.integrityFailures.Add(1)
+				w.logger.Warn("wal: HMAC mismatch — entry skipped (possible tampering)",
+					"component", "wal",
+					"segment", path,
+					"line_number", lineNum,
+				)
+				if w.onSecurityEvent != nil {
+					w.onSecurityEvent("wal_tamper_detected",
+						slog.String("segment_file", path),
+						slog.Int("line_number", lineNum),
+					)
+				}
+				continue
+			}
 		}
 
 		var entry Entry
@@ -272,6 +355,7 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 			w.logger.Warn("wal: malformed JSON — entry skipped",
 				"component", "wal",
 				"segment", path,
+				"line_number", lineNum,
 				"error", err,
 			)
 			continue
@@ -301,6 +385,13 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 // bubblefish_wal_crc_failures_total.
 func (w *WAL) CRCFailures() int64 {
 	return w.crcFailures.Load()
+}
+
+// IntegrityFailures returns the total number of HMAC mismatches encountered
+// during Replay calls. Only non-zero when integrity=mac. Exposed to
+// Prometheus via bubblefish_wal_integrity_failures_total.
+func (w *WAL) IntegrityFailures() int64 {
+	return w.integrityFailures.Load()
 }
 
 // Close closes the current WAL segment. Safe to call multiple times.

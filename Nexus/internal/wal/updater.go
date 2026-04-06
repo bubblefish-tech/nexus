@@ -107,8 +107,9 @@ func (w *WAL) markStatus(payloadID, status string) error {
 }
 
 // markStatusInSegment scans segPath for an entry matching payloadID, rewrites
-// it with the given status and a fresh CRC32, and atomically replaces the
-// segment via a temp file + rename on the same filesystem.
+// it with the given status and a fresh CRC32 (+ fresh HMAC if integrity=mac),
+// and atomically replaces the segment via a temp file + rename on the same
+// filesystem. Reference: Tech Spec Section 4.3.
 func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, error) {
 	f, err := os.Open(segPath)
 	if err != nil {
@@ -123,8 +124,9 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
+		// Split into up to 3 fields to handle both CRC-only and CRC+HMAC lines.
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
 			// Partial line — preserve as-is; it will be skipped on replay.
 			lines = append(lines, line)
 			continue
@@ -147,7 +149,15 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 				return false, fmt.Errorf("wal: marshal updated entry: %w", marshalErr)
 			}
 			checksum := crc32.ChecksumIEEE(updated)
-			line = fmt.Sprintf("%s\t%08x", updated, checksum)
+			// Recompute BOTH CRC32 and HMAC over the new JSON bytes.
+			// NEVER leave old HMAC on a rewritten entry.
+			// Reference: Tech Spec Section 4.3.
+			if w.integrityMode == IntegrityModeMAC {
+				mac := computeHMAC(updated, w.macKey)
+				line = fmt.Sprintf("%s\t%08x\t%s", updated, checksum, mac)
+			} else {
+				line = fmt.Sprintf("%s\t%08x", updated, checksum)
+			}
 			found = true
 		}
 
