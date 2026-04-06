@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/lint"
 	"github.com/BubbleFish-Nexus/internal/mcp"
 	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/BubbleFish-Nexus/internal/version"
@@ -42,12 +43,13 @@ func main() {
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 		fmt.Fprintln(os.Stderr, "usage: bubblefish <command>")
 		fmt.Fprintln(os.Stderr, "commands:")
-		fmt.Fprintln(os.Stderr, "  install  create config directory and initial configuration")
-		fmt.Fprintln(os.Stderr, "  start    start daemon + MCP + dashboard + tray")
-		fmt.Fprintln(os.Stderr, "  build    compile policies and validate configuration")
-		fmt.Fprintln(os.Stderr, "  mcp      MCP server management")
+		fmt.Fprintln(os.Stderr, "  install      create config directory and initial configuration")
+		fmt.Fprintln(os.Stderr, "  start        start daemon + MCP + dashboard + tray")
+		fmt.Fprintln(os.Stderr, "  build        compile policies and validate configuration")
+		fmt.Fprintln(os.Stderr, "  lint         check configuration for dangerous or suboptimal settings")
+		fmt.Fprintln(os.Stderr, "  mcp          MCP server management")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
-		fmt.Fprintln(os.Stderr, "  version  print version string")
+		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
 	}
 
@@ -58,6 +60,8 @@ func main() {
 		runStart()
 	case "build":
 		runBuild()
+	case "lint":
+		runLint()
 	case "mcp":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: bubblefish mcp <subcommand>")
@@ -78,7 +82,7 @@ func main() {
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish: unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|build|sign-config|mcp|version>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|build|lint|sign-config|mcp|version>")
 		os.Exit(1)
 	}
 }
@@ -234,6 +238,46 @@ func runSignConfig() {
 	}
 
 	fmt.Println("bubblefish sign-config: ok — all compiled config files signed")
+}
+
+// runLint executes the `bubblefish lint` command.
+// It loads the configuration and runs all lint checks, printing findings to
+// stdout. Exit code 0 if no errors, 1 if any finding has error severity.
+//
+// Reference: Tech Spec Section 6.7, Phase R-11.
+func runLint() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	}))
+
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish lint: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg, err := config.Load(configDir, logger)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish lint: config load failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	result := lint.Run(cfg, configDir)
+
+	if len(result.Findings) == 0 {
+		fmt.Println("bubblefish lint: ok — no issues found")
+		return
+	}
+
+	for _, f := range result.Findings {
+		fmt.Printf("[%s] %s: %s\n", f.Severity, f.Check, f.Message)
+	}
+
+	if result.HasErrors() {
+		fmt.Fprintf(os.Stderr, "\nbubblefish lint: %d issue(s) found, including errors\n", len(result.Findings))
+		os.Exit(1)
+	}
+	fmt.Printf("\nbubblefish lint: %d warning(s), no errors\n", len(result.Findings))
 }
 
 // runBuild executes the `bubblefish build` command.

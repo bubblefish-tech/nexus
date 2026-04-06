@@ -76,6 +76,7 @@ func (d *Daemon) buildRouter() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(d.requireAdminToken)
 		r.Get("/api/status", d.handleAdminStatus)
+		r.Get("/api/lint", d.handleLint)
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(

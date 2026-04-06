@@ -33,7 +33,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tidwall/gjson"
 
+	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/BubbleFish-Nexus/internal/lint"
 	"github.com/BubbleFish-Nexus/internal/query"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
@@ -707,6 +709,35 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 		"queue_depth":       queueDepth,
 		"consistency_score": consistencyScore,
 	})
+}
+
+// handleLint runs config lint checks and returns findings as JSON.
+// Updates the bubblefish_config_lint_warnings gauge.
+//
+// Reference: Tech Spec Section 6.7, Phase R-11.
+func (d *Daemon) handleLint(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/lint").Inc()
+
+	cfg := d.getConfig()
+
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		d.writeJSON(w, http.StatusInternalServerError, errorResponse{
+			Error:   "INTERNAL_ERROR",
+			Message: "failed to resolve config directory",
+			Details: map[string]interface{}{},
+		})
+		return
+	}
+
+	result := lint.Run(cfg, configDir)
+	d.metrics.ConfigLintWarnings.Set(float64(result.WarningCount()))
+
+	status := http.StatusOK
+	if result.HasErrors() {
+		status = http.StatusUnprocessableEntity
+	}
+	d.writeJSON(w, status, result)
 }
 
 // ---------------------------------------------------------------------------
