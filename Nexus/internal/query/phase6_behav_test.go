@@ -429,7 +429,7 @@ func TestBehav_Phase6_DecayResolution_PerSourceOverridesGlobal(t *testing.T) {
 		HalfLifeDays: 30, // per-source override
 	}
 
-	cfg := query.ResolveDecay(global, srcDecay, "balanced")
+	cfg := query.ResolveDecay(global, config.DestinationDecayConfig{}, "", srcDecay, "balanced")
 
 	if !cfg.Enabled {
 		t.Error("expected decay enabled, got disabled")
@@ -448,7 +448,7 @@ func TestBehav_Phase6_DecayResolution_GlobalOnly(t *testing.T) {
 		DecayMode:    "exponential",
 	}
 
-	cfg := query.ResolveDecay(global, config.PolicyDecayConfig{}, "balanced")
+	cfg := query.ResolveDecay(global, config.DestinationDecayConfig{}, "", config.PolicyDecayConfig{}, "balanced")
 
 	if !cfg.Enabled {
 		t.Error("expected decay enabled")
@@ -462,7 +462,7 @@ func TestBehav_Phase6_DecayResolution_GlobalOnly(t *testing.T) {
 // when TimeDecay = false and no per-source override is set.
 func TestBehav_Phase6_DecayResolution_Disabled(t *testing.T) {
 	global := config.RetrievalConfig{TimeDecay: false}
-	cfg := query.ResolveDecay(global, config.PolicyDecayConfig{}, "balanced")
+	cfg := query.ResolveDecay(global, config.DestinationDecayConfig{}, "", config.PolicyDecayConfig{}, "balanced")
 	if cfg.Enabled {
 		t.Error("expected decay disabled when TimeDecay = false and no per-source override")
 	}
@@ -473,12 +473,12 @@ func TestBehav_Phase6_DecayResolution_Disabled(t *testing.T) {
 func TestBehav_Phase6_DecayResolution_ProfileDefault(t *testing.T) {
 	global := config.RetrievalConfig{TimeDecay: true, HalfLifeDays: 0}
 
-	balanced := query.ResolveDecay(global, config.PolicyDecayConfig{}, "balanced")
+	balanced := query.ResolveDecay(global, config.DestinationDecayConfig{}, "", config.PolicyDecayConfig{}, "balanced")
 	if balanced.HalfLifeDays != 7 {
 		t.Errorf("balanced profile default HalfLifeDays = %g; want 7", balanced.HalfLifeDays)
 	}
 
-	deep := query.ResolveDecay(global, config.PolicyDecayConfig{}, "deep")
+	deep := query.ResolveDecay(global, config.DestinationDecayConfig{}, "", config.PolicyDecayConfig{}, "deep")
 	if deep.HalfLifeDays != 30 {
 		t.Errorf("deep profile default HalfLifeDays = %g; want 30", deep.HalfLifeDays)
 	}

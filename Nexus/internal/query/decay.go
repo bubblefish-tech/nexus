@@ -74,25 +74,55 @@ type DecayConfig struct {
 // tiered precedence rules defined in Tech Spec Section 3.6:
 //
 //  1. Global: [retrieval] section in daemon.toml (RetrievalConfig).
-//  2. Per-source: [source.policy.decay] override (PolicyDecayConfig).
+//  2. Per-destination: [destination.decay] section in destination TOML.
+//  3. Per-collection: [destination.decay.collections.<name>] override.
 //
-// The most specific non-zero value wins. A zero HalfLifeDays or empty Mode at
-// a given tier falls through to the next tier.
+// Source policy ([source.policy.decay]) is applied as an additional override
+// after the destination tiers. The most specific non-zero value wins. A zero
+// HalfLifeDays or empty Mode at a given tier falls through to the next tier.
 //
 // When no tier has TimeDecay enabled, Enabled = false and decay is skipped.
 //
 // Reference: Tech Spec Section 3.6.
-func ResolveDecay(global config.RetrievalConfig, srcDecay config.PolicyDecayConfig, profile string) DecayConfig {
+func ResolveDecay(global config.RetrievalConfig, destDecay config.DestinationDecayConfig, collection string, srcDecay config.PolicyDecayConfig, profile string) DecayConfig {
 	// Start with global config.
 	halfLife := global.HalfLifeDays
 	mode := global.DecayMode
 	stepThreshold := 0.0
 	enabled := global.TimeDecay
 
-	// Per-source override: non-zero HalfLifeDays or non-empty Mode wins.
+	// Per-destination override: non-zero values win over global.
+	if destDecay.HalfLifeDays > 0 {
+		halfLife = destDecay.HalfLifeDays
+		enabled = true
+	}
+	if destDecay.DecayMode != "" {
+		mode = destDecay.DecayMode
+	}
+	if destDecay.StepThresholdDays > 0 {
+		stepThreshold = destDecay.StepThresholdDays
+	}
+
+	// Per-collection override: most specific tier, wins over per-destination.
+	if collection != "" && destDecay.Collections != nil {
+		if collCfg, ok := destDecay.Collections[collection]; ok {
+			if collCfg.HalfLifeDays > 0 {
+				halfLife = collCfg.HalfLifeDays
+				enabled = true
+			}
+			if collCfg.DecayMode != "" {
+				mode = collCfg.DecayMode
+			}
+			if collCfg.StepThresholdDays > 0 {
+				stepThreshold = collCfg.StepThresholdDays
+			}
+		}
+	}
+
+	// Per-source policy override: non-zero HalfLifeDays or non-empty Mode wins.
 	if srcDecay.HalfLifeDays > 0 {
 		halfLife = srcDecay.HalfLifeDays
-		enabled = true // per-source decay implicitly enables decay
+		enabled = true
 	}
 	if srcDecay.DecayMode != "" {
 		mode = srcDecay.DecayMode

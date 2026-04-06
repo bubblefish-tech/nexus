@@ -92,6 +92,7 @@ type CascadeRunner struct {
 	embeddingLatency prometheus.Observer   // optional; nil is safe
 	retrieval        config.RetrievalConfig // Phase 6: over-sample factor + decay
 	decayCounter     prometheus.Counter    // Phase 6: bubblefish_temporal_decay_applied_total
+	destinations     map[string]*config.Destination // Phase R-7: per-dest/collection decay
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -155,6 +156,16 @@ func (cr *CascadeRunner) WithRetrievalConfig(cfg config.RetrievalConfig) *Cascad
 // Reference: Tech Spec Section 11.3 — bubblefish_temporal_decay_applied_total.
 func (cr *CascadeRunner) WithDecayCounter(c prometheus.Counter) *CascadeRunner {
 	cr.decayCounter = c
+	return cr
+}
+
+// WithDestinations attaches the destination configuration map to the runner,
+// enabling per-destination and per-collection temporal decay resolution in
+// Stage 5. Returns the runner for method chaining.
+//
+// Reference: Tech Spec Section 3.6.
+func (cr *CascadeRunner) WithDestinations(dests map[string]*config.Destination) *CascadeRunner {
+	cr.destinations = dests
 	return cr
 }
 
@@ -381,7 +392,13 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 
 	if ProfileEnabled(5, q.Profile) && !semanticSkipped && len(stage4Records) > 0 && len(records) > 0 {
 		// ── Stage 5: Both stages have results — full hybrid merge ────────────
-		decayCfg := ResolveDecay(cr.retrieval, src.Policy.Decay, q.Profile)
+		var destDecay config.DestinationDecayConfig
+		if cr.destinations != nil {
+			if dest := cr.destinations[q.Destination]; dest != nil {
+				destDecay = dest.Decay
+			}
+		}
+		decayCfg := ResolveDecay(cr.retrieval, destDecay, q.Collection, src.Policy.Decay, q.Profile)
 		finalRecords = HybridMerge(records, stage4Records, q.Limit, decayCfg.Enabled, decayCfg, time.Now())
 		finalNextCursor = "" // Stage 5 result is a full reranked page; no cursor
 		finalHasMore = false

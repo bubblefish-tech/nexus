@@ -59,6 +59,12 @@ type CanonicalQuery struct {
 	// ActorType filters results by provenance (user, agent, system). Empty
 	// means no filter. Forwarded to the querier in later phases.
 	ActorType string
+	// Collection is an optional collection name within the destination. When
+	// set, per-collection decay overrides are resolved from
+	// [destination.decay.collections.<name>].
+	//
+	// Reference: Tech Spec Section 3.6.
+	Collection string
 }
 
 // Normalize converts raw QueryParams into a CanonicalQuery, applying defaults

@@ -361,6 +361,17 @@ type Destination struct {
 
 // DestinationDecayConfig models [destination.decay].
 type DestinationDecayConfig struct {
+	HalfLifeDays      float64                              `toml:"half_life_days"`
+	DecayMode         string                               `toml:"decay_mode"`
+	StepThresholdDays float64                              `toml:"step_threshold_days"`
+	Collections       map[string]CollectionDecayConfig      `toml:"collections"`
+}
+
+// CollectionDecayConfig models [destination.decay.collections.<name>].
+// Per-collection overrides take highest precedence in the tiered decay system.
+//
+// Reference: Tech Spec Section 3.6.
+type CollectionDecayConfig struct {
 	HalfLifeDays      float64 `toml:"half_life_days"`
 	DecayMode         string  `toml:"decay_mode"`
 	StepThresholdDays float64 `toml:"step_threshold_days"`
