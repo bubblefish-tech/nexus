@@ -201,7 +201,7 @@ func (d *Daemon) Start() error {
 		compiledDir := filepath.Join(configDir, "compiled")
 
 		onEvent := func(eventType string, attrs ...slog.Attr) {
-			d.logger.LogAttrs(nil, slog.LevelWarn, "daemon: security event",
+			d.logger.LogAttrs(context.Background(), slog.LevelWarn, "daemon: security event",
 				append([]slog.Attr{
 					slog.String("component", "signing"),
 					slog.String("event_type", eventType),
@@ -277,7 +277,7 @@ func (d *Daemon) Start() error {
 	}
 
 	walOpts = append(walOpts, wal.WithSecurityEvent(func(eventType string, attrs ...slog.Attr) {
-		d.logger.LogAttrs(nil, slog.LevelWarn, "daemon: security event",
+		d.logger.LogAttrs(context.Background(), slog.LevelWarn, "daemon: security event",
 			append([]slog.Attr{
 				slog.String("component", "wal"),
 				slog.String("event_type", eventType),
@@ -757,7 +757,7 @@ func (d *Daemon) startHotReload() {
 	var signingEvent signing.SecurityEventFunc
 	if d.signingKey != nil {
 		signingEvent = func(eventType string, attrs ...slog.Attr) {
-			d.logger.LogAttrs(nil, slog.LevelWarn, "daemon: security event",
+			d.logger.LogAttrs(context.Background(), slog.LevelWarn, "daemon: security event",
 				append([]slog.Attr{
 					slog.String("component", "signing"),
 					slog.String("event_type", eventType),

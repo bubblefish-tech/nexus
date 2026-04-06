@@ -652,35 +652,47 @@ func (d *SQLiteDestination) QueryConflicts(params ConflictParams) ([]ConflictGro
 	// For each group, fetch the distinct values.
 	groups := make([]ConflictGroup, 0, len(keys))
 	for _, gk := range keys {
-		detailRows, err := d.db.Query(
-			"SELECT DISTINCT content, source, timestamp FROM memories WHERE subject = ? AND collection = ? ORDER BY timestamp DESC",
-			gk.subject, gk.collection,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("destination: sqlite: conflict detail query: %w", err)
+		g, scanErr := d.scanConflictDetail(gk.subject, gk.collection)
+		if scanErr != nil {
+			return nil, scanErr
 		}
-
-		g := ConflictGroup{
-			Subject:   gk.subject,
-			EntityKey: gk.collection,
-		}
-		for detailRows.Next() {
-			var content, src, ts string
-			if err := detailRows.Scan(&content, &src, &ts); err != nil {
-				detailRows.Close()
-				return nil, fmt.Errorf("destination: sqlite: scan conflict detail: %w", err)
-			}
-			g.ConflictingValues = append(g.ConflictingValues, content)
-			g.Sources = append(g.Sources, src)
-			parsed, _ := time.Parse(time.RFC3339Nano, ts)
-			g.Timestamps = append(g.Timestamps, parsed)
-		}
-		detailRows.Close()
-		g.Count = len(g.ConflictingValues)
 		groups = append(groups, g)
 	}
 
 	return groups, nil
+}
+
+// scanConflictDetail fetches distinct content/source/timestamp entries for a
+// single subject+collection conflict group.
+func (d *SQLiteDestination) scanConflictDetail(subject, collection string) (ConflictGroup, error) {
+	rows, err := d.db.Query(
+		"SELECT DISTINCT content, source, timestamp FROM memories WHERE subject = ? AND collection = ? ORDER BY timestamp DESC",
+		subject, collection,
+	)
+	if err != nil {
+		return ConflictGroup{}, fmt.Errorf("destination: sqlite: conflict detail query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	g := ConflictGroup{
+		Subject:   subject,
+		EntityKey: collection,
+	}
+	for rows.Next() {
+		var content, src, ts string
+		if err := rows.Scan(&content, &src, &ts); err != nil {
+			return ConflictGroup{}, fmt.Errorf("destination: sqlite: scan conflict detail: %w", err)
+		}
+		g.ConflictingValues = append(g.ConflictingValues, content)
+		g.Sources = append(g.Sources, src)
+		parsed, _ := time.Parse(time.RFC3339Nano, ts)
+		g.Timestamps = append(g.Timestamps, parsed)
+	}
+	if err := rows.Err(); err != nil {
+		return ConflictGroup{}, fmt.Errorf("destination: sqlite: conflict detail rows: %w", err)
+	}
+	g.Count = len(g.ConflictingValues)
+	return g, nil
 }
 
 // QueryTimeTravel returns memories as of the specified timestamp. Results are

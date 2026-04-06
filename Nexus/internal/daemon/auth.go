@@ -38,6 +38,11 @@ const (
 	// derived from trusted proxy headers or TCP source. Set by
 	// loggingMiddleware. Reference: Tech Spec Section 6.3.
 	ctxEffectiveClientIP
+
+	// ctxIsAdmin is the context key for a boolean flag indicating the
+	// request was authenticated with the admin token on a data endpoint.
+	// Used by debug_stages. Reference: Tech Spec Section 7.3.
+	ctxIsAdmin
 )
 
 // authResult carries the outcome of authentication for a single request.
@@ -124,11 +129,15 @@ func extractBearerToken(r *http.Request) string {
 }
 
 // requireDataToken is an HTTP middleware that requires a valid data-plane
-// token (source key). Admin tokens are rejected on data endpoints with
-// 401 wrong_token_class. Unauthenticated requests get 401 unauthorized.
+// token (source key). MCP tokens are rejected on data endpoints with 401
+// wrong_token_class. Unauthenticated requests get 401 unauthorized.
+//
+// Admin tokens are allowed through with a ctxIsAdmin flag in context (no
+// source set). This enables admin-only features like debug_stages on read
+// endpoints. Reference: Tech Spec Section 7.3.
 //
 // On success the authenticated *config.Source is stored in the request context
-// under ctxSource.
+// under ctxSource (nil for admin tokens).
 //
 // Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract item 5.
 func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
@@ -149,15 +158,18 @@ func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
 				"invalid or missing API key", 0)
 			return
 		}
-		if result.isAdmin || result.isMCP {
-			// Admin and MCP tokens must not be used on data endpoints.
-			tokenClass := "admin"
-			if result.isMCP {
-				tokenClass = "mcp"
-			}
-			d.emitAuthFailure(r, tokenClass)
+		if result.isMCP {
+			d.emitAuthFailure(r, "mcp")
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
 				"wrong token class for this endpoint", 0)
+			return
+		}
+		if result.isAdmin {
+			// Admin tokens are allowed on data endpoints with an admin flag.
+			// Handlers that need a source must check for nil and handle
+			// accordingly. Reference: Tech Spec Section 7.3.
+			ctx := context.WithValue(r.Context(), ctxIsAdmin, true)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 		// Embed source in context for downstream handlers.
@@ -220,16 +232,11 @@ func effectiveClientIPFromContext(ctx context.Context) string {
 	return s
 }
 
-// isAdminToken checks whether the request carries an admin token without
-// modifying the auth flow. Used by debug_stages to determine if the caller
-// is authorized for debug output. Reference: Tech Spec Section 7.3.
-func (d *Daemon) isAdminToken(r *http.Request) bool {
-	token := extractBearerToken(r)
-	if token == "" {
-		return false
-	}
-	cfg := d.getConfig()
-	return subtle.ConstantTimeCompare([]byte(token), cfg.ResolvedAdminKey) == 1
+// isAdminFromContext returns true if the request was authenticated with the
+// admin token on a data endpoint. Reference: Tech Spec Section 7.3.
+func isAdminFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxIsAdmin).(bool)
+	return v
 }
 
 // authenticateJWT attempts to validate the Bearer token as a JWT and map the

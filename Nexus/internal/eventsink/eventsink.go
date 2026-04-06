@@ -74,7 +74,6 @@ type Sink struct {
 	backoff []time.Duration
 	metrics Metrics
 	logger  *slog.Logger
-	client  *http.Client
 
 	wg   sync.WaitGroup
 	stop chan struct{}

@@ -196,7 +196,10 @@ func TestAuth_CanRead_False_Returns403(t *testing.T) {
 // Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract item 5.
 // ---------------------------------------------------------------------------
 
-func TestAuth_AdminTokenOnDataEndpoint_Returns401(t *testing.T) {
+func TestAuth_AdminTokenOnDataEndpoint_PassesThrough(t *testing.T) {
+	// Admin tokens are now allowed on data endpoints with an admin flag
+	// in context. This enables debug_stages on the query path.
+	// Reference: Tech Spec Section 7.3.
 	sources := []*config.Source{
 		{Name: "claude", CanRead: true, CanWrite: true, Namespace: "claude",
 			RateLimit: config.SourceRateLimitConfig{RequestsPerMinute: 1000}},
@@ -211,12 +214,8 @@ func TestAuth_AdminTokenOnDataEndpoint_Returns401(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d; want %d", rr.Code, http.StatusUnauthorized)
-	}
-	code := extractErrorCode(t, rr.Body.Bytes())
-	if code != "wrong_token_class" {
-		t.Errorf("error code = %q; want %q", code, "wrong_token_class")
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d; want %d (admin tokens pass through on data endpoints)", rr.Code, http.StatusOK)
 	}
 }
 

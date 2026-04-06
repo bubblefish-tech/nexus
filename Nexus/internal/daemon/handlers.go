@@ -201,6 +201,14 @@ func newID() string {
 // 13. Return 200 + payload_id
 func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	writeStart := time.Now()
+
+	// Admin tokens are not permitted on write endpoints.
+	if isAdminFromContext(r.Context()) {
+		d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
+			"admin token cannot be used for write operations", 0)
+		return
+	}
+
 	src := sourceFromContext(r.Context())
 	if src == nil {
 		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
@@ -512,11 +520,26 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 // Reference: Tech Spec Section 3.4, Phase 0C Behavioral Contract items 11, 16.
 func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	queryStart := time.Now()
+	isAdmin := isAdminFromContext(r.Context())
 	src := sourceFromContext(r.Context())
-	if src == nil {
+	if src == nil && !isAdmin {
 		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
 			"source context missing", 0)
 		return
+	}
+
+	// Admin tokens bypass CanRead and rate-limit checks.
+	// They are allowed on data endpoints for debug_stages.
+	// Reference: Tech Spec Section 7.3.
+	if src == nil && isAdmin {
+		// Synthesise a permissive source for admin queries.
+		src = &config.Source{
+			Name:           "_admin",
+			Namespace:      "default",
+			CanRead:        true,
+			CanWrite:       false,
+			DefaultProfile: "deep",
+		}
 	}
 
 	// Pre-cascade CanRead guard — checked before rate limiting so that
@@ -607,7 +630,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// token, populate _nexus.debug in the response. Data tokens with
 	// debug_stages=true are silently ignored — normal response returned.
 	// Reference: Tech Spec Section 7.3.
-	debugStages := r.URL.Query().Get("debug_stages") == "true" && d.isAdminToken(r)
+	debugStages := r.URL.Query().Get("debug_stages") == "true" && isAdmin
 
 	// Execute the 6-stage retrieval cascade.
 	// Reference: Tech Spec Section 3.4.
@@ -856,6 +879,13 @@ func (d *Daemon) streamQuerySSE(w http.ResponseWriter, records []destination.Tra
 // Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 7.
 func (d *Daemon) handleOpenAIWrite(w http.ResponseWriter, r *http.Request) {
 	writeStart := time.Now()
+
+	if isAdminFromContext(r.Context()) {
+		d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
+			"admin token cannot be used for write operations", 0)
+		return
+	}
+
 	src := sourceFromContext(r.Context())
 	if src == nil {
 		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",

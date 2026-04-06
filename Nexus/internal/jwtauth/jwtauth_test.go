@@ -102,8 +102,17 @@ func rsaJWKS(t *testing.T, key *rsa.PublicKey, kid string) []byte {
 
 func ecJWKS(t *testing.T, key *ecdsa.PublicKey, kid string) []byte {
 	t.Helper()
-	xB64 := base64.RawURLEncoding.EncodeToString(key.X.Bytes())
-	yB64 := base64.RawURLEncoding.EncodeToString(key.Y.Bytes())
+	// Convert to ECDH to get raw uncompressed bytes without deprecated fields.
+	ecdhKey, err := key.ECDH()
+	if err != nil {
+		t.Fatalf("ECDH conversion: %v", err)
+	}
+	raw := ecdhKey.Bytes() // uncompressed: 04 || x || y
+	byteLen := (len(raw) - 1) / 2
+	xBytes := raw[1 : 1+byteLen]
+	yBytes := raw[1+byteLen:]
+	xB64 := base64.RawURLEncoding.EncodeToString(xBytes)
+	yB64 := base64.RawURLEncoding.EncodeToString(yBytes)
 	jwks := fmt.Sprintf(`{"keys":[{"kty":"EC","kid":"%s","alg":"ES256","use":"sig","crv":"P-256","x":"%s","y":"%s"}]}`,
 		kid, xB64, yB64)
 	return []byte(jwks)

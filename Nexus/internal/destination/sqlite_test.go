@@ -286,7 +286,9 @@ func TestSQLiteDestination_QueryConflictsFiltered(t *testing.T) {
 	p2.Source = "s2"
 
 	for _, p := range []destination.TranslatedPayload{p1, p2} {
-		d.Write(p)
+		if err := d.Write(p); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
 	}
 
 	// Filter by source=s1 — both records have different sources but same
@@ -349,7 +351,9 @@ func TestSQLiteDestination_TimeTravelEmpty(t *testing.T) {
 
 	p := basePayload("future-1")
 	p.Timestamp = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	d.Write(p)
+	if err := d.Write(p); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
 
 	// Query as of January — before the memory was written.
 	result, err := d.QueryTimeTravel(destination.TimeTravelParams{
