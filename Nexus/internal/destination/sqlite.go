@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	// Pure-Go SQLite driver (modernc.org/sqlite). No CGO required for production.
@@ -78,6 +79,20 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 	// carries an embedding. INSERT OR IGNORE must never discard a row solely
 	// because the embedding is absent.
 	addEmbeddingColumn = `ALTER TABLE memories ADD COLUMN embedding BLOB`
+
+	// addSensitivityLabelsColumn adds the sensitivity_labels column for the
+	// Retrieval Firewall. Existing rows get empty string (no labels).
+	// Reference: Tech Spec Addendum Section A4.3.
+	addSensitivityLabelsColumn = `ALTER TABLE memories ADD COLUMN sensitivity_labels TEXT NOT NULL DEFAULT ''`
+
+	// addClassificationTierColumn adds the classification_tier column for the
+	// Retrieval Firewall. Existing rows default to "public".
+	// Reference: Tech Spec Addendum Section A4.3.
+	addClassificationTierColumn = `ALTER TABLE memories ADD COLUMN classification_tier TEXT NOT NULL DEFAULT 'public'`
+
+	// createClassificationTierIndex adds a B-tree index on classification_tier.
+	// Reference: Tech Spec Addendum Section A4.3.
+	createClassificationTierIndex = `CREATE INDEX IF NOT EXISTS idx_memories_classification ON memories(classification_tier)`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -175,6 +190,18 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 		// subsequent queries will surface any true schema problems.
 		_ = err
 	}
+	// Idempotent migration: add sensitivity_labels and classification_tier
+	// columns for the Retrieval Firewall. Existing rows get safe defaults.
+	// Reference: Tech Spec Addendum Section A4.3.
+	if _, err := d.db.Exec(addSensitivityLabelsColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addClassificationTierColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(createClassificationTierIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create classification_tier index: %w", err)
+	}
 	return nil
 }
 
@@ -191,12 +218,21 @@ func (d *SQLiteDestination) Write(p TranslatedPayload) error {
 
 	embeddingBlob := encodeEmbedding(p.Embedding)
 
+	// Encode sensitivity_labels as comma-separated string for SQLite TEXT column.
+	// Reference: Tech Spec Addendum Section A3.2.
+	sensitivityLabelsStr := strings.Join(p.SensitivityLabels, ",")
+	classificationTier := p.ClassificationTier
+	if classificationTier == "" {
+		classificationTier = "public"
+	}
+
 	const query = `
 INSERT OR IGNORE INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
     collection, content, model, role, timestamp, idempotency_key,
-    schema_version, transform_version, actor_type, actor_id, metadata, embedding
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    schema_version, transform_version, actor_type, actor_id, metadata, embedding,
+    sensitivity_labels, classification_tier
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = d.db.Exec(query,
 		p.PayloadID,
@@ -217,6 +253,8 @@ INSERT OR IGNORE INTO memories (
 		p.ActorID,
 		metadataJSON,
 		embeddingBlob,
+		sensitivityLabelsStr,
+		classificationTier,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
@@ -283,7 +321,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 	args = append(args, candidateLimit)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
+	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
 
 	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -296,14 +334,19 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 		var tp TranslatedPayload
 		var timestampStr, metadataStr string
 		var embeddingBlob []byte
+		var sensitivityLabelsStr string
 
 		if err := rows.Scan(
 			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
 			&timestampStr, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
 			&tp.ActorType, &tp.ActorID, &metadataStr, &embeddingBlob,
+			&sensitivityLabelsStr, &tp.ClassificationTier,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: semantic search: scan row: %w", err)
+		}
+		if sensitivityLabelsStr != "" {
+			tp.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
 		}
 
 		rowVec := decodeEmbedding(embeddingBlob)
@@ -472,7 +515,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -485,6 +528,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 		var tp TranslatedPayload
 		var timestampStr string
 		var metadataStr string
+		var sensitivityLabelsStr string
 		if err := rows.Scan(
 			&tp.PayloadID,
 			&tp.RequestID,
@@ -503,8 +547,15 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 			&tp.ActorType,
 			&tp.ActorID,
 			&metadataStr,
+			&sensitivityLabelsStr,
+			&tp.ClassificationTier,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: query: scan row: %w", err)
+		}
+
+		// Parse sensitivity_labels from comma-separated TEXT.
+		if sensitivityLabelsStr != "" {
+			tp.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
 		}
 
 		// Parse timestamp — stored as RFC3339Nano.
@@ -727,7 +778,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause from fixed conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -738,15 +789,18 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	records := make([]TranslatedPayload, 0, limit)
 	for rows.Next() {
 		var rec TranslatedPayload
-		var ts, metaStr string
+		var ts, metaStr, sensitivityLabelsStr string
 		if err := rows.Scan(
 			&rec.PayloadID, &rec.RequestID, &rec.Source, &rec.Subject,
 			&rec.Namespace, &rec.Destination, &rec.Collection, &rec.Content,
 			&rec.Model, &rec.Role, &ts, &rec.IdempotencyKey,
 			&rec.SchemaVersion, &rec.TransformVersion, &rec.ActorType,
-			&rec.ActorID, &metaStr,
+			&rec.ActorID, &metaStr, &sensitivityLabelsStr, &rec.ClassificationTier,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: time travel scan: %w", err)
+		}
+		if sensitivityLabelsStr != "" {
+			rec.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
 		}
 		rec.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
 		if metaStr != "" && metaStr != "{}" {

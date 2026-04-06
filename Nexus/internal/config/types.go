@@ -93,6 +93,25 @@ type DaemonConfig struct {
 	Signing        SigningConfig        `toml:"signing"`
 	JWT            JWTConfig            `toml:"jwt"`
 	Events         EventsConfig         `toml:"events"`
+	Audit          AuditConfig          `toml:"audit"`
+	RetrievalFirewall DaemonRetrievalFirewallConfig `toml:"retrieval_firewall"`
+}
+
+// AuditConfig models [daemon.audit].
+// Reference: Tech Spec Addendum Section A4.1.
+type AuditConfig struct {
+	Enabled              bool   `toml:"enabled"`
+	LogFile              string `toml:"log_file"`
+	MaxFileSizeMB        int    `toml:"max_file_size_mb"`
+	AdminRateLimitPerMin int    `toml:"admin_rate_limit_per_minute"`
+}
+
+// DaemonRetrievalFirewallConfig models [daemon.retrieval_firewall].
+// Reference: Tech Spec Addendum Section A4.1.
+type DaemonRetrievalFirewallConfig struct {
+	Enabled     bool     `toml:"enabled"`
+	TierOrder   []string `toml:"tier_order"`
+	DefaultTier string   `toml:"default_tier"`
 }
 
 // ShutdownConfig models [daemon.shutdown].
@@ -305,6 +324,18 @@ type SourcePolicyConfig struct {
 	FieldVisibility       FieldVisibilityConfig `toml:"field_visibility"`
 	Cache                 PolicyCacheConfig     `toml:"cache"`
 	Decay                 PolicyDecayConfig     `toml:"decay"`
+	RetrievalFirewall     SourceRetrievalFirewallConfig `toml:"retrieval_firewall"`
+}
+
+// SourceRetrievalFirewallConfig models [source.policy.retrieval_firewall].
+// Reference: Tech Spec Addendum Section A4.2.
+type SourceRetrievalFirewallConfig struct {
+	BlockedLabels            []string `toml:"blocked_labels"`
+	MaxClassificationTier    string   `toml:"max_classification_tier"`
+	RequiredLabels           []string `toml:"required_labels"`
+	DefaultClassificationTier string  `toml:"default_classification_tier"`
+	VisibleNamespaces        []string `toml:"visible_namespaces"`
+	CrossNamespaceRead       bool     `toml:"cross_namespace_read"`
 }
 
 // FieldVisibilityConfig models [source.policy.field_visibility].

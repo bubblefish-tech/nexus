@@ -71,6 +71,20 @@ const createPostgresIdxEmbedding = `
 CREATE INDEX IF NOT EXISTS idx_memories_embedding ON memories
     USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`
 
+// addPostgresSensitivityLabelsColumn adds the TEXT[] column for sensitivity labels.
+// Reference: Tech Spec Addendum Section A4.3.
+const addPostgresSensitivityLabelsColumn = `ALTER TABLE memories ADD COLUMN IF NOT EXISTS sensitivity_labels TEXT[] DEFAULT '{}'`
+
+// addPostgresClassificationTierColumn adds the tier column.
+// Reference: Tech Spec Addendum Section A4.3.
+const addPostgresClassificationTierColumn = `ALTER TABLE memories ADD COLUMN IF NOT EXISTS classification_tier TEXT DEFAULT 'public'`
+
+// createPostgresIdxClassification adds a B-tree index on classification_tier.
+const createPostgresIdxClassification = `CREATE INDEX IF NOT EXISTS idx_memories_classification ON memories(classification_tier)`
+
+// createPostgresIdxSensitivity adds a GIN index on the sensitivity_labels array.
+const createPostgresIdxSensitivity = `CREATE INDEX IF NOT EXISTS idx_memories_sensitivity ON memories USING GIN(sensitivity_labels)`
+
 // PostgresDestination writes TranslatedPayload records to a PostgreSQL database
 // with pgvector support for Stage 4 semantic retrieval.
 //
@@ -146,6 +160,22 @@ func (d *PostgresDestination) applySchema() error {
 		)
 	}
 
+	// Idempotent migration: add sensitivity_labels and classification_tier
+	// columns for the Retrieval Firewall. Existing rows get safe defaults.
+	// Reference: Tech Spec Addendum Section A4.3.
+	if _, err := d.db.Exec(addPostgresSensitivityLabelsColumn); err != nil {
+		return fmt.Errorf("destination: postgres: add sensitivity_labels column: %w", err)
+	}
+	if _, err := d.db.Exec(addPostgresClassificationTierColumn); err != nil {
+		return fmt.Errorf("destination: postgres: add classification_tier column: %w", err)
+	}
+	if _, err := d.db.Exec(createPostgresIdxClassification); err != nil {
+		return fmt.Errorf("destination: postgres: create classification index: %w", err)
+	}
+	if _, err := d.db.Exec(createPostgresIdxSensitivity); err != nil {
+		return fmt.Errorf("destination: postgres: create sensitivity GIN index: %w", err)
+	}
+
 	return nil
 }
 
@@ -163,12 +193,21 @@ func (d *PostgresDestination) Write(p TranslatedPayload) error {
 		embeddingVal = float32SliceToPGVector(p.Embedding)
 	}
 
+	// Encode sensitivity_labels as PostgreSQL TEXT[] literal.
+	// Reference: Tech Spec Addendum Section A3.2.
+	sensitivityLabelsArr := pgTextArray(p.SensitivityLabels)
+	classificationTier := p.ClassificationTier
+	if classificationTier == "" {
+		classificationTier = "public"
+	}
+
 	const query = `
 INSERT INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
     collection, content, model, role, timestamp, idempotency_key,
-    schema_version, transform_version, actor_type, actor_id, metadata, embedding
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+    schema_version, transform_version, actor_type, actor_id, metadata, embedding,
+    sensitivity_labels, classification_tier
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 ON CONFLICT (payload_id) DO NOTHING`
 
 	_, err = d.db.Exec(query,
@@ -190,6 +229,8 @@ ON CONFLICT (payload_id) DO NOTHING`
 		p.ActorID,
 		metadataJSON,
 		embeddingVal,
+		sensitivityLabelsArr,
+		classificationTier,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: postgres: write payload_id %q: %w", p.PayloadID, err)
@@ -272,7 +313,7 @@ func (d *PostgresDestination) Query(params QueryParams) (QueryResult, error) {
 
 	//nolint:gosec // whereClause built from fixed condition strings, no user input.
 	q := fmt.Sprintf(
-		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata FROM memories %s ORDER BY timestamp DESC LIMIT $%d OFFSET $%d",
+		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier FROM memories %s ORDER BY timestamp DESC LIMIT $%d OFFSET $%d",
 		whereClause, idx, idx+1,
 	)
 
@@ -286,15 +327,18 @@ func (d *PostgresDestination) Query(params QueryParams) (QueryResult, error) {
 	for rows.Next() {
 		var tp TranslatedPayload
 		var metadataStr string
+		var sensitivityLabelsStr string
 
 		if err := rows.Scan(
 			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
 			&tp.Timestamp, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
 			&tp.ActorType, &tp.ActorID, &metadataStr,
+			&sensitivityLabelsStr, &tp.ClassificationTier,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: postgres: query: scan: %w", err)
 		}
+		tp.SensitivityLabels = parsePGTextArray(sensitivityLabelsStr)
 		if metadataStr != "" && metadataStr != "{}" {
 			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
 		}
@@ -356,7 +400,7 @@ func (d *PostgresDestination) SemanticSearch(ctx context.Context, vec []float32,
 
 	//nolint:gosec // whereClause built from fixed condition strings.
 	q := fmt.Sprintf(
-		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, 1 - (embedding <=> $1) AS score FROM memories %s ORDER BY embedding <=> $1 LIMIT $%d",
+		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, 1 - (embedding <=> $1) AS score FROM memories %s ORDER BY embedding <=> $1 LIMIT $%d",
 		whereClause, idx,
 	)
 
@@ -370,16 +414,19 @@ func (d *PostgresDestination) SemanticSearch(ctx context.Context, vec []float32,
 	for rows.Next() {
 		var tp TranslatedPayload
 		var metadataStr string
+		var sensitivityLabelsStr string
 		var score float32
 
 		if err := rows.Scan(
 			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
 			&tp.Timestamp, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
-			&tp.ActorType, &tp.ActorID, &metadataStr, &score,
+			&tp.ActorType, &tp.ActorID, &metadataStr,
+			&sensitivityLabelsStr, &tp.ClassificationTier, &score,
 		); err != nil {
 			return nil, fmt.Errorf("destination: postgres: semantic search: scan: %w", err)
 		}
+		tp.SensitivityLabels = parsePGTextArray(sensitivityLabelsStr)
 		if metadataStr != "" && metadataStr != "{}" {
 			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
 		}
@@ -397,6 +444,31 @@ func (d *PostgresDestination) Close() error {
 		return fmt.Errorf("destination: postgres: close: %w", err)
 	}
 	return nil
+}
+
+// parsePGTextArray parses a PostgreSQL TEXT[] literal string (e.g. "{pii,financial}")
+// back to a Go string slice. Returns nil for empty arrays "{}".
+func parsePGTextArray(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "{}" {
+		return nil
+	}
+	// Strip surrounding braces.
+	s = strings.TrimPrefix(s, "{")
+	s = strings.TrimSuffix(s, "}")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
+// pgTextArray formats a string slice as a PostgreSQL TEXT[] literal.
+// Example: ["pii","financial"] → "{pii,financial}". Nil/empty → "{}".
+func pgTextArray(labels []string) string {
+	if len(labels) == 0 {
+		return "{}"
+	}
+	return "{" + strings.Join(labels, ",") + "}"
 }
 
 // float32SliceToPGVector formats a []float32 as a pgvector literal string

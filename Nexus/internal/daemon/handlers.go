@@ -400,24 +400,53 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		actorID = src.DefaultActorID
 	}
 
+	// Parse sensitivity labels and classification tier from headers.
+	// Reference: Tech Spec Addendum Section A3.2.
+	var sensitivityLabels []string
+	if labelsHeader := r.Header.Get("X-Sensitivity-Labels"); labelsHeader != "" {
+		for _, l := range strings.Split(labelsHeader, ",") {
+			trimmed := strings.TrimSpace(l)
+			if trimmed != "" {
+				sensitivityLabels = append(sensitivityLabels, trimmed)
+			}
+		}
+	}
+	classificationTier := strings.TrimSpace(r.Header.Get("X-Classification-Tier"))
+	if classificationTier == "" {
+		classificationTier = src.Policy.RetrievalFirewall.DefaultClassificationTier
+	}
+
+	// Validate classification tier against configured tier_order.
+	// Reference: Tech Spec Addendum Section A3.3 — unknown tiers are rejected.
+	if classificationTier != "" {
+		tierOrder := cfg.Daemon.RetrievalFirewall.TierOrder
+		if len(tierOrder) > 0 && !containsString(tierOrder, classificationTier) {
+			d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_classification_tier",
+				"classification_tier must be one of the configured tier_order values", 0)
+			return
+		}
+	}
+
 	tp := destination.TranslatedPayload{
-		PayloadID:        payloadID,
-		RequestID:        requestID,
-		Source:           src.Name,
-		Subject:          subject,
-		Namespace:        src.Namespace,
-		Destination:      dest,
-		Collection:       mapped["collection"],
-		Content:          mapped["content"],
-		Model:            mapped["model"],
-		Role:             mapped["role"],
-		Timestamp:        time.Now().UTC(),
-		IdempotencyKey:   idempotencyKey,
-		SchemaVersion:    1,
-		TransformVersion: "1.0",
-		ActorType:        actorType,
-		ActorID:          actorID,
-		Metadata:         metadata,
+		PayloadID:          payloadID,
+		RequestID:          requestID,
+		Source:             src.Name,
+		Subject:            subject,
+		Namespace:          src.Namespace,
+		Destination:        dest,
+		Collection:         mapped["collection"],
+		Content:            mapped["content"],
+		Model:              mapped["model"],
+		Role:               mapped["role"],
+		Timestamp:          time.Now().UTC(),
+		IdempotencyKey:     idempotencyKey,
+		SchemaVersion:      1,
+		TransformVersion:   "1.0",
+		ActorType:          actorType,
+		ActorID:            actorID,
+		Metadata:           metadata,
+		SensitivityLabels:  sensitivityLabels,
+		ClassificationTier: classificationTier,
 	}
 
 	// Build WAL entry payload.

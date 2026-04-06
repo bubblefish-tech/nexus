@@ -58,6 +58,14 @@ type TranslatedPayload struct {
 	ActorID          string            `json:"actor_id"`    // identity of the actor
 	Embedding        []float32         `json:"embedding,omitempty"`
 	Metadata         map[string]string `json:"metadata,omitempty"`
+
+	// Addendum A3: Retrieval Firewall — sensitivity classification fields.
+	// SensitivityLabels are free-form tags (e.g. "pii", "financial").
+	// ClassificationTier is a single tier from the configured tier_order
+	// (default: "public"). Both default to empty/public when absent.
+	// Reference: Tech Spec Addendum Section A3.2.
+	SensitivityLabels  []string `json:"sensitivity_labels,omitempty"`
+	ClassificationTier string   `json:"classification_tier,omitempty"`
 }
 
 // DestinationWriter is the interface satisfied by every memory backend

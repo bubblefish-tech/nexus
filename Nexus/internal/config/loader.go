@@ -145,6 +145,25 @@ func loadDaemonTOML(path string, logger *slog.Logger) (*Config, error) {
 		raw.Retrieval.DecayMode = "exponential"
 	}
 
+	// Audit defaults. Reference: Tech Spec Addendum Section A4.1.
+	if raw.Daemon.Audit.MaxFileSizeMB <= 0 {
+		raw.Daemon.Audit.MaxFileSizeMB = 100
+	}
+	if raw.Daemon.Audit.AdminRateLimitPerMin <= 0 {
+		raw.Daemon.Audit.AdminRateLimitPerMin = 60
+	}
+	if raw.Daemon.Audit.LogFile == "" {
+		raw.Daemon.Audit.LogFile = "~/.bubblefish/Nexus/logs/interactions.jsonl"
+	}
+
+	// Retrieval firewall defaults. Reference: Tech Spec Addendum Section A4.1.
+	if len(raw.Daemon.RetrievalFirewall.TierOrder) == 0 {
+		raw.Daemon.RetrievalFirewall.TierOrder = []string{"public", "internal", "confidential", "restricted"}
+	}
+	if raw.Daemon.RetrievalFirewall.DefaultTier == "" {
+		raw.Daemon.RetrievalFirewall.DefaultTier = "public"
+	}
+
 	cfg := &Config{
 		Daemon:         raw.Daemon,
 		Retrieval:      raw.Retrieval,
@@ -212,6 +231,15 @@ func loadSourceFile(path string, logger *slog.Logger) (*Source, error) {
 	}
 	if b.Namespace == "" {
 		b.Namespace = b.Name
+	}
+
+	// Apply retrieval firewall defaults.
+	// Reference: Tech Spec Addendum Section A4.2.
+	if b.Policy.RetrievalFirewall.MaxClassificationTier == "" {
+		b.Policy.RetrievalFirewall.MaxClassificationTier = "restricted"
+	}
+	if b.Policy.RetrievalFirewall.DefaultClassificationTier == "" {
+		b.Policy.RetrievalFirewall.DefaultClassificationTier = "public"
 	}
 
 	src := &Source{
