@@ -18,6 +18,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,32 +110,18 @@ func TestWriteConfigFile(t *testing.T) {
 
 func TestWriteDestination(t *testing.T) {
 	t.Helper()
-	tests := []struct {
-		destType string
-		filename string
-	}{
-		{"sqlite", "sqlite.toml"},
-		{"postgres", "postgres.toml"},
-		{"openbrain", "openbrain.toml"},
+	dir := t.TempDir()
+	destDir := filepath.Join(dir, "destinations")
+	if err := os.MkdirAll(destDir, 0700); err != nil {
+		t.Fatal(err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.destType, func(t *testing.T) {
-			dir := t.TempDir()
-			destDir := filepath.Join(dir, "destinations")
-			if err := os.MkdirAll(destDir, 0700); err != nil {
-				t.Fatal(err)
-			}
-
-			if err := writeDestination(dir, tt.destType, false); err != nil {
-				t.Fatalf("writeDestination(%q) failed: %v", tt.destType, err)
-			}
-
-			path := filepath.Join(destDir, tt.filename)
-			if _, err := os.Stat(path); err != nil {
-				t.Fatalf("expected file %q to exist", path)
-			}
-		})
+	if err := writeDestination(dir, "sqlite", false); err != nil {
+		t.Fatalf("writeDestination(sqlite) failed: %v", err)
+	}
+	path := filepath.Join(destDir, "sqlite.toml")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected file %q to exist", path)
 	}
 }
 
@@ -146,5 +134,599 @@ func TestWriteDestinationUnknown(t *testing.T) {
 	err := writeDestination(dir, "badtype", false)
 	if err == nil {
 		t.Fatal("expected error for unknown destination type")
+	}
+}
+
+// testPrompt returns a promptFunc that feeds lines from the given slice.
+func testPrompt(lines []string) promptFunc {
+	idx := 0
+	return func(w io.Writer, r io.Reader, prompt string) (string, error) {
+		if idx >= len(lines) {
+			return "", io.EOF
+		}
+		line := lines[idx]
+		idx++
+		return line, nil
+	}
+}
+
+// testOpts returns installOptions pointed at a temp directory with canned
+// prompt responses. The caller can override fields before calling doInstall.
+func testOpts(t *testing.T, promptLines []string) installOptions {
+	t.Helper()
+	dir := t.TempDir()
+	return installOptions{
+		dest:      "sqlite",
+		mode:      "balanced",
+		force:     false,
+		configDir: dir,
+		prompt:    testPrompt(promptLines),
+		stdin:     strings.NewReader(""),
+		stdout:    &bytes.Buffer{},
+		stderr:    &bytes.Buffer{},
+	}
+}
+
+func TestDoInstallSQLite(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	// Verify files exist.
+	for _, rel := range []string{
+		"daemon.toml",
+		filepath.Join("destinations", "sqlite.toml"),
+		filepath.Join("sources", "default.toml"),
+	} {
+		path := filepath.Join(opts.configDir, rel)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected %q to exist", rel)
+		}
+	}
+
+	// Verify TOML content contains expected keys.
+	data, _ := os.ReadFile(filepath.Join(opts.configDir, "destinations", "sqlite.toml"))
+	if !strings.Contains(string(data), `name = "sqlite"`) {
+		t.Error("sqlite.toml missing name field")
+	}
+}
+
+func TestDoInstallPostgresPrompted(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, []string{"postgres://user:pass@localhost:5432/testdb"})
+	opts.dest = "postgres"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	// Verify postgres.toml was written with the prompted DSN.
+	data, err := os.ReadFile(filepath.Join(opts.configDir, "destinations", "postgres.toml"))
+	if err != nil {
+		t.Fatalf("read postgres.toml: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `name = "postgres"`) {
+		t.Error("postgres.toml missing name field")
+	}
+	if !strings.Contains(content, `dsn = "postgres://user:pass@localhost:5432/testdb"`) {
+		t.Error("postgres.toml missing prompted DSN")
+	}
+
+	// Verify doctor output (connectivity check skipped for env: refs but
+	// attempted for literal DSNs — will fail but should not error the install).
+	stdout := opts.stdout.(*bytes.Buffer).String()
+	if !strings.Contains(stdout, "doctor: checking PostgreSQL") {
+		t.Error("expected doctor check output for literal postgres DSN")
+	}
+
+	// Verify source targets postgres.
+	srcData, _ := os.ReadFile(filepath.Join(opts.configDir, "sources", "default.toml"))
+	if !strings.Contains(string(srcData), `target_destination = "postgres"`) {
+		t.Error("default source should target postgres")
+	}
+}
+
+func TestDoInstallPostgresEnvRef(t *testing.T) {
+	t.Helper()
+	// Empty input → defaults to env:NEXUS_POSTGRES_DSN.
+	opts := testOpts(t, []string{""})
+	opts.dest = "postgres"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(opts.configDir, "destinations", "postgres.toml"))
+	if !strings.Contains(string(data), `dsn = "env:NEXUS_POSTGRES_DSN"`) {
+		t.Error("empty prompt should default to env:NEXUS_POSTGRES_DSN")
+	}
+
+	// Doctor check should NOT run for env: refs.
+	stdout := opts.stdout.(*bytes.Buffer).String()
+	if strings.Contains(stdout, "doctor:") {
+		t.Error("doctor check should not run for env: references")
+	}
+}
+
+func TestDoInstallOpenBrainPrompted(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, []string{
+		"https://xyzproject.supabase.co",
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test",
+	})
+	opts.dest = "openbrain"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(opts.configDir, "destinations", "openbrain.toml"))
+	if err != nil {
+		t.Fatalf("read openbrain.toml: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `name = "openbrain"`) {
+		t.Error("openbrain.toml missing name field")
+	}
+	if !strings.Contains(content, `url = "https://xyzproject.supabase.co"`) {
+		t.Error("openbrain.toml missing prompted URL")
+	}
+	if !strings.Contains(content, `api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test"`) {
+		t.Error("openbrain.toml missing prompted key")
+	}
+
+	// Doctor check attempted (will fail — no real supabase).
+	stdout := opts.stdout.(*bytes.Buffer).String()
+	if !strings.Contains(stdout, "doctor: checking OpenBrain") {
+		t.Error("expected doctor check output for literal openbrain credentials")
+	}
+}
+
+func TestDoInstallOpenBrainEnvRefs(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, []string{"", ""})
+	opts.dest = "openbrain"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(opts.configDir, "destinations", "openbrain.toml"))
+	content := string(data)
+	if !strings.Contains(content, `url = "env:NEXUS_OPENBRAIN_URL"`) {
+		t.Error("empty URL prompt should default to env:NEXUS_OPENBRAIN_URL")
+	}
+	if !strings.Contains(content, `api_key = "env:NEXUS_OPENBRAIN_KEY"`) {
+		t.Error("empty key prompt should default to env:NEXUS_OPENBRAIN_KEY")
+	}
+
+	// Doctor check should NOT run for env: refs.
+	stdout := opts.stdout.(*bytes.Buffer).String()
+	if strings.Contains(stdout, "doctor:") {
+		t.Error("doctor check should not run for env: references")
+	}
+}
+
+func TestDoInstallOpenWebUIProfile(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	opts.profile = "openwebui"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	// Verify source config.
+	srcPath := filepath.Join(opts.configDir, "sources", "openwebui.toml")
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("openwebui.toml not created: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `name = "openwebui"`) {
+		t.Error("openwebui.toml missing name")
+	}
+	if !strings.Contains(content, `content = "messages.-1.content"`) {
+		t.Error("openwebui.toml missing mapping")
+	}
+
+	// Verify sqlite destination was also created (default for openwebui).
+	destPath := filepath.Join(opts.configDir, "destinations", "sqlite.toml")
+	if _, err := os.Stat(destPath); err != nil {
+		t.Error("openwebui profile should also create sqlite destination")
+	}
+
+	// Verify example provider JSON.
+	jsonPath := filepath.Join(opts.configDir, "examples", "openwebui-provider.json")
+	jsonData, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("openwebui-provider.json not created: %v", err)
+	}
+	jsonContent := string(jsonData)
+	if !strings.Contains(jsonContent, `"name": "BubbleFish Nexus"`) {
+		t.Error("provider JSON missing name")
+	}
+	if !strings.Contains(jsonContent, `/inbound/openwebui`) {
+		t.Error("provider JSON missing write endpoint")
+	}
+}
+
+func TestDoInstallOAuthTemplateCaddy(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	opts.oauthTemplate = "caddy"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	path := filepath.Join(opts.configDir, "examples", "oauth", "Caddyfile")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Caddyfile not created: %v", err)
+	}
+	if !strings.Contains(string(data), "forward_auth") {
+		t.Error("Caddyfile missing forward_auth directive")
+	}
+}
+
+func TestDoInstallOAuthTemplateTraefik(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	opts.oauthTemplate = "traefik"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	path := filepath.Join(opts.configDir, "examples", "oauth", "traefik.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("traefik.yml not created: %v", err)
+	}
+	if !strings.Contains(string(data), "forwardAuth") {
+		t.Error("traefik.yml missing forwardAuth middleware")
+	}
+}
+
+func TestDoInstallOAuthTemplateUnknown(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	opts.oauthTemplate = "nginx"
+
+	err := doInstall(opts)
+	if err == nil {
+		t.Fatal("expected error for unknown oauth template")
+	}
+	if !strings.Contains(err.Error(), "unknown oauth template") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoInstallRefusesWithoutForce(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+
+	// First install succeeds.
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	// Second install without force should fail.
+	err := doInstall(opts)
+	if err == nil {
+		t.Fatal("expected error without --force on existing config")
+	}
+	if !strings.Contains(err.Error(), "config already exists") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDoInstallForceOverwrites(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+
+	opts.force = true
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("force install should succeed: %v", err)
+	}
+}
+
+func TestDoInstallSimpleModeNextSteps(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	opts.mode = "simple"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	stdout := opts.stdout.(*bytes.Buffer).String()
+	if !strings.Contains(stdout, "bubblefish start") {
+		t.Error("simple mode should print 'bubblefish start' as step 1")
+	}
+	if !strings.Contains(stdout, "curl -X POST") {
+		t.Error("simple mode should print curl example as step 2")
+	}
+	if strings.Contains(stdout, "bubblefish build") {
+		t.Error("simple mode should NOT print 'bubblefish build'")
+	}
+}
+
+func TestDoInstallBalancedModeNextSteps(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	opts.mode = "balanced"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	stdout := opts.stdout.(*bytes.Buffer).String()
+	if !strings.Contains(stdout, "bubblefish build") {
+		t.Error("balanced mode should print 'bubblefish build'")
+	}
+	if !strings.Contains(stdout, "bubblefish doctor") {
+		t.Error("balanced mode should print 'bubblefish doctor'")
+	}
+}
+
+func TestDoInstallNeverSilent(t *testing.T) {
+	t.Helper()
+	tests := []struct {
+		name string
+		dest string
+		mode string
+	}{
+		{"sqlite-balanced", "sqlite", "balanced"},
+		{"sqlite-simple", "sqlite", "simple"},
+		{"sqlite-safe", "sqlite", "safe"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := testOpts(t, nil)
+			opts.dest = tt.dest
+			opts.mode = tt.mode
+
+			if err := doInstall(opts); err != nil {
+				t.Fatalf("doInstall: %v", err)
+			}
+
+			stdout := opts.stdout.(*bytes.Buffer).String()
+			if !strings.Contains(stdout, "bubblefish install: ok") {
+				t.Error("install must print ok line — NEVER silent")
+			}
+			if !strings.Contains(stdout, "config directory:") {
+				t.Error("install must print config directory")
+			}
+			if !strings.Contains(stdout, "admin token:") {
+				t.Error("install must print admin token")
+			}
+			if !strings.Contains(stdout, "source API key:") {
+				t.Error("install must print source API key")
+			}
+		})
+	}
+}
+
+func TestWritePostgresDestination(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	destDir := filepath.Join(dir, "destinations")
+	os.MkdirAll(destDir, 0700)
+
+	if err := writePostgresDestination(dir, "postgres://u:p@h/d", false); err != nil {
+		t.Fatalf("writePostgresDestination: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(destDir, "postgres.toml"))
+	content := string(data)
+	if !strings.Contains(content, `name = "postgres"`) {
+		t.Error("missing name")
+	}
+	if !strings.Contains(content, `dsn = "postgres://u:p@h/d"`) {
+		t.Error("missing prompted DSN")
+	}
+}
+
+func TestWriteOpenBrainDestination(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	destDir := filepath.Join(dir, "destinations")
+	os.MkdirAll(destDir, 0700)
+
+	if err := writeOpenBrainDestination(dir, "https://x.supabase.co", "secret", false); err != nil {
+		t.Fatalf("writeOpenBrainDestination: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(destDir, "openbrain.toml"))
+	content := string(data)
+	if !strings.Contains(content, `name = "openbrain"`) {
+		t.Error("missing name")
+	}
+	if !strings.Contains(content, `url = "https://x.supabase.co"`) {
+		t.Error("missing URL")
+	}
+	if !strings.Contains(content, `api_key = "secret"`) {
+		t.Error("missing API key")
+	}
+}
+
+func TestStdinPrompt(t *testing.T) {
+	t.Helper()
+	var out bytes.Buffer
+	in := strings.NewReader("hello world\n")
+
+	result, err := stdinPrompt(&out, in, "Enter: ")
+	if err != nil {
+		t.Fatalf("stdinPrompt: %v", err)
+	}
+	if result != "hello world" {
+		t.Errorf("expected %q, got %q", "hello world", result)
+	}
+	if !strings.Contains(out.String(), "Enter: ") {
+		t.Error("prompt string should be written to output")
+	}
+}
+
+func TestStdinPromptEmpty(t *testing.T) {
+	t.Helper()
+	var out bytes.Buffer
+	in := strings.NewReader("\n")
+
+	result, err := stdinPrompt(&out, in, "Prompt: ")
+	if err != nil {
+		t.Fatalf("stdinPrompt: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty string, got %q", result)
+	}
+}
+
+func TestStdinPromptEOF(t *testing.T) {
+	t.Helper()
+	var out bytes.Buffer
+	in := strings.NewReader("")
+
+	_, err := stdinPrompt(&out, in, "Prompt: ")
+	if err != io.EOF {
+		t.Errorf("expected io.EOF, got %v", err)
+	}
+}
+
+func TestWriteOpenWebUIProviderExample(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+
+	if err := writeOpenWebUIProviderExample(dir, false); err != nil {
+		t.Fatalf("writeOpenWebUIProviderExample: %v", err)
+	}
+
+	path := filepath.Join(dir, "examples", "openwebui-provider.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("file not created: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `"name": "BubbleFish Nexus"`) {
+		t.Error("missing name")
+	}
+	if !strings.Contains(content, `/inbound/openwebui`) {
+		t.Error("missing write endpoint")
+	}
+	if !strings.Contains(content, `/retrieve`) {
+		t.Error("missing read endpoint")
+	}
+	if !strings.Contains(content, `CHANGE_ME`) {
+		t.Error("missing placeholder API key")
+	}
+}
+
+func TestAllProfilesGenerateValidTOML(t *testing.T) {
+	t.Helper()
+
+	// Table-driven: every profile/dest/oauth combination should produce files.
+	tests := []struct {
+		name          string
+		dest          string
+		profile       string
+		oauthTemplate string
+		promptLines   []string
+		wantFiles     []string
+	}{
+		{
+			name: "sqlite default",
+			dest: "sqlite",
+			wantFiles: []string{
+				"daemon.toml",
+				filepath.Join("destinations", "sqlite.toml"),
+				filepath.Join("sources", "default.toml"),
+			},
+		},
+		{
+			name:        "postgres with DSN",
+			dest:        "postgres",
+			promptLines: []string{"postgres://u:p@h/d"},
+			wantFiles: []string{
+				"daemon.toml",
+				filepath.Join("destinations", "postgres.toml"),
+				filepath.Join("sources", "default.toml"),
+			},
+		},
+		{
+			name:        "openbrain with credentials",
+			dest:        "openbrain",
+			promptLines: []string{"https://x.supabase.co", "key123"},
+			wantFiles: []string{
+				"daemon.toml",
+				filepath.Join("destinations", "openbrain.toml"),
+				filepath.Join("sources", "default.toml"),
+			},
+		},
+		{
+			name:    "openwebui profile",
+			dest:    "sqlite",
+			profile: "openwebui",
+			wantFiles: []string{
+				"daemon.toml",
+				filepath.Join("destinations", "sqlite.toml"),
+				filepath.Join("sources", "default.toml"),
+				filepath.Join("sources", "openwebui.toml"),
+				filepath.Join("examples", "openwebui-provider.json"),
+			},
+		},
+		{
+			name:          "caddy oauth template",
+			dest:          "sqlite",
+			oauthTemplate: "caddy",
+			wantFiles: []string{
+				"daemon.toml",
+				filepath.Join("examples", "oauth", "Caddyfile"),
+			},
+		},
+		{
+			name:          "traefik oauth template",
+			dest:          "sqlite",
+			oauthTemplate: "traefik",
+			wantFiles: []string{
+				"daemon.toml",
+				filepath.Join("examples", "oauth", "traefik.yml"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := testOpts(t, tt.promptLines)
+			opts.dest = tt.dest
+			if tt.profile != "" {
+				opts.profile = tt.profile
+			}
+			if tt.oauthTemplate != "" {
+				opts.oauthTemplate = tt.oauthTemplate
+			}
+
+			if err := doInstall(opts); err != nil {
+				t.Fatalf("doInstall: %v", err)
+			}
+
+			for _, rel := range tt.wantFiles {
+				path := filepath.Join(opts.configDir, rel)
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Errorf("expected %q to exist", rel)
+					continue
+				}
+				if info.Size() == 0 {
+					t.Errorf("expected %q to be non-empty", rel)
+				}
+			}
+		})
 	}
 }

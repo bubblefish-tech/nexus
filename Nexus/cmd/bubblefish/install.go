@@ -18,15 +18,56 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/BubbleFish-Nexus/internal/version"
 )
+
+// promptFunc reads a line of user input from the given reader. The prompt
+// string is written to w before reading. Tests replace this with canned input.
+type promptFunc func(w io.Writer, r io.Reader, prompt string) (string, error)
+
+// stdinPrompt is the default promptFunc that reads from stdin.
+func stdinPrompt(w io.Writer, r io.Reader, prompt string) (string, error) {
+	fmt.Fprint(w, prompt)
+	scanner := bufio.NewScanner(r)
+	if scanner.Scan() {
+		return strings.TrimSpace(scanner.Text()), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", io.EOF
+}
+
+// installOptions collects all resolved install parameters so the core logic
+// (doInstall) can be tested without os.Exit or real stdin.
+type installOptions struct {
+	dest          string
+	mode          string
+	profile       string
+	oauthTemplate string
+	force         bool
+	configDir     string
+	prompt        promptFunc
+	stdin         io.Reader
+	stdout        io.Writer
+	stderr        io.Writer
+}
 
 // runInstall executes the `bubblefish install` command.
 //
@@ -50,14 +91,37 @@ func runInstall(args []string) {
 		fmt.Fprintf(os.Stderr, "bubblefish install: %v\n", err)
 		os.Exit(1)
 	}
-	configDir := filepath.Join(home, ".bubblefish", "Nexus")
+
+	opts := installOptions{
+		dest:          *dest,
+		mode:          *mode,
+		profile:       *profile,
+		oauthTemplate: *oauthTemplate,
+		force:         *force,
+		configDir:     filepath.Join(home, ".bubblefish", "Nexus"),
+		prompt:        stdinPrompt,
+		stdin:         os.Stdin,
+		stdout:        os.Stdout,
+		stderr:        os.Stderr,
+	}
+
+	if err := doInstall(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish install: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// doInstall is the testable core of runInstall. It returns an error instead
+// of calling os.Exit.
+func doInstall(opts installOptions) error {
+	configDir := opts.configDir
+	w := opts.stdout
 
 	// Refuse if config already exists unless --force.
 	daemonPath := filepath.Join(configDir, "daemon.toml")
-	if !*force {
+	if !opts.force {
 		if _, err := os.Stat(daemonPath); err == nil {
-			fmt.Fprintf(os.Stderr, "bubblefish install: config already exists at %s — use --force to overwrite\n", configDir)
-			os.Exit(1)
+			return fmt.Errorf("config already exists at %s — use --force to overwrite", configDir)
 		}
 	}
 
@@ -71,8 +135,7 @@ func runInstall(args []string) {
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0700); err != nil {
-			fmt.Fprintf(os.Stderr, "bubblefish install: create directory %q: %v\n", d, err)
-			os.Exit(1)
+			return fmt.Errorf("create directory %q: %v", d, err)
 		}
 	}
 
@@ -81,62 +144,106 @@ func runInstall(args []string) {
 	sourceKey := generateKey()
 
 	// Write daemon.toml based on mode.
-	daemonTOML := buildDaemonTOML(*mode, adminKey)
-	if err := writeConfigFile(daemonPath, daemonTOML, *force); err != nil {
-		fmt.Fprintf(os.Stderr, "bubblefish install: write daemon.toml: %v\n", err)
-		os.Exit(1)
+	daemonTOML := buildDaemonTOML(opts.mode, adminKey)
+	if err := writeConfigFile(daemonPath, daemonTOML, opts.force); err != nil {
+		return fmt.Errorf("write daemon.toml: %v", err)
 	}
 
-	// Write destination config.
-	if err := writeDestination(configDir, *dest, *force); err != nil {
-		fmt.Fprintf(os.Stderr, "bubblefish install: write destination: %v\n", err)
-		os.Exit(1)
+	// For postgres and openbrain, prompt for connection details and write
+	// the destination config with user-provided values.
+	destType := opts.dest
+	switch destType {
+	case "postgres":
+		dsn, err := opts.prompt(w, opts.stdin, "PostgreSQL connection string (e.g. postgres://user:pass@host:5432/db): ")
+		if err != nil {
+			return fmt.Errorf("read postgres DSN: %v", err)
+		}
+		if dsn == "" {
+			dsn = "env:NEXUS_POSTGRES_DSN"
+		}
+		if err := writePostgresDestination(configDir, dsn, opts.force); err != nil {
+			return fmt.Errorf("write destination: %v", err)
+		}
+		// Run doctor connectivity check.
+		if !strings.HasPrefix(dsn, "env:") && !strings.HasPrefix(dsn, "file:") {
+			checkPostgresConnectivity(w, dsn)
+		}
+
+	case "openbrain":
+		url, err := opts.prompt(w, opts.stdin, "Supabase project URL (e.g. https://xyzproject.supabase.co): ")
+		if err != nil {
+			return fmt.Errorf("read openbrain URL: %v", err)
+		}
+		if url == "" {
+			url = "env:NEXUS_OPENBRAIN_URL"
+		}
+		key, err := opts.prompt(w, opts.stdin, "Supabase service role key: ")
+		if err != nil {
+			return fmt.Errorf("read openbrain key: %v", err)
+		}
+		if key == "" {
+			key = "env:NEXUS_OPENBRAIN_KEY"
+		}
+		if err := writeOpenBrainDestination(configDir, url, key, opts.force); err != nil {
+			return fmt.Errorf("write destination: %v", err)
+		}
+		// Run doctor connectivity check.
+		if !strings.HasPrefix(url, "env:") && !strings.HasPrefix(url, "file:") &&
+			!strings.HasPrefix(key, "env:") && !strings.HasPrefix(key, "file:") {
+			checkOpenBrainConnectivity(w, url, key)
+		}
+
+	default:
+		if err := writeDestination(configDir, destType, opts.force); err != nil {
+			return fmt.Errorf("write destination: %v", err)
+		}
 	}
 
 	// Write default source config based on mode.
-	if err := writeDefaultSource(configDir, *mode, *dest, sourceKey, *force); err != nil {
-		fmt.Fprintf(os.Stderr, "bubblefish install: write source: %v\n", err)
-		os.Exit(1)
+	if err := writeDefaultSource(configDir, opts.mode, destType, sourceKey, opts.force); err != nil {
+		return fmt.Errorf("write source: %v", err)
 	}
 
 	// Handle --profile flag.
-	if *profile == "openwebui" {
-		if err := writeOpenWebUIProfile(configDir, *force); err != nil {
-			fmt.Fprintf(os.Stderr, "bubblefish install: write openwebui profile: %v\n", err)
-			os.Exit(1)
+	if opts.profile == "openwebui" {
+		if err := writeOpenWebUIProfile(configDir, opts.force); err != nil {
+			return fmt.Errorf("write openwebui profile: %v", err)
+		}
+		if err := writeOpenWebUIProviderExample(configDir, opts.force); err != nil {
+			return fmt.Errorf("write openwebui provider example: %v", err)
 		}
 	}
 
 	// Handle --oauth-template flag.
-	if *oauthTemplate != "" {
-		if err := writeOAuthTemplate(configDir, *oauthTemplate, *force); err != nil {
-			fmt.Fprintf(os.Stderr, "bubblefish install: write oauth template: %v\n", err)
-			os.Exit(1)
+	if opts.oauthTemplate != "" {
+		if err := writeOAuthTemplate(configDir, opts.oauthTemplate, opts.force); err != nil {
+			return fmt.Errorf("write oauth template: %v", err)
 		}
 	}
 
 	// Print results — NEVER silent.
-	fmt.Printf("bubblefish install: ok — v%s\n", version.Version)
-	fmt.Printf("  config directory: %s\n", configDir)
-	fmt.Printf("  mode:            %s\n", *mode)
-	fmt.Printf("  destination:     %s\n", *dest)
-	fmt.Printf("  admin token:     %s\n", adminKey)
-	fmt.Printf("  source API key:  %s\n", sourceKey)
-	fmt.Println()
+	fmt.Fprintf(w, "bubblefish install: ok — v%s\n", version.Version)
+	fmt.Fprintf(w, "  config directory: %s\n", configDir)
+	fmt.Fprintf(w, "  mode:            %s\n", opts.mode)
+	fmt.Fprintf(w, "  destination:     %s\n", destType)
+	fmt.Fprintf(w, "  admin token:     %s\n", adminKey)
+	fmt.Fprintf(w, "  source API key:  %s\n", sourceKey)
+	fmt.Fprintln(w)
 
 	// Print next steps — Simple Mode prints exactly three.
-	if *mode == "simple" {
-		fmt.Println("Next steps:")
-		fmt.Println("  1. bubblefish start")
-		fmt.Printf("  2. curl -X POST http://localhost:8080/inbound/default -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' -d '{\"message\":{\"content\":\"Hello\",\"role\":\"user\"},\"model\":\"test\"}'\n", sourceKey)
-		fmt.Println("  3. (Optional) Configure Open WebUI or Claude Desktop with the generated API key.")
+	if opts.mode == "simple" {
+		fmt.Fprintln(w, "Next steps:")
+		fmt.Fprintln(w, "  1. bubblefish start")
+		fmt.Fprintf(w, "  2. curl -X POST http://localhost:8080/inbound/default -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' -d '{\"message\":{\"content\":\"Hello\",\"role\":\"user\"},\"model\":\"test\"}'\n", sourceKey)
+		fmt.Fprintln(w, "  3. (Optional) Configure Open WebUI or Claude Desktop with the generated API key.")
 	} else {
-		fmt.Println("Next steps:")
-		fmt.Println("  1. Review config:  cat " + daemonPath)
-		fmt.Println("  2. Build config:   bubblefish build")
-		fmt.Println("  3. Start daemon:   bubblefish start")
-		fmt.Println("  4. Health check:   bubblefish doctor")
+		fmt.Fprintln(w, "Next steps:")
+		fmt.Fprintln(w, "  1. Review config:  cat "+daemonPath)
+		fmt.Fprintln(w, "  2. Build config:   bubblefish build")
+		fmt.Fprintln(w, "  3. Start daemon:   bubblefish start")
+		fmt.Fprintln(w, "  4. Health check:   bubblefish doctor")
 	}
+	return nil
 }
 
 // generateKey returns a cryptographically random 32-byte hex-encoded key.
@@ -272,6 +379,9 @@ log_file = "~/.bubblefish/Nexus/security.log"
 }
 
 // writeDestination creates the appropriate destination TOML in destinations/.
+// For sqlite, it writes a self-contained config. For postgres and openbrain,
+// use writePostgresDestination or writeOpenBrainDestination (which accept
+// prompted values) instead.
 func writeDestination(configDir, destType string, force bool) error {
 	destDir := filepath.Join(configDir, "destinations")
 
@@ -289,37 +399,97 @@ decay_mode = "exponential"
 `
 		return writeConfigFile(filepath.Join(destDir, "sqlite.toml"), content, force)
 
-	case "postgres":
-		content := `# BubbleFish Nexus — PostgreSQL destination
-# Set NEXUS_POSTGRES_DSN or edit dsn below.
+	default:
+		return fmt.Errorf("unknown destination type %q (supported: sqlite, postgres, openbrain)", destType)
+	}
+}
+
+// writePostgresDestination writes postgres.toml with the user-provided DSN.
+// Reference: Tech Spec Section 2.2.2.
+func writePostgresDestination(configDir, dsn string, force bool) error {
+	destDir := filepath.Join(configDir, "destinations")
+	content := fmt.Sprintf(`# BubbleFish Nexus — PostgreSQL destination
 [destination]
 name = "postgres"
 type = "postgres"
-dsn = "env:NEXUS_POSTGRES_DSN"
+dsn = "%s"
 
 [destination.decay]
 half_life_days = 7.0
 decay_mode = "exponential"
-`
-		return writeConfigFile(filepath.Join(destDir, "postgres.toml"), content, force)
+`, dsn)
+	return writeConfigFile(filepath.Join(destDir, "postgres.toml"), content, force)
+}
 
-	case "openbrain":
-		content := `# BubbleFish Nexus — OpenBrain (Supabase) destination
-# Set NEXUS_OPENBRAIN_URL and NEXUS_OPENBRAIN_KEY or edit below.
+// writeOpenBrainDestination writes openbrain.toml with the user-provided URL
+// and service role key.
+// Reference: Tech Spec Section 2.2.2.
+func writeOpenBrainDestination(configDir, url, apiKey string, force bool) error {
+	destDir := filepath.Join(configDir, "destinations")
+	content := fmt.Sprintf(`# BubbleFish Nexus — OpenBrain (Supabase) destination
 [destination]
 name = "openbrain"
 type = "openbrain"
-url = "env:NEXUS_OPENBRAIN_URL"
-api_key = "env:NEXUS_OPENBRAIN_KEY"
+url = "%s"
+api_key = "%s"
 
 [destination.decay]
 half_life_days = 7.0
 decay_mode = "exponential"
-`
-		return writeConfigFile(filepath.Join(destDir, "openbrain.toml"), content, force)
+`, url, apiKey)
+	return writeConfigFile(filepath.Join(destDir, "openbrain.toml"), content, force)
+}
 
-	default:
-		return fmt.Errorf("unknown destination type %q (supported: sqlite, postgres, openbrain)", destType)
+// checkPostgresConnectivity attempts to connect to a PostgreSQL database and
+// reports success or failure. It never blocks install on failure — only warns.
+// Reference: Tech Spec Section 2.2.2 (doctor connectivity check).
+func checkPostgresConnectivity(w io.Writer, dsn string) {
+	fmt.Fprintf(w, "  doctor: checking PostgreSQL connectivity...\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		fmt.Fprintf(w, "  doctor: PostgreSQL UNREACHABLE — %v\n", err)
+		return
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		fmt.Fprintf(w, "  doctor: PostgreSQL UNREACHABLE — %v\n", err)
+		return
+	}
+	fmt.Fprintf(w, "  doctor: PostgreSQL OK\n")
+}
+
+// checkOpenBrainConnectivity attempts an HTTP HEAD against the Supabase REST
+// endpoint and reports success or failure. Never blocks install on failure.
+// Reference: Tech Spec Section 2.2.2 (doctor connectivity check).
+func checkOpenBrainConnectivity(w io.Writer, baseURL, apiKey string) {
+	fmt.Fprintf(w, "  doctor: checking OpenBrain/Supabase connectivity...\n")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	endpoint := strings.TrimRight(baseURL, "/") + "/rest/v1/"
+
+	req, err := http.NewRequest(http.MethodHead, endpoint, nil)
+	if err != nil {
+		fmt.Fprintf(w, "  doctor: OpenBrain UNREACHABLE — %v\n", err)
+		return
+	}
+	req.Header.Set("apikey", apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(w, "  doctor: OpenBrain UNREACHABLE — %v\n", err)
+		return
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		fmt.Fprintf(w, "  doctor: OpenBrain OK (HTTP %d)\n", resp.StatusCode)
+	} else {
+		fmt.Fprintf(w, "  doctor: OpenBrain WARNING — HTTP %d (check URL and key)\n", resp.StatusCode)
 	}
 }
 
@@ -412,6 +582,38 @@ max_results = 20
 max_response_bytes = 16384
 `
 	return writeConfigFile(filepath.Join(sourcesDir, "openwebui.toml"), content, force)
+}
+
+// writeOpenWebUIProviderExample drops an example provider JSON file into
+// examples/ so users can see how Open WebUI configures its external memory
+// provider. Reference: Tech Spec Section 2.2.2.
+func writeOpenWebUIProviderExample(configDir string, force bool) error {
+	examplesDir := filepath.Join(configDir, "examples")
+	if err := os.MkdirAll(examplesDir, 0700); err != nil {
+		return err
+	}
+
+	content := `{
+  "name": "BubbleFish Nexus",
+  "description": "AI memory gateway — persists conversation memories via Nexus.",
+  "base_url": "http://localhost:8080",
+  "api_key": "CHANGE_ME",
+  "endpoints": {
+    "write": {
+      "method": "POST",
+      "path": "/inbound/openwebui",
+      "content_type": "application/json"
+    },
+    "read": {
+      "method": "POST",
+      "path": "/retrieve",
+      "content_type": "application/json"
+    }
+  },
+  "notes": "Replace api_key with the openwebui source API key from sources/openwebui.toml."
+}
+`
+	return writeConfigFile(filepath.Join(examplesDir, "openwebui-provider.json"), content, force)
 }
 
 // writeOAuthTemplate generates example OAuth reverse-proxy configs.
