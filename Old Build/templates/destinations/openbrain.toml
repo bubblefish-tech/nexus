@@ -1,9 +1,0 @@
-name     = "openbrain"
-type     = "openbrain"
-base_url = "https://YOUR-SUPABASE-URL/rest/v1/thoughts"
-
-[auth]
-env_var  = "SUPABASE_SERVICE_ROLE_KEY"
-
-[schema]
-required_fields = ["content", "metadata"]
