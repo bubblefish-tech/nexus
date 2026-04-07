@@ -166,6 +166,9 @@ func forward(client *http.Client, targetURL, authHeader string, reqLine []byte, 
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		if isJSONRPCResponse(body) {
+			// Strip trailing newline added by Go's json.NewEncoder before
+			// writing — we add exactly one \n ourselves below.
+			body = bytes.TrimRight(body, "\r\n")
 			_, _ = stdout.Write(body)
 			_ = stdout.WriteByte('\n')
 			_ = stdout.Flush()
@@ -174,6 +177,12 @@ func forward(client *http.Client, targetURL, authHeader string, reqLine []byte, 
 		return writeBridgeError(stdout, reqLine, -32603, fmt.Sprintf("bridge: daemon returned HTTP %d: %s", httpResp.StatusCode, truncate(string(body), 200)))
 	}
 
+	// Strip trailing newline added by Go's json.NewEncoder(w).Encode() before
+	// writing to stdout. Encode always appends \n; if we don't strip it we
+	// emit two lines — the JSON object and then an empty line. Claude Desktop's
+	// readMessage calls JSON.parse on each line, hits the empty line, and
+	// throws "Unexpected end of JSON input".
+	body = bytes.TrimRight(body, "\r\n")
 	if _, err := stdout.Write(body); err != nil {
 		return err
 	}

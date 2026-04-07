@@ -16,8 +16,8 @@
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
 // Package mcp implements the Model Context Protocol JSON-RPC 2.0 server for
-// BubbleFish Nexus. It exposes three tools — nexus_write, nexus_search, and
-// nexus_status — to MCP clients (Claude Desktop, Cursor, etc.) via an HTTP
+// BubbleFish Nexus. It exposes three tools -- nexus_write, nexus_search, and
+// nexus_status -- to MCP clients (Claude Desktop, Cursor, etc.) via an HTTP
 // server bound exclusively to 127.0.0.1.
 //
 // All tool calls route through the internal Pipeline interface, which
@@ -38,9 +38,9 @@ import (
 // through the daemon write/query pipeline. Implementations MUST apply the
 // same WAL, queue, policy, and idempotency semantics as the HTTP handlers.
 //
-// Reference: Tech Spec Section 14.3 — "Internal pipeline — not HTTP round-trip."
+// Reference: Tech Spec Section 14.3 -- "Internal pipeline -- not HTTP round-trip."
 type Pipeline interface {
-	// Write persists content through the WAL → queue → destination pipeline.
+	// Write persists content through the WAL -> queue -> destination pipeline.
 	// Returns a WriteResult containing the assigned payload_id on success.
 	Write(ctx context.Context, params WriteParams) (WriteResult, error)
 
@@ -54,7 +54,7 @@ type Pipeline interface {
 // WriteParams are the input parameters for the nexus_write tool.
 type WriteParams struct {
 	// Source is the source name resolved from MCPConfig.SourceName. Set by the
-	// server before calling pipeline.Write — never supplied by the MCP client.
+	// server before calling pipeline.Write -- never supplied by the MCP client.
 	Source string
 
 	// Content is the memory text to persist (required).
@@ -96,7 +96,7 @@ type SearchParams struct {
 	// Subject is a subject filter (optional; empty means all subjects).
 	Subject string
 
-	// Limit is the maximum number of results to return (optional; 0 → default 20).
+	// Limit is the maximum number of results to return (optional; 0 -> default 20).
 	Limit int
 
 	// Profile is the retrieval profile: "fast", "balanced", or "deep" (optional).
@@ -131,9 +131,9 @@ type toolDef struct {
 }
 
 type inputSchema struct {
-	Type       string              `json:"type"`
-	Properties map[string]propDef  `json:"properties"`
-	Required   []string            `json:"required,omitempty"`
+	Type       string             `json:"type"`
+	Properties map[string]propDef `json:"properties"`
+	Required   []string           `json:"required,omitempty"`
 }
 
 type propDef struct {
@@ -147,7 +147,7 @@ func toolList() []toolDef {
 	return []toolDef{
 		{
 			Name:        "nexus_write",
-			Description: "Write a memory to BubbleFish Nexus. Routes through the WAL → queue → destination pipeline with full policy enforcement.",
+			Description: "Write a memory to BubbleFish Nexus. Routes through the WAL -> queue -> destination pipeline with full policy enforcement.",
 			InputSchema: inputSchema{
 				Type: "object",
 				Properties: map[string]propDef{
@@ -187,7 +187,7 @@ func toolList() []toolDef {
 }
 
 // ---------------------------------------------------------------------------
-// TestPipeline — minimal Pipeline for self-test and unit tests
+// TestPipeline -- minimal Pipeline for self-test and unit tests
 // ---------------------------------------------------------------------------
 
 // TestPipeline is a no-op Pipeline implementation that returns canned

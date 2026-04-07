@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bubblefish-nexus": {
+      "command": "C:\\Users\\shawn\\AppData\\Roaming\\Claude\\Claude Extensions\\local.mcpb.bubblefish-technologies-inc..bubblefish-nexus\\bubblefish.exe",
+      "args": ["mcp", "stdio"],
+      "env": {
+        "BUBBLEFISH_HOME": "D:\\Test\\BubbleFish\\v010-dogfood\\home"
+      }
+    }
+  }
+}
