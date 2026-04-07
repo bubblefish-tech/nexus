@@ -93,6 +93,14 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 	// createClassificationTierIndex adds a B-tree index on classification_tier.
 	// Reference: Tech Spec Addendum Section A4.3.
 	createClassificationTierIndex = `CREATE INDEX IF NOT EXISTS idx_memories_classification ON memories(classification_tier)`
+
+	// createQueryIndex covers the primary Query() WHERE clause and ORDER BY:
+	// WHERE namespace = ? AND destination = ? ORDER BY timestamp DESC.
+	createQueryIndex = `CREATE INDEX IF NOT EXISTS idx_memories_query ON memories(namespace, destination, timestamp DESC)`
+
+	// createSubjectIndex covers subject-filtered queries:
+	// WHERE subject = ? ORDER BY timestamp DESC.
+	createSubjectIndex = `CREATE INDEX IF NOT EXISTS idx_memories_subject ON memories(subject, timestamp DESC)`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -203,6 +211,12 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 	}
 	if _, err := d.db.Exec(createClassificationTierIndex); err != nil {
 		return fmt.Errorf("destination: sqlite: create classification_tier index: %w", err)
+	}
+	if _, err := d.db.Exec(createQueryIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create query index: %w", err)
+	}
+	if _, err := d.db.Exec(createSubjectIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create subject index: %w", err)
 	}
 	return nil
 }

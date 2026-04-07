@@ -185,6 +185,19 @@ func (d *Daemon) handleAuditStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate limit: admin_rate_limit_per_minute.
+	cfg := d.getConfig()
+	rpm := cfg.Daemon.Audit.AdminRateLimitPerMin
+	if rpm <= 0 {
+		rpm = 60
+	}
+	if allowed, retryAfter := d.auditRateLimiter.Allow("_audit_admin", rpm); !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
+			"audit query rate limit exceeded; back off and retry", retryAfter)
+		return
+	}
+
 	// Read all records (no filter, high limit) — acceptable for v0.1.0 per spec.
 	result, err := d.auditReader.Query(audit.AuditFilter{Limit: 1000})
 	if err != nil {
@@ -247,6 +260,19 @@ func (d *Daemon) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 
 	if d.auditReader == nil {
 		d.writeJSON(w, http.StatusOK, []audit.InteractionRecord{})
+		return
+	}
+
+	// Rate limit: admin_rate_limit_per_minute.
+	cfg := d.getConfig()
+	rpm := cfg.Daemon.Audit.AdminRateLimitPerMin
+	if rpm <= 0 {
+		rpm = 60
+	}
+	if allowed, retryAfter := d.auditRateLimiter.Allow("_audit_admin", rpm); !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
+			"audit query rate limit exceeded; back off and retry", retryAfter)
 		return
 	}
 

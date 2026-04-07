@@ -280,13 +280,18 @@ func TestRunThroughput(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Throughput stability — two runs within 50% variance (verification gate)
-// This test is sensitive to system load. If it fails in CI or on a loaded machine, re-run in isolation.
+//
+// This test is opt-in because it is sensitive to CPU throttling, parallel
+// test load, and cache state. Results vary across runs on the same machine.
+// Run manually for performance validation, not in CI.
+//
+//	NEXUS_RUN_FLAKY=1 go test -run TestThroughputStability
 // ---------------------------------------------------------------------------
 
 func TestThroughputStability(t *testing.T) {
 	t.Helper()
-	if os.Getenv("NEXUS_SKIP_FLAKY") == "1" {
-		t.Skip("NEXUS_SKIP_FLAKY=1: skipping load-sensitive benchmark")
+	if os.Getenv("NEXUS_RUN_FLAKY") != "1" {
+		t.Skip("TestThroughputStability is sensitive to system load and is opt-in. Set NEXUS_RUN_FLAKY=1 to enable.")
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

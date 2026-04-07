@@ -363,6 +363,13 @@ type SourceRetrievalFirewallConfig struct {
 	DefaultClassificationTier string  `toml:"default_classification_tier"`
 	VisibleNamespaces        []string `toml:"visible_namespaces"`
 	CrossNamespaceRead       bool     `toml:"cross_namespace_read"`
+
+	// Precomputed sets built at config-load time to avoid per-request
+	// allocation in the PostFilter hot path. Rebuilt on every config load
+	// (including hot-reload), so they are always fresh.
+	BlockedLabelsSet    map[string]struct{} `toml:"-"`
+	RequiredLabelsSet   map[string]struct{} `toml:"-"`
+	VisibleNamespacesSet map[string]struct{} `toml:"-"`
 }
 
 // FieldVisibilityConfig models [source.policy.field_visibility].

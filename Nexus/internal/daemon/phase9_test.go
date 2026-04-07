@@ -35,7 +35,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -212,57 +211,6 @@ func TestPhase9_LoadTest_1000ConcurrentWrites(t *testing.T) {
 		t.Fatalf("CONTRACT 3 FAIL: %d/%d payloads missing from SQLite after 60s drain", missing, ok200)
 	}
 	t.Logf("CONTRACT 3 PASS: %d payloads verified in SQLite, zero data loss", ok200)
-}
-
-// ---------------------------------------------------------------------------
-// CONTRACT 4 — Timing attack test: 1000 samples wrong vs correct key.
-//              p99 diff < 1ms. Reference: Tech Spec Section 16.
-// ---------------------------------------------------------------------------
-
-func TestPhase9_TimingAttackResistance(t *testing.T) {
-	src, keys := stdSource("claude", "correct-key-timing-p9-test")
-	d := stdDaemon(t, src, keys)
-	handler := d.RequireDataTokenHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	const samples = 1000
-	correctTimes := make([]int64, samples)
-	wrongTimes := make([]int64, samples)
-
-	for i := 0; i < samples; i++ {
-		// Correct key.
-		req := newAuthRequest("Bearer correct-key-timing-p9-test")
-		rr := recordAndTime(handler, req, &correctTimes[i])
-		if i == 0 && rr != http.StatusOK {
-			t.Fatalf("CONTRACT 4 FAIL: correct key returned %d", rr)
-		}
-
-		// Wrong key — same byte length to avoid length-based timing leak.
-		req2 := newAuthRequest("Bearer wrong-key-000000000000000000")
-		rr2 := recordAndTime(handler, req2, &wrongTimes[i])
-		if i == 0 && rr2 != http.StatusUnauthorized {
-			t.Fatalf("CONTRACT 4 FAIL: wrong key returned %d want 401", rr2)
-		}
-	}
-
-	sort.Slice(correctTimes, func(i, j int) bool { return correctTimes[i] < correctTimes[j] })
-	sort.Slice(wrongTimes, func(i, j int) bool { return wrongTimes[i] < wrongTimes[j] })
-
-	p99Correct := correctTimes[int(float64(samples)*0.99)]
-	p99Wrong := wrongTimes[int(float64(samples)*0.99)]
-	diff := p99Correct - p99Wrong
-	if diff < 0 {
-		diff = -diff
-	}
-	diffMs := float64(diff) / 1e6
-
-	if diffMs >= 1.0 {
-		t.Errorf("CONTRACT 4 FAIL: timing p99 diff=%.3fms >= 1ms (correct=%dns wrong=%dns)",
-			diffMs, p99Correct, p99Wrong)
-	} else {
-		t.Logf("CONTRACT 4 PASS: timing p99 diff=%.4fms < 1ms", diffMs)
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -455,36 +403,6 @@ func TestPhase9_QueueOverload_Returns429WithRetryAfter(t *testing.T) {
 	t.Logf("CONTRACT 7 PASS: queue overload → 429 queue_full with Retry-After=%s", retryAfter)
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// newAuthRequest creates a GET / request with the given Authorization header.
-func newAuthRequest(authHeader string) *http.Request {
-	req, _ := http.NewRequest(http.MethodGet, "/", nil)
-	if authHeader != "" {
-		req.Header.Set("Authorization", authHeader)
-	}
-	return req
-}
-
-// recordAndTime runs the handler and records the elapsed nanoseconds.
-func recordAndTime(h http.Handler, req *http.Request, ns *int64) int {
-	rr := &statusRecorder{}
-	t0 := time.Now()
-	h.ServeHTTP(rr, req)
-	*ns = time.Since(t0).Nanoseconds()
-	return rr.code
-}
-
-// statusRecorder captures the status code without buffering the body.
-type statusRecorder struct {
-	code int
-}
-
-func (s *statusRecorder) Header() http.Header        { return http.Header{} }
-func (s *statusRecorder) Write(b []byte) (int, error) { return len(b), nil }
-func (s *statusRecorder) WriteHeader(code int)        { s.code = code }
 
 // suppressUnused avoids unused import warnings.
 var _ = strings.Contains

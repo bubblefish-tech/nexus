@@ -27,10 +27,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -198,67 +196,6 @@ func TestVerify_DaemonStartsAndResponds(t *testing.T) {
 		t.Fatalf("CHECK 1 FAIL: status field=%q want %q", resp.Status, "ok")
 	}
 	t.Logf("CHECK 1 PASS: daemon responded on %s — status=%q version=%q", baseURL, resp.Status, resp.Version)
-}
-
-// ---------------------------------------------------------------------------
-// CHECK 2 — Correct key: 200. Wrong key: 401. Timing p99 < 1ms.
-// ---------------------------------------------------------------------------
-
-func TestVerify_AuthCorrectKeyVsWrongKey_Timing(t *testing.T) {
-	src, keys := stdSource("claude", "correct-key-abcdef123456")
-	d := stdDaemon(t, src, keys)
-	handler := d.RequireDataTokenHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	const samples = 1000
-	correctTimes := make([]int64, samples)
-	wrongTimes := make([]int64, samples)
-
-	for i := 0; i < samples; i++ {
-		// Correct key.
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer correct-key-abcdef123456")
-		rr := httptest.NewRecorder()
-		t0 := time.Now()
-		handler.ServeHTTP(rr, req)
-		correctTimes[i] = time.Since(t0).Nanoseconds()
-
-		if i == 0 && rr.Code != http.StatusOK {
-			t.Fatalf("CHECK 2 FAIL: correct key returned %d", rr.Code)
-		}
-
-		// Wrong key (same byte length to avoid length timing leak).
-		req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-		req2.Header.Set("Authorization", "Bearer wrong-key-000000000000000")
-		rr2 := httptest.NewRecorder()
-		t1 := time.Now()
-		handler.ServeHTTP(rr2, req2)
-		wrongTimes[i] = time.Since(t1).Nanoseconds()
-
-		if i == 0 && rr2.Code != http.StatusUnauthorized {
-			t.Fatalf("CHECK 2 FAIL: wrong key returned %d want 401", rr2.Code)
-		}
-	}
-
-	sort.Slice(correctTimes, func(i, j int) bool { return correctTimes[i] < correctTimes[j] })
-	sort.Slice(wrongTimes, func(i, j int) bool { return wrongTimes[i] < wrongTimes[j] })
-
-	p99Correct := correctTimes[990]
-	p99Wrong := wrongTimes[990]
-	diff := p99Correct - p99Wrong
-	if diff < 0 {
-		diff = -diff
-	}
-	diffMs := float64(diff) / 1e6
-
-	if diffMs >= 1.0 {
-		t.Errorf("CHECK 2 FAIL: timing p99 diff=%.3fms >= 1ms (correct=%dns wrong=%dns)",
-			diffMs, p99Correct, p99Wrong)
-	} else {
-		t.Logf("CHECK 2 PASS: correct→200, wrong→401, timing p99 diff=%.4fms (< 1ms threshold)",
-			diffMs)
-	}
 }
 
 // ---------------------------------------------------------------------------

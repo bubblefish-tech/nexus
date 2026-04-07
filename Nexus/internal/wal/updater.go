@@ -42,7 +42,12 @@ type WALUpdater interface {
 }
 
 // MarkDelivered atomically rewrites the WAL entry for payloadID with
-// status=DELIVERED. Returns an error if the payload ID is not found.
+// status=DELIVERED. This rewrites the entire segment file containing
+// the entry, which is O(segment_size).
+//
+// HOT-PATH CALLERS MUST USE MarkDeliveredBatch instead, which amortizes
+// the rewrite to one operation per segment per batch. The singular
+// variant exists for low-frequency callers (recovery tools) and tests.
 func (w *WAL) MarkDelivered(payloadID string) error {
 	return w.markStatus(payloadID, StatusDelivered)
 }

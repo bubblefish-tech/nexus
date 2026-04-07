@@ -113,6 +113,12 @@ type healthResponse struct {
 // rateLimiter implements a per-source fixed-window rate limiter.
 // Each source gets a separate window that resets every minute.
 // All state is in struct fields — no package-level variables.
+//
+// The windows map is keyed by source name (from config) or the hardcoded
+// constant "_audit_admin". Both are bounded by the number of configured
+// sources (typically <20). The map does not require eviction. If you
+// change the key to anything derived from request data (IP, header,
+// JWT claim), you MUST add eviction logic to prevent unbounded growth.
 type rateLimiter struct {
 	mu      sync.Mutex
 	windows map[string]*rateWindow

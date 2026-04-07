@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -365,5 +366,80 @@ func TestSQLiteDestination_TimeTravelEmpty(t *testing.T) {
 	}
 	if len(result.Records) != 0 {
 		t.Errorf("expected 0 records, got %d", len(result.Records))
+	}
+}
+
+// TestSQLite_QueryUsesIndex verifies that the composite query index is used
+// for the primary Query() WHERE clause: namespace + destination + ORDER BY timestamp DESC.
+func TestSQLite_QueryUsesIndex(t *testing.T) {
+	d, cleanup := newTestSQLite(t)
+	defer cleanup()
+
+	// Insert a sample record so the table is non-empty.
+	if err := d.Write(basePayload("idx-1")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	db := destination.ExposeDB(d)
+	rows, err := db.Query(`EXPLAIN QUERY PLAN
+		SELECT payload_id FROM memories
+		WHERE namespace = ? AND destination = ?
+		ORDER BY timestamp DESC
+		LIMIT 50`, "test", "sqlite")
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		plan.WriteString(detail)
+		plan.WriteString("\n")
+	}
+
+	if !strings.Contains(strings.ToLower(plan.String()), "idx_memories_query") {
+		t.Fatalf("expected EXPLAIN to reference idx_memories_query, got:\n%s", plan.String())
+	}
+}
+
+// TestSQLite_SubjectQueryUsesIndex verifies that the subject index is used
+// for subject-filtered queries: WHERE subject = ? ORDER BY timestamp DESC.
+func TestSQLite_SubjectQueryUsesIndex(t *testing.T) {
+	d, cleanup := newTestSQLite(t)
+	defer cleanup()
+
+	if err := d.Write(basePayload("idx-2")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	db := destination.ExposeDB(d)
+	rows, err := db.Query(`EXPLAIN QUERY PLAN
+		SELECT payload_id FROM memories
+		WHERE subject = ?
+		ORDER BY timestamp DESC
+		LIMIT 50`, "user:alice")
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		plan.WriteString(detail)
+		plan.WriteString("\n")
+	}
+
+	if !strings.Contains(strings.ToLower(plan.String()), "idx_memories_subject") {
+		t.Fatalf("expected EXPLAIN to reference idx_memories_subject, got:\n%s", plan.String())
 	}
 }

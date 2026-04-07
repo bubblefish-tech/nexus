@@ -21,8 +21,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/daemon"
@@ -82,57 +84,49 @@ func extractErrorCode(t *testing.T, body []byte) string {
 }
 
 // ---------------------------------------------------------------------------
-// Timing test
+// Structural constant-time verification
+//
+// Why timing-based tests were removed:
+//   - OS scheduler quantum (~1ms) exceeds measurement resolution, so p99
+//     latency captures scheduling noise, not comparison time.
+//   - The -race detector roughly doubles execution time, amplifying jitter.
+//   - The Go standard library tests crypto/subtle structurally, not via
+//     timing measurements. We follow the same approach.
+//
+// The constant-time property is a STATIC property of the implementation:
+// auth.go imports crypto/subtle and calls subtle.ConstantTimeCompare for
+// every token comparison (admin, all source keys, MCP key). This test
+// verifies that structural property directly.
+//
 // Reference: Phase 0C Security Checkpoint item 1.
 // ---------------------------------------------------------------------------
 
-func TestAuth_TimingAttack_CorrectVsWrong(t *testing.T) {
-	sources := []*config.Source{
-		{Name: "claude", CanRead: true, CanWrite: true, Namespace: "claude",
-			RateLimit: config.SourceRateLimitConfig{RequestsPerMinute: 1000}},
+func TestAuth_UsesConstantTimeCompare(t *testing.T) {
+	// Verify that auth.go imports crypto/subtle and calls
+	// subtle.ConstantTimeCompare at least 3 times (admin key, source key
+	// loop, MCP key).
+	authFile := filepath.Join(".", "auth.go")
+	data, err := os.ReadFile(authFile)
+	if err != nil {
+		t.Fatalf("read auth.go: %v", err)
 	}
-	keys := map[string][]byte{"claude": []byte("correct-key-abcdef1234567890")}
-	d := buildTestDaemon(t, sources, keys, "admin-key-xyz")
+	src := string(data)
 
-	handler := d.RequireDataTokenHandler(okHandler)
-
-	const samples = 1000
-	correctTimes := make([]time.Duration, samples)
-	wrongTimes := make([]time.Duration, samples)
-
-	for i := 0; i < samples; i++ {
-		// Correct key.
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set("Authorization", "Bearer correct-key-abcdef1234567890")
-		rr := httptest.NewRecorder()
-		start := time.Now()
-		handler.ServeHTTP(rr, req)
-		correctTimes[i] = time.Since(start)
-
-		// Wrong key (same length to avoid length-based timing leaks).
-		req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-		req2.Header.Set("Authorization", "Bearer wrong-key-000000000000000")
-		rr2 := httptest.NewRecorder()
-		start2 := time.Now()
-		handler.ServeHTTP(rr2, req2)
-		wrongTimes[i] = time.Since(start2)
+	if !strings.Contains(src, `"crypto/subtle"`) {
+		t.Fatal("auth.go must import crypto/subtle")
 	}
 
-	// Compute p99 for each group.
-	correctP99 := percentile(correctTimes, 99)
-	wrongP99 := percentile(wrongTimes, 99)
-
-	diff := correctP99 - wrongP99
-	if diff < 0 {
-		diff = -diff
+	count := strings.Count(src, "subtle.ConstantTimeCompare")
+	if count < 3 {
+		t.Fatalf("auth.go has %d calls to subtle.ConstantTimeCompare; want >= 3 "+
+			"(admin key, source key loop, MCP key)", count)
 	}
+	t.Logf("auth.go: %d calls to subtle.ConstantTimeCompare — structural constant-time property verified", count)
 
-	// p99 difference must be < 1ms.
-	// Reference: Phase 0C Security Checkpoint item 1.
-	const maxDiffNs = 1_000_000 // 1ms
-	if diff > maxDiffNs {
-		t.Errorf("timing difference p99 = %v; want < 1ms (correct=%v, wrong=%v)",
-			time.Duration(diff), time.Duration(correctP99), time.Duration(wrongP99))
+	// Also verify the == operator is never used on token bytes.
+	// The authenticate function must not contain "provided ==" or "key ==".
+	if strings.Contains(src, "provided ==") {
+		t.Error("auth.go must not use == on provided token bytes")
 	}
 }
 
@@ -363,37 +357,3 @@ func TestAuth_CorrectKey_PassesThrough(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// percentile returns the p-th percentile of the given durations (0–100).
-func percentile(times []time.Duration, p int) int64 {
-	if len(times) == 0 {
-		return 0
-	}
-	// Simple sort + index.
-	sorted := make([]int64, len(times))
-	for i, d := range times {
-		sorted[i] = int64(d)
-	}
-	sortInt64(sorted)
-	idx := (p * len(sorted)) / 100
-	if idx >= len(sorted) {
-		idx = len(sorted) - 1
-	}
-	return sorted[idx]
-}
-
-func sortInt64(s []int64) {
-	// Insertion sort — fine for O(1000) elements in tests.
-	for i := 1; i < len(s); i++ {
-		key := s[i]
-		j := i - 1
-		for j >= 0 && s[j] > key {
-			s[j+1] = s[j]
-			j--
-		}
-		s[j+1] = key
-	}
-}

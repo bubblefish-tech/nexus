@@ -365,6 +365,15 @@ func resolveAndValidate(cfg *Config, logger *slog.Logger) error {
 		cfg.ResolvedSourceKeys[src.Name] = []byte(resolved)
 	}
 
+	// Precompute retrieval firewall string sets for each source so PostFilter
+	// does not allocate maps on every read request.
+	for _, src := range cfg.Sources {
+		fw := &src.Policy.RetrievalFirewall
+		fw.BlockedLabelsSet = makeStringSet(fw.BlockedLabels)
+		fw.RequiredLabelsSet = makeStringSet(fw.RequiredLabels)
+		fw.VisibleNamespacesSet = makeStringSet(fw.VisibleNamespaces)
+	}
+
 	// Validate source→destination references.
 	destNames := make(map[string]bool, len(cfg.Destinations))
 	for _, d := range cfg.Destinations {
@@ -395,4 +404,14 @@ func resolveAndValidate(cfg *Config, logger *slog.Logger) error {
 	}
 
 	return nil
+}
+
+// makeStringSet converts a string slice to a set (map[string]struct{}) for
+// O(1) lookup. Used to precompute retrieval firewall sets at load time.
+func makeStringSet(items []string) map[string]struct{} {
+	s := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		s[item] = struct{}{}
+	}
+	return s
 }

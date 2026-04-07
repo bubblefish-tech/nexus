@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/idempotency"
@@ -276,4 +277,31 @@ func (d *Daemon) RunConsistencyCheck(sampleSize int) {
 // Returns -1.0 if not yet computed.
 func (d *Daemon) ConsistencyScore() float64 {
 	return math.Float64frombits(d.consistencyScore.Load())
+}
+
+// SetAuditReader sets the audit reader for testing.
+func (d *Daemon) SetAuditReader(r *audit.AuditReader) {
+	d.auditReader = r
+}
+
+// SetAuditRateLimiter initialises the audit rate limiter for testing.
+func (d *Daemon) SetAuditRateLimiter() {
+	d.auditRateLimiter = newRateLimiter()
+}
+
+// NewTestRateLimiter creates a rateLimiter for testing.
+func NewTestRateLimiter() *rateLimiter {
+	return newRateLimiter()
+}
+
+// RateLimiterWindowCount returns the number of keys in the rate limiter's windows map.
+func RateLimiterWindowCount(rl *rateLimiter) int {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	return len(rl.windows)
+}
+
+// RateLimiterAllow wraps Allow for testing.
+func RateLimiterAllow(rl *rateLimiter, key string, rpm int) (bool, int) {
+	return rl.Allow(key, rpm)
 }

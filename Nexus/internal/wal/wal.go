@@ -249,6 +249,11 @@ func (w *WAL) Append(entry Entry) error {
 	if err != nil {
 		return fmt.Errorf("wal: write: %w", err)
 	}
+	// fsync per entry is REQUIRED for the durability guarantee. Each WAL
+	// append must be on disk before the handler returns 200 to the client.
+	// Do NOT "optimize" this with batched fsyncs or group commit without
+	// reviewing the durability contract. The "survives kill -9 with zero
+	// data loss" claim depends on this line.
 	if err := w.current.Sync(); err != nil {
 		return fmt.Errorf("wal: fsync: %w", err)
 	}
@@ -319,6 +324,9 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 		}
 	}()
 
+	// 10MB buffer accommodates the maximum WAL entry size (matches max
+	// payload size from config). Allocated once per segment at startup
+	// replay; not hot-path.
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
 

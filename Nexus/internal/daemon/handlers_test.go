@@ -373,3 +373,38 @@ func TestHandleReady(t *testing.T) {
 		t.Errorf("status = %d; want %d\nbody: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
+
+// TestRateLimiter_MapBounded verifies the rate limiter map is bounded by the
+// number of distinct keys (source names from config). Keys are never derived
+// from request data, so the map cannot grow unboundedly.
+func TestRateLimiter_MapBounded(t *testing.T) {
+	rl := daemon.NewTestRateLimiter()
+
+	// Simulate 100 distinct configured sources (more than any real deployment).
+	const numSources = 100
+	for i := 0; i < numSources; i++ {
+		var key string
+		if i < 50 {
+			key = "source-write-" + string(rune('a'+i))
+		} else {
+			key = "source-read-" + string(rune('a'+i-50))
+		}
+		daemon.RateLimiterAllow(rl, key, 1000)
+	}
+	// Plus the audit admin key.
+	daemon.RateLimiterAllow(rl, "_audit_admin", 60)
+
+	count := daemon.RateLimiterWindowCount(rl)
+	if count != numSources+1 {
+		t.Errorf("window count = %d, want %d", count, numSources+1)
+	}
+
+	// Calling Allow again for existing keys must not grow the map.
+	for i := 0; i < 500; i++ {
+		daemon.RateLimiterAllow(rl, "_audit_admin", 60)
+	}
+	after := daemon.RateLimiterWindowCount(rl)
+	if after != count {
+		t.Errorf("window count grew from %d to %d after repeated calls", count, after)
+	}
+}

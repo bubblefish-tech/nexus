@@ -155,11 +155,20 @@ func (r *AuditReader) CRCFailures() int64 {
 	return r.crcFailures.Load()
 }
 
-// Query reads all interaction log files, applies filters, and returns matching
-// records with pagination. Files are read oldest-first (rotated files sorted by
-// filename, then the current file).
+// Query performs a full scan of all audit log files and returns matching
+// records. Time complexity is O(total records on disk). This is acceptable
+// because:
+//  1. The endpoint is admin-only (requires admin token)
+//  2. The endpoint is rate-limited (admin_rate_limit_per_minute)
+//  3. Results are hard-capped at 1000 records per call
+//  4. Audit log scale is bounded by retention policy
 //
-// Rotation marker records are skipped. Cross-segment dedup by record_id.
+// If audit log scale grows beyond ~1M records, consider adding a SQLite
+// index file alongside the JSON-Lines log for time-range pruning.
+//
+// Files are read oldest-first (rotated files sorted by filename, then
+// the current file). Rotation marker records are skipped. Cross-segment
+// dedup by record_id.
 //
 // Reference: Tech Spec Addendum Section A2.5, Update U1.3–U1.5.
 func (r *AuditReader) Query(filter AuditFilter) (QueryResult, error) {

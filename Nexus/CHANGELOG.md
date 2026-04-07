@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Initial public release.
 
+### Pre-Launch Polish (v0.1.0)
+
+**Test reliability:**
+- Replaced timing-based constant-time auth tests with structural verification (eliminated 3 flaky tests sensitive to OS scheduler noise)
+- Converted firewall benchmark assertion to a proper Go benchmark with separate correctness test
+- Made TestThroughputStability opt-in via NEXUS_RUN_FLAKY=1 environment variable
+
+**Reliability fixes:**
+- Windows WAL rename race in MarkDelivered was already fixed via fsutil.RobustRename (retry-on-sharing-violation logic with exponential backoff)
+
+**Performance:**
+- Added SQLite indexes for namespace/destination/timestamp and subject/timestamp query patterns
+- Cached firewall string sets at config-load time, removing per-request allocation from the read hot path
+
+**Code clarity:**
+- Documented the durability contract on WAL fsync (why batched fsyncs must not be used)
+- Documented the bounded-key invariant on the rate limiter map
+- Documented the O(N) audit reader characteristic and its bounds
+- Documented the MarkDelivered hot-path warning to use MarkDeliveredBatch
+- Documented the WAL 10MB scanner buffer allocation rationale
+
 ### Added
 
 - **Core daemon** with 3-stage graceful shutdown (HTTP stop, queue drain, WAL close)
