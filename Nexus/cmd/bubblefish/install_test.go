@@ -85,7 +85,7 @@ func TestBuildDaemonTOML(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, _ := buildDaemonTOML("/test/config", tt.mode, "test-admin-key")
+			result, _ := buildDaemonTOML("/test/config", tt.mode, "test-admin-key", "test-mcp-key")
 			for _, w := range tt.want {
 				if !strings.Contains(result, w) {
 					t.Errorf("mode=%s: expected %q in output", tt.mode, w)
@@ -238,7 +238,7 @@ func TestDoInstallPostgresPrompted(t *testing.T) {
 	}
 
 	// Verify doctor output (connectivity check skipped for env: refs but
-	// attempted for literal DSNs — will fail but should not error the install).
+	// attempted for literal DSNs -- will fail but should not error the install).
 	stdout := opts.stdout.(*bytes.Buffer).String()
 	if !strings.Contains(stdout, "doctor: checking PostgreSQL") {
 		t.Error("expected doctor check output for literal postgres DSN")
@@ -253,7 +253,7 @@ func TestDoInstallPostgresPrompted(t *testing.T) {
 
 func TestDoInstallPostgresEnvRef(t *testing.T) {
 	t.Helper()
-	// Empty input → defaults to env:NEXUS_POSTGRES_DSN.
+	// Empty input -> defaults to env:NEXUS_POSTGRES_DSN.
 	opts := testOpts(t, []string{""})
 	opts.dest = "postgres"
 
@@ -300,7 +300,7 @@ func TestDoInstallOpenBrainPrompted(t *testing.T) {
 		t.Error("openbrain.toml missing prompted key")
 	}
 
-	// Doctor check attempted (will fail — no real supabase).
+	// Doctor check attempted (will fail -- no real supabase).
 	stdout := opts.stdout.(*bytes.Buffer).String()
 	if !strings.Contains(stdout, "doctor: checking OpenBrain") {
 		t.Error("expected doctor check output for literal openbrain credentials")
@@ -530,7 +530,7 @@ func TestDoInstallNeverSilent(t *testing.T) {
 
 			stdout := opts.stdout.(*bytes.Buffer).String()
 			if !strings.Contains(stdout, "bubblefish install: ok") {
-				t.Error("install must print ok line — NEVER silent")
+				t.Error("install must print ok line -- NEVER silent")
 			}
 			if !strings.Contains(stdout, "config directory:") {
 				t.Error("install must print config directory")
@@ -540,6 +540,9 @@ func TestDoInstallNeverSilent(t *testing.T) {
 			}
 			if !strings.Contains(stdout, "source API key:") {
 				t.Error("install must print source API key")
+			}
+			if !strings.Contains(stdout, "MCP API key:") {
+				t.Error("install must print MCP API key")
 			}
 		})
 	}
@@ -663,7 +666,6 @@ func TestWriteOpenWebUIProviderExample(t *testing.T) {
 func TestAllProfilesGenerateValidTOML(t *testing.T) {
 	t.Helper()
 
-	// Table-driven: every profile/dest/oauth combination should produce files.
 	tests := []struct {
 		name          string
 		dest          string
@@ -863,7 +865,6 @@ func TestDoInstallRespectsConfigDir(t *testing.T) {
 func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
 	t.Helper()
 
-	// daemonPaths holds the subset of daemon.toml we need to inspect.
 	type daemonPaths struct {
 		Daemon struct {
 			WAL struct {
@@ -884,7 +885,7 @@ func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
 			t.Fatalf("UserHomeDir: %v", err)
 		}
 		defaultDir := filepath.Join(home, ".bubblefish", "Nexus")
-		content, _ := buildDaemonTOML(defaultDir, "balanced", "test-key")
+		content, _ := buildDaemonTOML(defaultDir, "balanced", "test-key", "test-mcp-key")
 
 		var parsed daemonPaths
 		if _, err := toml.Decode(content, &parsed); err != nil {
@@ -907,7 +908,7 @@ func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
 
 	t.Run("SandboxPath", func(t *testing.T) {
 		sandbox := t.TempDir()
-		content, _ := buildDaemonTOML(sandbox, "balanced", "test-key")
+		content, _ := buildDaemonTOML(sandbox, "balanced", "test-key", "test-mcp-key")
 
 		var parsed daemonPaths
 		if _, err := toml.Decode(content, &parsed); err != nil {
@@ -930,13 +931,13 @@ func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
 			t.Error("security log path still contains hardcoded default")
 		}
 
-			wantAudit := filepath.ToSlash(filepath.Join(sandbox, "logs", "interactions.jsonl"))
-			if parsed.Daemon.Audit.LogFile != wantAudit {
-				t.Errorf("audit log = %q, want %q", parsed.Daemon.Audit.LogFile, wantAudit)
-			}
-			if strings.Contains(parsed.Daemon.Audit.LogFile, ".bubblefish/Nexus") {
-				t.Error("audit log path still contains hardcoded default")
-			}
+		wantAudit := filepath.ToSlash(filepath.Join(sandbox, "logs", "interactions.jsonl"))
+		if parsed.Daemon.Audit.LogFile != wantAudit {
+			t.Errorf("audit log = %q, want %q", parsed.Daemon.Audit.LogFile, wantAudit)
+		}
+		if strings.Contains(parsed.Daemon.Audit.LogFile, ".bubblefish/Nexus") {
+			t.Error("audit log path still contains hardcoded default")
+		}
 	})
 }
 
@@ -952,7 +953,7 @@ func TestBuildDaemonTOML_IncludesAuditSection(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	content, _ := buildDaemonTOML(dir, "simple", "test-key")
+	content, _ := buildDaemonTOML(dir, "simple", "test-key", "test-mcp-key")
 
 	var parsed auditPaths
 	if _, err := toml.Decode(content, &parsed); err != nil {
@@ -1002,7 +1003,6 @@ func TestBuildSourceTOML_MatchesInstallExamplePayload(t *testing.T) {
 	// This is the exact payload from the install Next Steps example.
 	payload := `{"message":{"content":"My first BubbleFish memory","role":"user"},"model":"test"}`
 
-	// Apply the mapping rules using gjson (same as the daemon).
 	tests := []struct {
 		field string
 		want  string
