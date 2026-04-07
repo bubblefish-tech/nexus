@@ -19,7 +19,9 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -49,26 +51,27 @@ const (
 const mcpProtocolVersion = "2024-11-05"
 
 // ---------------------------------------------------------------------------
+// CORS constants
+// ---------------------------------------------------------------------------
+
+// corsAllowedHeaders lists all headers MCP clients may send.
+const corsAllowedHeaders = "Content-Type, Accept, Authorization, Mcp-Session-Id, Last-Event-ID, X-Requested-With"
+
+// corsAllowedMethods lists all HTTP methods the MCP endpoint handles.
+const corsAllowedMethods = "POST, GET, DELETE, OPTIONS"
+
+// ---------------------------------------------------------------------------
 // JSON-RPC 2.0 wire types
 // ---------------------------------------------------------------------------
 
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"` // int | string | null per spec; ABSENT for notifications
+	ID      json.RawMessage `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 // isNotification reports whether this request is a JSON-RPC notification.
-//
-// Per JSON-RPC 2.0 spec section 4.1: "A Notification is a Request object
-// without an 'id' member." Servers MUST NOT respond to notifications.
-//
-// We distinguish "absent id" (notification) from "id: null" (response to a
-// malformed request) by checking the length of the RawMessage. encoding/json
-// leaves req.ID as a zero-length slice when the field is absent from the
-// input, and as the four bytes "null" when the field is present with a null
-// value.
 func (r *rpcRequest) isNotification() bool {
 	return len(r.ID) == 0
 }
@@ -121,18 +124,55 @@ type contentBlock struct {
 }
 
 // ---------------------------------------------------------------------------
+// SSE session registry
+// ---------------------------------------------------------------------------
+
+type sseSession struct {
+	id     string
+	events chan string
+	done   chan struct{}
+}
+
+type sseRegistry struct {
+	mu       sync.RWMutex
+	sessions map[string]*sseSession
+}
+
+func newSSERegistry() *sseRegistry {
+	return &sseRegistry{sessions: make(map[string]*sseSession)}
+}
+
+func (reg *sseRegistry) add(sess *sseSession) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	reg.sessions[sess.id] = sess
+}
+
+func (reg *sseRegistry) remove(id string) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	delete(reg.sessions, id)
+}
+
+func (reg *sseRegistry) get(id string) (*sseSession, bool) {
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	s, ok := reg.sessions[id]
+	return s, ok
+}
+
+func newSessionID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
 
-// Server is the MCP JSON-RPC 2.0 HTTP server.
-//
-// Invariants:
-//   - NEVER binds to 0.0.0.0. Only 127.0.0.1.
-//   - All auth uses subtle.ConstantTimeCompare.
-//   - Startup failure does NOT crash the daemon (non-fatal Start error).
-//   - Notifications (requests without 'id') NEVER receive a response body.
-//
-// Reference: Tech Spec Section 14.3.
 type Server struct {
 	resolvedKey []byte
 	sourceName  string
@@ -143,15 +183,12 @@ type Server struct {
 
 	httpServer *http.Server
 	listener   net.Listener
-	addr       string // actual bound addr after Start()
+	addr       string
 	stopOnce   sync.Once
+
+	sseReg *sseRegistry
 }
 
-// New creates a new MCP Server. The resolvedKey must already be the decoded
-// byte value (not an env:/file: reference). The bind address MUST be
-// 127.0.0.1 — callers that pass another value will get an error on Start().
-//
-// Reference: Tech Spec Section 14.3 — Invariant 1.
 func New(bind string, port int, resolvedKey []byte, sourceName string, pipeline Pipeline, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
@@ -163,20 +200,11 @@ func New(bind string, port int, resolvedKey []byte, sourceName string, pipeline 
 		logger:      logger,
 		bind:        bind,
 		port:        port,
+		sseReg:      newSSERegistry(),
 	}
 }
 
-// Start binds to the configured address and begins serving MCP requests in a
-// background goroutine. Returns an error immediately if the listener cannot be
-// created (e.g. port conflict). Does NOT block.
-//
-// Callers must treat a non-nil error as non-fatal and log a WARN — the daemon
-// MUST continue running even if MCP fails to start.
-//
-// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
 func (s *Server) Start() error {
-	// INVARIANT: bind MUST be 127.0.0.1. Reject anything else.
-	// Reference: Tech Spec Section 14.3 — "Bind: 127.0.0.1 ONLY. Never 0.0.0.0."
 	if s.bind != "127.0.0.1" {
 		return fmt.Errorf("mcp: bind address must be 127.0.0.1, got %q", s.bind)
 	}
@@ -190,7 +218,7 @@ func (s *Server) Start() error {
 	s.addr = ln.Addr().String()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/mcp", s.handleRPC)
+	mux.HandleFunc("/mcp", s.handleMCP)
 
 	s.httpServer = &http.Server{
 		Handler:           mux,
@@ -217,8 +245,6 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Stop gracefully shuts down the MCP server. Safe to call multiple times;
-// only the first call has effect (sync.Once).
 func (s *Server) Stop() error {
 	var firstErr error
 	s.stopOnce.Do(func() {
@@ -235,32 +261,86 @@ func (s *Server) Stop() error {
 	return firstErr
 }
 
-// Addr returns the actual bound address (e.g. "127.0.0.1:7474"). Empty string
-// before Start() is called successfully.
 func (s *Server) Addr() string {
 	return s.addr
 }
 
 // ---------------------------------------------------------------------------
-// HTTP handler
+// CORS helpers
 // ---------------------------------------------------------------------------
 
-// handleRPC is the single HTTP POST handler for all MCP JSON-RPC messages.
-//
-// Notifications (requests without an 'id' field) are processed for side
-// effects but receive HTTP 204 No Content with an empty body — never a
-// JSON-RPC response. This is required by the JSON-RPC 2.0 spec and by MCP
-// clients (Claude Desktop's Zod schema rejects responses to notifications).
-func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", corsAllowedMethods)
+	w.Header().Set("Access-Control-Allow-Headers", corsAllowedHeaders)
+	w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, Content-Type")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+}
+
+// ---------------------------------------------------------------------------
+// Transport helpers
+// ---------------------------------------------------------------------------
+
+func wantsSSE(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+}
+
+func writeJSON(w http.ResponseWriter, r *http.Request, v interface{}) error {
+	setCORSHeaders(w)
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
 	}
 
-	// Authenticate via dedicated mcp_key.
-	// INVARIANT: constant-time comparison; no early exit.
-	// Reference: Tech Spec Section 14.3 — "Auth: Dedicated mcp_key."
+	if wantsSSE(r) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+		_, err = fmt.Fprintf(w, "data: %s\n\n", b)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		return err
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, err = w.Write(b)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Top-level HTTP dispatcher
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+
+	switch r.Method {
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
+
+	case http.MethodGet:
+		s.handleSSEStream(w, r)
+
+	case http.MethodPost:
+		s.handleRPC(w, r)
+
+	case http.MethodDelete:
+		s.handleSessionDelete(w, r)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET handler — SSE transport
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleSSEStream(w http.ResponseWriter, r *http.Request) {
 	if !s.authenticate(r) {
+		setCORSHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(rpcResponse{
@@ -274,68 +354,236 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Decode the JSON-RPC request.
+	sessionID, err := newSessionID()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	sess := &sseSession{
+		id:     sessionID,
+		events: make(chan string, 64),
+		done:   make(chan struct{}),
+	}
+	s.sseReg.add(sess)
+	defer func() {
+		s.sseReg.remove(sessionID)
+	}()
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("Mcp-Session-Id", sessionID)
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprintf(w, "event: endpoint\ndata: /mcp?session_id=%s\n\n", sessionID)
+	flusher.Flush()
+
+	s.logger.Info("mcp: SSE session opened",
+		"component", "mcp",
+		"session_id", sessionID,
+		"remote", r.RemoteAddr,
+	)
+
+	keepalive := time.NewTicker(30 * time.Second)
+	defer keepalive.Stop()
+
+	for {
+		select {
+		case event := <-sess.events:
+			fmt.Fprint(w, event)
+			flusher.Flush()
+
+		case <-keepalive.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+
+		case <-r.Context().Done():
+			s.logger.Info("mcp: SSE session closed by client",
+				"component", "mcp",
+				"session_id", sessionID,
+			)
+			return
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DELETE handler — session termination
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.authenticate(r) {
+		setCORSHeaders(w)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	sessionID := r.Header.Get("Mcp-Session-Id")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("session_id")
+	}
+
+	if sessionID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	sess, ok := s.sseReg.get(sessionID)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	select {
+	case <-sess.done:
+	default:
+		close(sess.done)
+	}
+
+	s.logger.Info("mcp: SSE session deleted by client",
+		"component", "mcp",
+		"session_id", sessionID,
+	)
+
+	setCORSHeaders(w)
+	w.WriteHeader(http.StatusOK)
+}
+
+// ---------------------------------------------------------------------------
+// POST handler — JSON-RPC dispatch
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
+	if !s.authenticate(r) {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(rpcResponse{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage("null"),
+			Error: &rpcError{
+				Code:    rpcAuthError,
+				Message: "unauthorized: invalid or missing MCP key",
+			},
+		})
+		return
+	}
+
 	var req rpcRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1*1024*1024))
 	if err := dec.Decode(&req); err != nil {
-		s.writeRPCError(w, json.RawMessage("null"), rpcParseError, "parse error: "+err.Error())
+		s.writeRPCError(w, r, json.RawMessage("null"), rpcParseError, "parse error: "+err.Error())
 		return
 	}
 
 	if req.JSONRPC != "2.0" {
-		// Even for notifications, we cannot signal errors back. Log and drop.
 		if req.isNotification() {
 			s.logger.Warn("mcp: notification with invalid jsonrpc field",
 				"component", "mcp",
 				"method", req.Method,
 			)
+			setCORSHeaders(w)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		s.writeRPCError(w, req.ID, rpcInvalidRequest, "jsonrpc field must be '2.0'")
+		s.writeRPCError(w, r, req.ID, rpcInvalidRequest, "jsonrpc field must be '2.0'")
 		return
 	}
 
-	// Notifications: process for side effects, return HTTP 204, never a body.
-	// Per JSON-RPC 2.0 spec section 4.1: servers MUST NOT respond to notifications.
 	if req.isNotification() {
 		s.handleNotification(req)
+		setCORSHeaders(w)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	// Dispatch regular requests to the appropriate method handler.
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID != "" {
+		if sess, ok := s.sseReg.get(sessionID); ok {
+			s.handleRPCForSession(w, r, req, sess)
+			return
+		}
+		s.logger.Warn("mcp: unknown session_id in POST, falling back to direct response",
+			"component", "mcp",
+			"session_id", sessionID,
+		)
+	}
+
+	s.dispatchRPC(w, r, req)
+}
+
+func (s *Server) handleRPCForSession(w http.ResponseWriter, r *http.Request, req rpcRequest, sess *sseSession) {
+	buf := &responseBuffer{}
+	s.dispatchRPC(buf, r, req)
+
+	if len(buf.body) > 0 {
+		event := fmt.Sprintf("data: %s\n\n", buf.body)
+		select {
+		case sess.events <- event:
+		default:
+			s.logger.Warn("mcp: SSE session event buffer full, dropping response",
+				"component", "mcp",
+				"session_id", sess.id,
+			)
+		}
+	}
+
+	setCORSHeaders(w)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+type responseBuffer struct {
+	header http.Header
+	status int
+	body   []byte
+}
+
+func (b *responseBuffer) Header() http.Header {
+	if b.header == nil {
+		b.header = make(http.Header)
+	}
+	return b.header
+}
+
+func (b *responseBuffer) Write(p []byte) (int, error) {
+	b.body = append(b.body, p...)
+	return len(p), nil
+}
+
+func (b *responseBuffer) WriteHeader(status int) {
+	b.status = status
+}
+
+func (s *Server) dispatchRPC(w http.ResponseWriter, r *http.Request, req rpcRequest) {
 	switch req.Method {
 	case "initialize":
-		s.handleInitialize(w, req)
+		s.handleInitialize(w, r, req)
 	case "tools/list":
-		s.handleToolsList(w, req)
+		s.handleToolsList(w, r, req)
 	case "tools/call":
-		s.handleToolsCall(w, r.Context(), req)
+		s.handleToolsCall(w, r, req)
 	case "ping":
-		s.writeRPCResult(w, req.ID, map[string]interface{}{})
+		s.writeRPCResult(w, r, req.ID, map[string]interface{}{})
 	default:
-		s.writeRPCError(w, req.ID, rpcMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
+		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
 	}
 }
 
-// handleNotification processes JSON-RPC notifications (no response body).
-//
-// Currently recognized notifications:
-//   - notifications/initialized: client confirms it received initialize result
-//   - notifications/cancelled: client cancels an in-flight request (logged only)
-//
-// Unknown notifications are logged at DEBUG and silently dropped, per spec.
 func (s *Server) handleNotification(req rpcRequest) {
 	switch req.Method {
 	case "notifications/initialized":
-		s.logger.Debug("mcp: client initialized",
-			"component", "mcp",
-		)
+		s.logger.Debug("mcp: client initialized", "component", "mcp")
 	case "notifications/cancelled":
-		s.logger.Debug("mcp: client cancelled request",
-			"component", "mcp",
-		)
+		s.logger.Debug("mcp: client cancelled request", "component", "mcp")
 	default:
 		s.logger.Debug("mcp: unknown notification dropped",
 			"component", "mcp",
@@ -347,24 +595,38 @@ func (s *Server) handleNotification(req rpcRequest) {
 // authenticate validates the MCP request using a constant-time comparison of
 // the Bearer token against the server's resolved MCP key.
 //
+// Accepts Bearer token in Authorization header OR ?key= query param as a
+// fallback for remote clients (Claude Web UI, Perplexity Comet) that embed
+// the key in the URL rather than sending an Authorization header.
+//
 // INVARIANT: uses subtle.ConstantTimeCompare — never ==.
-// Reference: Tech Spec Section 14.3, CLAUDE.md critical rule.
 func (s *Server) authenticate(r *http.Request) bool {
+	// Try Authorization: Bearer header first.
 	h := r.Header.Get("Authorization")
 	const prefix = "Bearer "
-	if !strings.HasPrefix(h, prefix) {
-		return false
+	if strings.HasPrefix(h, prefix) {
+		provided := []byte(strings.TrimSpace(h[len(prefix):]))
+		if subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1 {
+			return true
+		}
 	}
-	provided := []byte(strings.TrimSpace(h[len(prefix):]))
-	return subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1
+	// Fallback: ?key= query param for clients that embed auth in the URL.
+	key := r.URL.Query().Get("key")
+	if key != "" {
+		provided := []byte(key)
+		if subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
 // Method handlers
 // ---------------------------------------------------------------------------
 
-func (s *Server) handleInitialize(w http.ResponseWriter, req rpcRequest) {
-	s.writeRPCResult(w, req.ID, initializeResult{
+func (s *Server) handleInitialize(w http.ResponseWriter, r *http.Request, req rpcRequest) {
+	s.writeRPCResult(w, r, req.ID, initializeResult{
 		ProtocolVersion: mcpProtocolVersion,
 		Capabilities: map[string]interface{}{
 			"tools": map[string]interface{}{},
@@ -376,30 +638,30 @@ func (s *Server) handleInitialize(w http.ResponseWriter, req rpcRequest) {
 	})
 }
 
-func (s *Server) handleToolsList(w http.ResponseWriter, req rpcRequest) {
-	s.writeRPCResult(w, req.ID, toolsListResult{Tools: toolList()})
+func (s *Server) handleToolsList(w http.ResponseWriter, r *http.Request, req rpcRequest) {
+	s.writeRPCResult(w, r, req.ID, toolsListResult{Tools: toolList()})
 }
 
-func (s *Server) handleToolsCall(w http.ResponseWriter, ctx context.Context, req rpcRequest) {
+func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpcRequest) {
 	var params toolCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		s.writeRPCError(w, req.ID, rpcInvalidParams, "invalid params: "+err.Error())
+		s.writeRPCError(w, r, req.ID, rpcInvalidParams, "invalid params: "+err.Error())
 		return
 	}
 
 	switch params.Name {
 	case "nexus_write":
-		s.callNexusWrite(w, ctx, req, params.Arguments)
+		s.callNexusWrite(w, r, req, params.Arguments)
 	case "nexus_search":
-		s.callNexusSearch(w, ctx, req, params.Arguments)
+		s.callNexusSearch(w, r, req, params.Arguments)
 	case "nexus_status":
-		s.callNexusStatus(w, ctx, req)
+		s.callNexusStatus(w, r, req)
 	default:
-		s.writeRPCError(w, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
+		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
 	}
 }
 
-func (s *Server) callNexusWrite(w http.ResponseWriter, ctx context.Context, req rpcRequest, args json.RawMessage) {
+func (s *Server) callNexusWrite(w http.ResponseWriter, r *http.Request, req rpcRequest, args json.RawMessage) {
 	var a struct {
 		Content     string `json:"content"`
 		Subject     string `json:"subject"`
@@ -410,17 +672,17 @@ func (s *Server) callNexusWrite(w http.ResponseWriter, ctx context.Context, req 
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
-			s.writeRPCError(w, req.ID, rpcInvalidParams, "invalid nexus_write arguments: "+err.Error())
+			s.writeRPCError(w, r, req.ID, rpcInvalidParams, "invalid nexus_write arguments: "+err.Error())
 			return
 		}
 	}
 
 	if a.Content == "" {
-		s.writeToolError(w, req.ID, "nexus_write requires 'content' argument")
+		s.writeToolError(w, r, req.ID, "nexus_write requires 'content' argument")
 		return
 	}
 
-	result, err := s.pipeline.Write(ctx, WriteParams{
+	result, err := s.pipeline.Write(r.Context(), WriteParams{
 		Source:      s.sourceName,
 		Content:     a.Content,
 		Subject:     a.Subject,
@@ -430,21 +692,18 @@ func (s *Server) callNexusWrite(w http.ResponseWriter, ctx context.Context, req 
 		ActorID:     a.ActorID,
 	})
 	if err != nil {
-		s.logger.Error("mcp: nexus_write pipeline error",
-			"component", "mcp",
-			"error", err,
-		)
-		s.writeToolError(w, req.ID, "write failed: "+err.Error())
+		s.logger.Error("mcp: nexus_write pipeline error", "component", "mcp", "error", err)
+		s.writeToolError(w, r, req.ID, "write failed: "+err.Error())
 		return
 	}
 
 	out, _ := json.Marshal(result)
-	s.writeRPCResult(w, req.ID, toolCallResult{
+	s.writeRPCResult(w, r, req.ID, toolCallResult{
 		Content: []contentBlock{{Type: "text", Text: string(out)}},
 	})
 }
 
-func (s *Server) callNexusSearch(w http.ResponseWriter, ctx context.Context, req rpcRequest, args json.RawMessage) {
+func (s *Server) callNexusSearch(w http.ResponseWriter, r *http.Request, req rpcRequest, args json.RawMessage) {
 	var a struct {
 		Q           string `json:"q"`
 		Destination string `json:"destination"`
@@ -454,12 +713,12 @@ func (s *Server) callNexusSearch(w http.ResponseWriter, ctx context.Context, req
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
-			s.writeRPCError(w, req.ID, rpcInvalidParams, "invalid nexus_search arguments: "+err.Error())
+			s.writeRPCError(w, r, req.ID, rpcInvalidParams, "invalid nexus_search arguments: "+err.Error())
 			return
 		}
 	}
 
-	result, err := s.pipeline.Search(ctx, SearchParams{
+	result, err := s.pipeline.Search(r.Context(), SearchParams{
 		Source:      s.sourceName,
 		Q:           a.Q,
 		Destination: a.Destination,
@@ -468,33 +727,27 @@ func (s *Server) callNexusSearch(w http.ResponseWriter, ctx context.Context, req
 		Profile:     a.Profile,
 	})
 	if err != nil {
-		s.logger.Error("mcp: nexus_search pipeline error",
-			"component", "mcp",
-			"error", err,
-		)
-		s.writeToolError(w, req.ID, "search failed: "+err.Error())
+		s.logger.Error("mcp: nexus_search pipeline error", "component", "mcp", "error", err)
+		s.writeToolError(w, r, req.ID, "search failed: "+err.Error())
 		return
 	}
 
 	out, _ := json.Marshal(result)
-	s.writeRPCResult(w, req.ID, toolCallResult{
+	s.writeRPCResult(w, r, req.ID, toolCallResult{
 		Content: []contentBlock{{Type: "text", Text: string(out)}},
 	})
 }
 
-func (s *Server) callNexusStatus(w http.ResponseWriter, ctx context.Context, req rpcRequest) {
-	result, err := s.pipeline.Status(ctx)
+func (s *Server) callNexusStatus(w http.ResponseWriter, r *http.Request, req rpcRequest) {
+	result, err := s.pipeline.Status(r.Context())
 	if err != nil {
-		s.logger.Error("mcp: nexus_status pipeline error",
-			"component", "mcp",
-			"error", err,
-		)
-		s.writeToolError(w, req.ID, "status failed: "+err.Error())
+		s.logger.Error("mcp: nexus_status pipeline error", "component", "mcp", "error", err)
+		s.writeToolError(w, r, req.ID, "status failed: "+err.Error())
 		return
 	}
 
 	out, _ := json.Marshal(result)
-	s.writeRPCResult(w, req.ID, toolCallResult{
+	s.writeRPCResult(w, r, req.ID, toolCallResult{
 		Content: []contentBlock{{Type: "text", Text: string(out)}},
 	})
 }
@@ -503,32 +756,30 @@ func (s *Server) callNexusStatus(w http.ResponseWriter, ctx context.Context, req
 // Response helpers
 // ---------------------------------------------------------------------------
 
-func (s *Server) writeRPCResult(w http.ResponseWriter, id json.RawMessage, result interface{}) {
-	w.Header().Set("Content-Type", "application/json")
+func (s *Server) writeRPCResult(w http.ResponseWriter, r *http.Request, id json.RawMessage, result interface{}) {
 	resp := rpcResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Result:  result,
 	}
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := writeJSON(w, r, resp); err != nil {
 		s.logger.Error("mcp: encode response", "component", "mcp", "error", err)
 	}
 }
 
-func (s *Server) writeRPCError(w http.ResponseWriter, id json.RawMessage, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+func (s *Server) writeRPCError(w http.ResponseWriter, r *http.Request, id json.RawMessage, code int, msg string) {
 	resp := rpcResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Error:   &rpcError{Code: code, Message: msg},
 	}
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := writeJSON(w, r, resp); err != nil {
 		s.logger.Error("mcp: encode error response", "component", "mcp", "error", err)
 	}
 }
 
-func (s *Server) writeToolError(w http.ResponseWriter, id json.RawMessage, msg string) {
-	s.writeRPCResult(w, id, toolCallResult{
+func (s *Server) writeToolError(w http.ResponseWriter, r *http.Request, id json.RawMessage, msg string) {
+	s.writeRPCResult(w, r, id, toolCallResult{
 		Content: []contentBlock{{Type: "text", Text: msg}},
 		IsError: true,
 	})
