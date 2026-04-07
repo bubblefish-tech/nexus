@@ -81,7 +81,7 @@ func buildReaderFromConfig() (*audit.AuditReader, error) {
 
 	logFile := cfg.Daemon.Audit.LogFile
 	if logFile == "" {
-		logFile = filepath.Join(configDir, "interactions.jsonl")
+		logFile = filepath.Join(configDir, "logs", "interactions.jsonl")
 	} else if strings.HasPrefix(logFile, "~/") {
 		home, herr := os.UserHomeDir()
 		if herr != nil {

@@ -24,17 +24,37 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
+	"github.com/tidwall/gjson"
 )
 
 func TestGenerateKey(t *testing.T) {
 	t.Helper()
-	key := generateKey()
-	if len(key) != 64 { // 32 bytes = 64 hex chars
-		t.Fatalf("expected 64 hex chars, got %d", len(key))
+
+	tests := []struct {
+		prefix  string
+		wantLen int
+	}{
+		{"bfn_admin_", 10 + 64},
+		{"bfn_data_", 9 + 64},
+		{"bfn_mcp_", 8 + 64},
 	}
+
+	for _, tt := range tests {
+		key := generateKey(tt.prefix)
+		if !strings.HasPrefix(key, tt.prefix) {
+			t.Errorf("expected prefix %q, got %q", tt.prefix, key[:len(tt.prefix)])
+		}
+		if len(key) != tt.wantLen {
+			t.Errorf("prefix=%q: expected %d chars, got %d", tt.prefix, tt.wantLen, len(key))
+		}
+	}
+
 	// Keys must be unique.
-	key2 := generateKey()
-	if key == key2 {
+	key1 := generateKey("bfn_data_")
+	key2 := generateKey("bfn_data_")
+	if key1 == key2 {
 		t.Fatal("two generated keys should not be identical")
 	}
 }
@@ -65,7 +85,7 @@ func TestBuildDaemonTOML(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := buildDaemonTOML(tt.mode, "test-admin-key")
+			result, _ := buildDaemonTOML("/test/config", tt.mode, "test-admin-key")
 			for _, w := range tt.want {
 				if !strings.Contains(result, w) {
 					t.Errorf("mode=%s: expected %q in output", tt.mode, w)
@@ -454,8 +474,14 @@ func TestDoInstallSimpleModeNextSteps(t *testing.T) {
 	if !strings.Contains(stdout, "bubblefish start") {
 		t.Error("simple mode should print 'bubblefish start' as step 1")
 	}
-	if !strings.Contains(stdout, "curl -X POST") {
-		t.Error("simple mode should print curl example as step 2")
+	if !strings.Contains(stdout, "curl.exe -X POST") {
+		t.Error("simple mode should print curl.exe example as step 2")
+	}
+	if !strings.Contains(stdout, "My first BubbleFish memory") {
+		t.Error("simple mode should use 'My first BubbleFish memory' in example payload")
+	}
+	if !strings.Contains(stdout, "/query/") {
+		t.Error("simple mode should print read-back command as step 3")
 	}
 	if strings.Contains(stdout, "bubblefish build") {
 		t.Error("simple mode should NOT print 'bubblefish build'")
@@ -734,5 +760,267 @@ func TestAllProfilesGenerateValidTOML(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestResolveInstallHome(t *testing.T) {
+	t.Helper()
+
+	t.Run("FlagOverridesEnv", func(t *testing.T) {
+		flagDir := t.TempDir()
+		envDir := t.TempDir()
+		t.Setenv("BUBBLEFISH_HOME", envDir)
+
+		got, err := resolveInstallHome(flagDir)
+		if err != nil {
+			t.Fatalf("resolveInstallHome: %v", err)
+		}
+		if got != flagDir {
+			t.Errorf("expected flag dir %q, got %q", flagDir, got)
+		}
+	})
+
+	t.Run("EnvOverridesDefault", func(t *testing.T) {
+		envDir := t.TempDir()
+		t.Setenv("BUBBLEFISH_HOME", envDir)
+
+		got, err := resolveInstallHome("")
+		if err != nil {
+			t.Fatalf("resolveInstallHome: %v", err)
+		}
+		if got != envDir {
+			t.Errorf("expected env dir %q, got %q", envDir, got)
+		}
+	})
+
+	t.Run("DefaultWhenNeitherSet", func(t *testing.T) {
+		t.Setenv("BUBBLEFISH_HOME", "")
+
+		got, err := resolveInstallHome("")
+		if err != nil {
+			t.Fatalf("resolveInstallHome: %v", err)
+		}
+		home, _ := os.UserHomeDir()
+		want := filepath.Join(home, ".bubblefish", "Nexus")
+		if got != want {
+			t.Errorf("expected default %q, got %q", want, got)
+		}
+	})
+}
+
+func TestDoInstallRespectsConfigDir(t *testing.T) {
+	t.Helper()
+
+	t.Run("FlagOverridesEnv", func(t *testing.T) {
+		flagDir := t.TempDir()
+		envDir := t.TempDir()
+		t.Setenv("BUBBLEFISH_HOME", envDir)
+
+		opts := testOpts(t, nil)
+		opts.configDir = flagDir
+
+		if err := doInstall(opts); err != nil {
+			t.Fatalf("doInstall: %v", err)
+		}
+
+		stdout := opts.stdout.(*bytes.Buffer).String()
+		if !strings.Contains(stdout, flagDir) {
+			t.Errorf("summary should show flag dir %q, got:\n%s", flagDir, stdout)
+		}
+
+		// Verify files written to flag dir, not env dir.
+		if _, err := os.Stat(filepath.Join(flagDir, "daemon.toml")); err != nil {
+			t.Error("daemon.toml should exist in flag dir")
+		}
+		if _, err := os.Stat(filepath.Join(envDir, "daemon.toml")); err == nil {
+			t.Error("daemon.toml should NOT exist in env dir")
+		}
+	})
+
+	t.Run("EnvOverridesDefault", func(t *testing.T) {
+		envDir := t.TempDir()
+		t.Setenv("BUBBLEFISH_HOME", envDir)
+
+		got, err := resolveInstallHome("")
+		if err != nil {
+			t.Fatalf("resolveInstallHome: %v", err)
+		}
+
+		opts := testOpts(t, nil)
+		opts.configDir = got
+
+		if err := doInstall(opts); err != nil {
+			t.Fatalf("doInstall: %v", err)
+		}
+
+		stdout := opts.stdout.(*bytes.Buffer).String()
+		if !strings.Contains(stdout, envDir) {
+			t.Errorf("summary should show env dir %q, got:\n%s", envDir, stdout)
+		}
+	})
+}
+
+func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
+	t.Helper()
+
+	// daemonPaths holds the subset of daemon.toml we need to inspect.
+	type daemonPaths struct {
+		Daemon struct {
+			WAL struct {
+				Path string `toml:"path"`
+			} `toml:"wal"`
+			Audit struct {
+				LogFile string `toml:"log_file"`
+			} `toml:"audit"`
+		} `toml:"daemon"`
+		SecurityEvents struct {
+			LogFile string `toml:"log_file"`
+		} `toml:"security_events"`
+	}
+
+	t.Run("DefaultPath", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("UserHomeDir: %v", err)
+		}
+		defaultDir := filepath.Join(home, ".bubblefish", "Nexus")
+		content, _ := buildDaemonTOML(defaultDir, "balanced", "test-key")
+
+		var parsed daemonPaths
+		if _, err := toml.Decode(content, &parsed); err != nil {
+			t.Fatalf("TOML decode: %v", err)
+		}
+
+		wantWAL := filepath.ToSlash(filepath.Join(defaultDir, "wal"))
+		if parsed.Daemon.WAL.Path != wantWAL {
+			t.Errorf("WAL path = %q, want %q", parsed.Daemon.WAL.Path, wantWAL)
+		}
+		wantLog := filepath.ToSlash(filepath.Join(defaultDir, "security.log"))
+		if parsed.SecurityEvents.LogFile != wantLog {
+			t.Errorf("security log = %q, want %q", parsed.SecurityEvents.LogFile, wantLog)
+		}
+		wantAudit := filepath.ToSlash(filepath.Join(defaultDir, "logs", "interactions.jsonl"))
+		if parsed.Daemon.Audit.LogFile != wantAudit {
+			t.Errorf("audit log = %q, want %q", parsed.Daemon.Audit.LogFile, wantAudit)
+		}
+	})
+
+	t.Run("SandboxPath", func(t *testing.T) {
+		sandbox := t.TempDir()
+		content, _ := buildDaemonTOML(sandbox, "balanced", "test-key")
+
+		var parsed daemonPaths
+		if _, err := toml.Decode(content, &parsed); err != nil {
+			t.Fatalf("TOML decode: %v", err)
+		}
+
+		wantWAL := filepath.ToSlash(filepath.Join(sandbox, "wal"))
+		if parsed.Daemon.WAL.Path != wantWAL {
+			t.Errorf("WAL path = %q, want %q", parsed.Daemon.WAL.Path, wantWAL)
+		}
+		if strings.Contains(parsed.Daemon.WAL.Path, ".bubblefish/Nexus") {
+			t.Error("WAL path still contains hardcoded default")
+		}
+
+		wantLog := filepath.ToSlash(filepath.Join(sandbox, "security.log"))
+		if parsed.SecurityEvents.LogFile != wantLog {
+			t.Errorf("security log = %q, want %q", parsed.SecurityEvents.LogFile, wantLog)
+		}
+		if strings.Contains(parsed.SecurityEvents.LogFile, ".bubblefish/Nexus") {
+			t.Error("security log path still contains hardcoded default")
+		}
+
+			wantAudit := filepath.ToSlash(filepath.Join(sandbox, "logs", "interactions.jsonl"))
+			if parsed.Daemon.Audit.LogFile != wantAudit {
+				t.Errorf("audit log = %q, want %q", parsed.Daemon.Audit.LogFile, wantAudit)
+			}
+			if strings.Contains(parsed.Daemon.Audit.LogFile, ".bubblefish/Nexus") {
+				t.Error("audit log path still contains hardcoded default")
+			}
+	})
+}
+
+func TestBuildDaemonTOML_IncludesAuditSection(t *testing.T) {
+	t.Helper()
+
+	type auditPaths struct {
+		Daemon struct {
+			Audit struct {
+				LogFile string `toml:"log_file"`
+			} `toml:"audit"`
+		} `toml:"daemon"`
+	}
+
+	dir := t.TempDir()
+	content, _ := buildDaemonTOML(dir, "simple", "test-key")
+
+	var parsed auditPaths
+	if _, err := toml.Decode(content, &parsed); err != nil {
+		t.Fatalf("TOML decode: %v", err)
+	}
+
+	want := filepath.ToSlash(filepath.Join(dir, "logs", "interactions.jsonl"))
+	if parsed.Daemon.Audit.LogFile != want {
+		t.Errorf("audit log_file = %q, want %q", parsed.Daemon.Audit.LogFile, want)
+	}
+	if strings.Contains(parsed.Daemon.Audit.LogFile, "~") {
+		t.Error("audit log path should not contain tilde reference")
+	}
+}
+
+func TestBuildSourceTOML_MatchesInstallExamplePayload(t *testing.T) {
+	t.Helper()
+
+	// Run a full install in simple mode to generate default.toml.
+	opts := testOpts(t, nil)
+	opts.mode = "simple"
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	// Read and parse the generated default source TOML.
+	srcPath := filepath.Join(opts.configDir, "sources", "default.toml")
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read default.toml: %v", err)
+	}
+
+	type sourceTOML struct {
+		Source struct {
+			Mapping map[string]string `toml:"mapping"`
+		} `toml:"source"`
+	}
+	var parsed sourceTOML
+	if _, err := toml.Decode(string(data), &parsed); err != nil {
+		t.Fatalf("TOML decode: %v", err)
+	}
+
+	if len(parsed.Source.Mapping) == 0 {
+		t.Fatal("default source TOML has no [source.mapping] section")
+	}
+
+	// This is the exact payload from the install Next Steps example.
+	payload := `{"message":{"content":"My first BubbleFish memory","role":"user"},"model":"test"}`
+
+	// Apply the mapping rules using gjson (same as the daemon).
+	tests := []struct {
+		field string
+		want  string
+	}{
+		{"content", "My first BubbleFish memory"},
+		{"role", "user"},
+		{"model", "test"},
+	}
+
+	for _, tt := range tests {
+		gPath, ok := parsed.Source.Mapping[tt.field]
+		if !ok {
+			t.Errorf("mapping missing key %q", tt.field)
+			continue
+		}
+		got := gjson.Get(payload, gPath).String()
+		if got != tt.want {
+			t.Errorf("mapping[%q]=%q: gjson extracted %q, want %q", tt.field, gPath, got, tt.want)
+		}
 	}
 }

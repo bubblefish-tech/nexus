@@ -119,12 +119,16 @@ func runStart() {
 		daemonErr <- d.Start()
 	}()
 
-	// Wait for signal or daemon error.
+	// Wait for signal, API shutdown request, or daemon error.
 	select {
 	case sig := <-sigCh:
 		logger.Info("bubblefish start: received signal, shutting down",
 			"component", "main",
 			"signal", sig.String(),
+		)
+	case <-d.ShutdownRequested():
+		logger.Info("bubblefish start: shutdown requested via API",
+			"component", "main",
 		)
 	case err := <-daemonErr:
 		if err != nil {

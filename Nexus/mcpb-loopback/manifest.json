@@ -1,0 +1,23 @@
+{
+  "manifest_version": "0.3",
+  "name": "bfn-loopback-test",
+  "display_name": "BFN Loopback Test",
+  "version": "0.0.1",
+  "description": "Diagnostic build. Tests whether a Go process spawned by Claude Desktop's MSIX sandbox can write to a user filesystem path and connect to 127.0.0.1:7474. Writes findings to D:\\Test\\BubbleFish\\v010-dogfood\\loopback-test.log. Not for production use.",
+  "author": {
+    "name": "BubbleFish Technologies, Inc."
+  },
+  "license": "AGPL-3.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bfn-loopback-test.exe",
+    "mcp_config": {
+      "command": "${__dirname}/bfn-loopback-test.exe",
+      "args": [],
+      "env": {
+        "BUBBLEFISH_HOME": "${BUBBLEFISH_HOME}"
+      }
+    }
+  },
+  "tools": []
+}

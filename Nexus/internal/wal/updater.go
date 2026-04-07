@@ -268,17 +268,16 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 		return false, fmt.Errorf("wal: create temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
-	done := false
 	defer func() {
-		// On success done=true; the file was renamed away so Close/Remove are
-		// no-ops. On failure, clean up the temp file.
-		if closeErr := tmp.Close(); closeErr != nil {
-			slog.Error("wal: close temp file in cleanup", "err", closeErr)
+		if tmp != nil {
+			if closeErr := tmp.Close(); closeErr != nil {
+				slog.Error("wal: close temp file in cleanup", "error", closeErr)
+			}
 		}
-		if !done {
+		if tmp != nil {
 			// Best-effort removal of the temp file on the failure path.
 			if removeErr := os.Remove(tmpPath); removeErr != nil {
-				slog.Error("wal: remove temp file in cleanup", "path", tmpPath, "err", removeErr)
+				slog.Error("wal: remove temp file in cleanup", "path", tmpPath, "error", removeErr)
 			}
 		}
 	}()
@@ -300,12 +299,12 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 	if err := tmp.Close(); err != nil {
 		return false, fmt.Errorf("wal: close temp file: %w", err)
 	}
+	tmp = nil // signal to deferred cleanup that close already succeeded
 
 	if err := fsutil.RobustRename(tmpPath, segPath); err != nil {
 		return false, fmt.Errorf("wal: rename temp to segment: %w", err)
 	}
 
-	done = true
 	return true, nil
 }
 
@@ -380,15 +379,16 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 		return 0, fmt.Errorf("wal: create temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
-	done := false
 	defer func() {
-		if closeErr := tmp.Close(); closeErr != nil {
-			slog.Error("wal: close temp file in cleanup", "err", closeErr)
+		if tmp != nil {
+			if closeErr := tmp.Close(); closeErr != nil {
+				slog.Error("wal: close temp file in cleanup", "error", closeErr)
+			}
 		}
-		if !done {
+		if tmp != nil {
 			// Best-effort removal of the temp file on the failure path.
 			if removeErr := os.Remove(tmpPath); removeErr != nil {
-				slog.Error("wal: remove temp file in cleanup", "path", tmpPath, "err", removeErr)
+				slog.Error("wal: remove temp file in cleanup", "path", tmpPath, "error", removeErr)
 			}
 		}
 	}()
@@ -407,11 +407,11 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 	if err := tmp.Close(); err != nil {
 		return 0, fmt.Errorf("wal: close temp file: %w", err)
 	}
+	tmp = nil // signal to deferred cleanup that close already succeeded
 
 	if err := fsutil.RobustRename(tmpPath, segPath); err != nil {
 		return 0, fmt.Errorf("wal: rename temp to segment: %w", err)
 	}
 
-	done = true
 	return found, nil
 }

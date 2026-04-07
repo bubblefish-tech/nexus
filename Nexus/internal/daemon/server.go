@@ -97,6 +97,8 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/audit/log", d.handleAuditLog)
 		r.Get("/api/audit/stats", d.handleAuditStats)
 		r.Get("/api/audit/export", d.handleAuditExport)
+		// Shutdown — admin only.
+		r.Post("/api/shutdown", d.handleShutdown)
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(

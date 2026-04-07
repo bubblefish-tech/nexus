@@ -148,8 +148,9 @@ type Daemon struct {
 	// math.Float64frombits. Reference: Tech Spec Section 11.5.
 	consistencyScore atomic.Uint64
 
-	stopOnce sync.Once
-	stopped  chan struct{}
+	stopOnce    sync.Once
+	stopped     chan struct{}
+	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
 }
 
 // New creates a Daemon from the loaded configuration. It does NOT open any
@@ -170,7 +171,8 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		metrics: m,
 		rl:      newRateLimiter(),
 		vizPipe: vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
-		stopped: make(chan struct{}),
+		stopped:     make(chan struct{}),
+		shutdownReq: make(chan struct{}),
 	}
 	// -1.0 means "not yet computed". Overwritten on first check.
 	d.consistencyScore.Store(math.Float64bits(-1.0))
@@ -460,7 +462,7 @@ func (d *Daemon) Start() error {
 	if cfg.Daemon.Audit.Enabled {
 		logFile := cfg.Daemon.Audit.LogFile
 		if logFile == "" {
-			logFile = "~/.bubblefish/Nexus/logs/interactions.jsonl"
+			return fmt.Errorf("daemon: audit enabled but log_file is empty after config load — this indicates a config loader bug")
 		}
 		// Expand ~ prefix to the user home directory.
 		if strings.HasPrefix(logFile, "~/") || strings.HasPrefix(logFile, "~\\") {
@@ -805,6 +807,24 @@ func (d *Daemon) Stopped() <-chan struct{} {
 	return d.stopped
 }
 
+// ShutdownRequested returns a channel that is closed when an API-initiated
+// shutdown has been requested (via POST /api/shutdown). The start command
+// selects on this alongside OS signals.
+func (d *Daemon) ShutdownRequested() <-chan struct{} {
+	return d.shutdownReq
+}
+
+// RequestShutdown signals that the daemon should begin graceful shutdown.
+// Safe to call multiple times; only the first close has any effect.
+func (d *Daemon) RequestShutdown() {
+	select {
+	case <-d.shutdownReq:
+		// already closed
+	default:
+		close(d.shutdownReq)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // MCP server startup
 // ---------------------------------------------------------------------------
@@ -1063,7 +1083,11 @@ func (d *Daemon) resolveSQLitePath() (string, error) {
 			return expandPath(dst.DBPath)
 		}
 	}
-	return expandPath("~/.bubblefish/Nexus/memories.db")
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "memories.db"), nil
 }
 
 // expandPath expands a leading ~ to the user's home directory.

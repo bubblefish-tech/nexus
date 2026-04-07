@@ -54,9 +54,23 @@ const mcpProtocolVersion = "2024-11-05"
 
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"` // int | string | null per spec
+	ID      json.RawMessage `json:"id"` // int | string | null per spec; ABSENT for notifications
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+// isNotification reports whether this request is a JSON-RPC notification.
+//
+// Per JSON-RPC 2.0 spec section 4.1: "A Notification is a Request object
+// without an 'id' member." Servers MUST NOT respond to notifications.
+//
+// We distinguish "absent id" (notification) from "id: null" (response to a
+// malformed request) by checking the length of the RawMessage. encoding/json
+// leaves req.ID as a zero-length slice when the field is absent from the
+// input, and as the four bytes "null" when the field is present with a null
+// value.
+func (r *rpcRequest) isNotification() bool {
+	return len(r.ID) == 0
 }
 
 type rpcResponse struct {
@@ -116,6 +130,7 @@ type contentBlock struct {
 //   - NEVER binds to 0.0.0.0. Only 127.0.0.1.
 //   - All auth uses subtle.ConstantTimeCompare.
 //   - Startup failure does NOT crash the daemon (non-fatal Start error).
+//   - Notifications (requests without 'id') NEVER receive a response body.
 //
 // Reference: Tech Spec Section 14.3.
 type Server struct {
@@ -231,6 +246,11 @@ func (s *Server) Addr() string {
 // ---------------------------------------------------------------------------
 
 // handleRPC is the single HTTP POST handler for all MCP JSON-RPC messages.
+//
+// Notifications (requests without an 'id' field) are processed for side
+// effects but receive HTTP 204 No Content with an empty body — never a
+// JSON-RPC response. This is required by the JSON-RPC 2.0 spec and by MCP
+// clients (Claude Desktop's Zod schema rejects responses to notifications).
 func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -263,11 +283,28 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.JSONRPC != "2.0" {
+		// Even for notifications, we cannot signal errors back. Log and drop.
+		if req.isNotification() {
+			s.logger.Warn("mcp: notification with invalid jsonrpc field",
+				"component", "mcp",
+				"method", req.Method,
+			)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		s.writeRPCError(w, req.ID, rpcInvalidRequest, "jsonrpc field must be '2.0'")
 		return
 	}
 
-	// Dispatch to the appropriate method handler.
+	// Notifications: process for side effects, return HTTP 204, never a body.
+	// Per JSON-RPC 2.0 spec section 4.1: servers MUST NOT respond to notifications.
+	if req.isNotification() {
+		s.handleNotification(req)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Dispatch regular requests to the appropriate method handler.
 	switch req.Method {
 	case "initialize":
 		s.handleInitialize(w, req)
@@ -279,6 +316,31 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		s.writeRPCResult(w, req.ID, map[string]interface{}{})
 	default:
 		s.writeRPCError(w, req.ID, rpcMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
+	}
+}
+
+// handleNotification processes JSON-RPC notifications (no response body).
+//
+// Currently recognized notifications:
+//   - notifications/initialized: client confirms it received initialize result
+//   - notifications/cancelled: client cancels an in-flight request (logged only)
+//
+// Unknown notifications are logged at DEBUG and silently dropped, per spec.
+func (s *Server) handleNotification(req rpcRequest) {
+	switch req.Method {
+	case "notifications/initialized":
+		s.logger.Debug("mcp: client initialized",
+			"component", "mcp",
+		)
+	case "notifications/cancelled":
+		s.logger.Debug("mcp: client cancelled request",
+			"component", "mcp",
+		)
+	default:
+		s.logger.Debug("mcp: unknown notification dropped",
+			"component", "mcp",
+			"method", req.Method,
+		)
 	}
 }
 

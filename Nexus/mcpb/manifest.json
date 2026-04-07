@@ -1,0 +1,43 @@
+{
+  "manifest_version": "0.3",
+  "name": "bubblefish-nexus",
+  "display_name": "BubbleFish Nexus",
+  "version": "0.1.0",
+  "description": "Sovereign, local-first AI memory for Claude Desktop. Connects to your local BubbleFish Nexus daemon.",
+  "long_description": "BubbleFish Nexus is a gateway-first, local-first AI memory daemon. Nothing leaves your machine. This extension lets Claude Desktop read from and write to your local Nexus memory store. Requires the BubbleFish Nexus daemon to be installed and running on 127.0.0.1:7474. See https://github.com/bubblefish-tech/nexus for installation.",
+  "author": {
+    "name": "BubbleFish Technologies, Inc.",
+    "url": "https://github.com/bubblefish-tech/nexus"
+  },
+  "homepage": "https://github.com/bubblefish-tech/nexus",
+  "documentation": "https://github.com/bubblefish-tech/nexus#readme",
+  "support": "https://github.com/bubblefish-tech/nexus/issues",
+  "icon": "icon.png",
+  "license": "AGPL-3.0",
+  "keywords": ["memory", "local-first", "ai", "sovereign", "nexus", "bubblefish"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "BUBBLEFISH_HOME": "${BUBBLEFISH_HOME}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "nexus_write",
+      "description": "Write a memory to the local BubbleFish Nexus store. Memories persist across sessions and AI clients."
+    },
+    {
+      "name": "nexus_search",
+      "description": "Search memories in the local BubbleFish Nexus store by semantic query."
+    },
+    {
+      "name": "nexus_status",
+      "description": "Get status information about the local BubbleFish Nexus daemon (memory count, uptime, health)."
+    }
+  ]
+}

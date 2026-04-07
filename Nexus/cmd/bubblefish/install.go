@@ -85,12 +85,13 @@ func runInstall(args []string) {
 	profile := fs.String("profile", "", "install profile: openwebui")
 	oauthTemplate := fs.String("oauth-template", "", "generate OAuth template: caddy, traefik")
 	force := fs.Bool("force", false, "overwrite existing config")
+	homeFlag := fs.String("home", "", "override config directory location (also configurable via BUBBLEFISH_HOME)")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish install: %v\n", err)
 		os.Exit(1)
 	}
 
-	home, err := os.UserHomeDir()
+	configDir, err := resolveInstallHome(*homeFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish install: %v\n", err)
 		os.Exit(1)
@@ -102,7 +103,7 @@ func runInstall(args []string) {
 		profile:       *profile,
 		oauthTemplate: *oauthTemplate,
 		force:         *force,
-		configDir:     filepath.Join(home, ".bubblefish", "Nexus"),
+		configDir:     configDir,
 		prompt:        stdinPrompt,
 		stdin:         os.Stdin,
 		stdout:        os.Stdout,
@@ -113,6 +114,25 @@ func runInstall(args []string) {
 		fmt.Fprintf(os.Stderr, "bubblefish install: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// resolveInstallHome determines the config directory using the resolution order:
+// --home flag > BUBBLEFISH_HOME env var > default (~/.bubblefish/Nexus).
+func resolveInstallHome(homeFlag string) (string, error) {
+	var dir string
+	switch {
+	case homeFlag != "":
+		dir = homeFlag
+	case os.Getenv("BUBBLEFISH_HOME") != "":
+		dir = os.Getenv("BUBBLEFISH_HOME")
+	default:
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(home, ".bubblefish", "Nexus")
+	}
+	return filepath.Abs(dir)
 }
 
 // doInstall is the testable core of runInstall. It returns an error instead
@@ -144,11 +164,11 @@ func doInstall(opts installOptions) error {
 	}
 
 	// Generate a random API key for the default source and admin token.
-	adminKey := generateKey()
-	sourceKey := generateKey()
+	adminKey := generateKey("bfn_admin_")
+	sourceKey := generateKey("bfn_data_")
 
 	// Write daemon.toml based on mode.
-	daemonTOML := buildDaemonTOML(opts.mode, adminKey)
+	daemonTOML, bindAddr := buildDaemonTOML(configDir, opts.mode, adminKey)
 	if err := writeConfigFile(daemonPath, daemonTOML, opts.force); err != nil {
 		return fmt.Errorf("write daemon.toml: %v", err)
 	}
@@ -230,16 +250,28 @@ func doInstall(opts installOptions) error {
 	_, _ = fmt.Fprintf(w, "  config directory: %s\n", configDir)
 	_, _ = fmt.Fprintf(w, "  mode:            %s\n", opts.mode)
 	_, _ = fmt.Fprintf(w, "  destination:     %s\n", destType)
+	_, _ = fmt.Fprintf(w, "  bind address:    %s\n", bindAddr)
 	_, _ = fmt.Fprintf(w, "  admin token:     %s\n", adminKey)
 	_, _ = fmt.Fprintf(w, "  source API key:  %s\n", sourceKey)
 	_, _ = fmt.Fprintln(w)
 
-	// Print next steps — Simple Mode prints exactly three.
+	// Print next steps — Simple Mode walks through start → write → read → integrate.
 	if opts.mode == "simple" {
 		_, _ = fmt.Fprintln(w, "Next steps:")
-		_, _ = fmt.Fprintln(w, "  1. bubblefish start")
-		_, _ = fmt.Fprintf(w, "  2. curl -X POST http://localhost:8080/inbound/default -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' -d '{\"message\":{\"content\":\"Hello\",\"role\":\"user\"},\"model\":\"test\"}'\n", sourceKey)
-		_, _ = fmt.Fprintln(w, "  3. (Optional) Configure Open WebUI or Claude Desktop with the generated API key.")
+		_, _ = fmt.Fprintln(w, "  1. Start the daemon:")
+		_, _ = fmt.Fprintln(w, "     bubblefish start")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "  2. Write your first memory:")
+		_, _ = fmt.Fprintf(w, "     curl.exe -X POST http://%s/inbound/default \\\n", bindAddr)
+		_, _ = fmt.Fprintf(w, "       -H \"Authorization: Bearer %s\" \\\n", sourceKey)
+		_, _ = fmt.Fprintln(w, "       -H \"Content-Type: application/json\" \\")
+		_, _ = fmt.Fprintln(w, "       -d \"{\\\"message\\\":{\\\"content\\\":\\\"My first BubbleFish memory\\\",\\\"role\\\":\\\"user\\\"},\\\"model\\\":\\\"test\\\"}\"")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "  3. Read it back:")
+		_, _ = fmt.Fprintf(w, "     curl.exe http://%s/query/%s \\\n", bindAddr, destType)
+		_, _ = fmt.Fprintf(w, "       -H \"Authorization: Bearer %s\"\n", sourceKey)
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "  4. (Optional) Configure Open WebUI or Claude Desktop with the generated API key.")
 	} else {
 		_, _ = fmt.Fprintln(w, "Next steps:")
 		_, _ = fmt.Fprintln(w, "  1. Review config:  cat "+daemonPath)
@@ -250,14 +282,15 @@ func doInstall(opts installOptions) error {
 	return nil
 }
 
-// generateKey returns a cryptographically random 32-byte hex-encoded key.
-func generateKey() string {
+// generateKey returns a cryptographically random 32-byte hex-encoded key
+// prefixed with the given class identifier (e.g. "bfn_admin_", "bfn_data_").
+func generateKey(prefix string) string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish install: generate key: %v\n", err)
 		os.Exit(1)
 	}
-	return hex.EncodeToString(b)
+	return prefix + hex.EncodeToString(b)
 }
 
 // writeConfigFile writes content to path. When force is false it skips existing
@@ -274,7 +307,9 @@ func writeConfigFile(path, content string, force bool) error {
 }
 
 // buildDaemonTOML generates daemon.toml content based on the deployment mode.
-func buildDaemonTOML(mode, adminKey string) string {
+// It returns the TOML content and the resolved bind address (e.g. "127.0.0.1:8080").
+// Paths inside the TOML (WAL, security log) are templated against configDir.
+func buildDaemonTOML(configDir, mode, adminKey string) (string, string) {
 	bind := "127.0.0.1"
 	port := 8080
 	logLevel := "info"
@@ -297,6 +332,10 @@ func buildDaemonTOML(mode, adminKey string) string {
 		rateLimit = 500
 	}
 
+	walPath := filepath.ToSlash(filepath.Join(configDir, "wal"))
+	securityLogPath := filepath.ToSlash(filepath.Join(configDir, "security.log"))
+	auditLogPath := filepath.ToSlash(filepath.Join(configDir, "logs", "interactions.jsonl"))
+
 	t := fmt.Sprintf(`# BubbleFish Nexus — daemon.toml
 # Generated by bubblefish install (v%s)
 # Mode: %s
@@ -314,7 +353,7 @@ queue_size = %d
 drain_timeout_seconds = 30
 
 [daemon.wal]
-path = "~/.bubblefish/Nexus/wal"
+path = "%s"
 max_segment_size_mb = 50
 
 [daemon.wal.integrity]
@@ -361,6 +400,9 @@ enabled = false
 [daemon.events]
 enabled = false
 
+[daemon.audit]
+log_file = "%s"
+
 [retrieval]
 time_decay = true
 half_life_days = 7.0
@@ -375,11 +417,12 @@ sample_size = 100
 
 [security_events]
 enabled = true
-log_file = "~/.bubblefish/Nexus/security.log"
+log_file = "%s"
 `, version.Version, mode, port, bind, adminKey, logLevel, logFormat, mode,
-		queueSize, walIntegrity, walEncryption, rateLimit, embeddingEnabled, webPort)
+		queueSize, walPath, walIntegrity, walEncryption, rateLimit, embeddingEnabled, webPort,
+		auditLogPath, securityLogPath)
 
-	return t
+	return t, fmt.Sprintf("%s:%d", bind, port)
 }
 
 // writeDestination creates the appropriate destination TOML in destinations/.
@@ -391,16 +434,17 @@ func writeDestination(configDir, destType string, force bool) error {
 
 	switch destType {
 	case "sqlite":
-		content := `# BubbleFish Nexus — SQLite destination
+		dbPath := filepath.ToSlash(filepath.Join(configDir, "memories.db"))
+		content := fmt.Sprintf(`# BubbleFish Nexus — SQLite destination
 [destination]
 name = "sqlite"
 type = "sqlite"
-db_path = "~/.bubblefish/Nexus/memories.db"
+db_path = "%s"
 
 [destination.decay]
 half_life_days = 7.0
 decay_mode = "exponential"
-`
+`, dbPath)
 		return writeConfigFile(filepath.Join(destDir, "sqlite.toml"), content, force)
 
 	default:
@@ -544,6 +588,11 @@ max_bytes = 10485760
 [source.idempotency]
 enabled = true
 dedup_window_seconds = 300
+
+[source.mapping]
+content = "message.content"
+role    = "message.role"
+model   = "model"
 
 [source.policy]
 allowed_destinations = ["%s"]

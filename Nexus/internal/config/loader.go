@@ -47,8 +47,13 @@ const (
 )
 
 // ConfigDir returns the canonical configuration directory for BubbleFish Nexus.
-// Returns an error if os.UserHomeDir() fails; callers must treat this as fatal.
+// If the BUBBLEFISH_HOME environment variable is set and non-empty, its value is
+// used (resolved to an absolute path). Otherwise falls back to ~/.bubblefish/Nexus.
+// Returns an error if path resolution fails; callers must treat this as fatal.
 func ConfigDir() (string, error) {
+	if env := os.Getenv("BUBBLEFISH_HOME"); env != "" {
+		return filepath.Abs(env)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("config: resolve home directory: %w", err)
@@ -83,7 +88,7 @@ func Load(configDir string, logger *slog.Logger) (*Config, error) {
 	}
 	cfg.Destinations = dests
 
-	if err := resolveAndValidate(cfg, logger); err != nil {
+	if err := resolveAndValidate(cfg, configDir, logger); err != nil {
 		return nil, err
 	}
 
@@ -153,7 +158,7 @@ func loadDaemonTOML(path string, logger *slog.Logger) (*Config, error) {
 		raw.Daemon.Audit.AdminRateLimitPerMin = 60
 	}
 	if raw.Daemon.Audit.LogFile == "" {
-		raw.Daemon.Audit.LogFile = "~/.bubblefish/Nexus/logs/interactions.jsonl"
+		raw.Daemon.Audit.LogFile = filepath.Join(filepath.Dir(path), "logs", "interactions.jsonl")
 	}
 
 	// Retrieval firewall defaults. Reference: Tech Spec Addendum Section A4.1.
@@ -333,7 +338,7 @@ func loadDestinationFile(path string, logger *slog.Logger) (*Destination, error)
 // sources is a SCHEMA_ERROR.
 //
 // Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract items 3–6.
-func resolveAndValidate(cfg *Config, logger *slog.Logger) error {
+func resolveAndValidate(cfg *Config, configDir string, logger *slog.Logger) error {
 	// Resolve admin token.
 	adminKey, err := ResolveEnv(cfg.Daemon.AdminToken, logger)
 	if err != nil {
@@ -400,7 +405,7 @@ func resolveAndValidate(cfg *Config, logger *slog.Logger) error {
 
 	// Validate WAL path is set (default to config dir if empty).
 	if cfg.Daemon.WAL.Path == "" {
-		cfg.Daemon.WAL.Path = "~/.bubblefish/Nexus/wal"
+		cfg.Daemon.WAL.Path = filepath.Join(configDir, "wal")
 	}
 
 	return nil

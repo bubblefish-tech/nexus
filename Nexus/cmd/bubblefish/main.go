@@ -53,6 +53,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  bench        throughput, latency, and retrieval evaluation benchmarks")
 		fmt.Fprintln(os.Stderr, "  demo         reliability demo: crash-recovery with 50 memories")
 		fmt.Fprintln(os.Stderr, "  audit        query, export, and tail the interaction audit log")
+		fmt.Fprintln(os.Stderr, "  stop         gracefully stop a running bubblefish daemon")
+	fmt.Fprintln(os.Stderr, "  status       show daemon health and resolved paths")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
@@ -73,16 +75,23 @@ func main() {
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: bubblefish mcp <subcommand>")
 			fmt.Fprintln(os.Stderr, "subcommands:")
-			fmt.Fprintln(os.Stderr, "  test  start MCP server and verify nexus_status responds within 5 seconds")
+			fmt.Fprintln(os.Stderr, "  test   start MCP server and verify nexus_status responds within 5 seconds")
+			fmt.Fprintln(os.Stderr, "  stdio  bridge stdin/stdout to the daemon's HTTP MCP listener (for Claude Desktop MCPB)")
 			os.Exit(1)
 		}
 		switch os.Args[2] {
 		case "test":
 			runMCPTest()
+		case "stdio":
+			runMCPStdio(os.Args[3:])
 		default:
 			fmt.Fprintf(os.Stderr, "bubblefish mcp: unknown subcommand %q\n", os.Args[2])
 			os.Exit(1)
 		}
+	case "stop":
+		runStop(os.Args[2:])
+	case "status":
+		runStatus(os.Args[2:])
 	case "audit":
 		runAudit(os.Args[2:])
 	case "backup":
@@ -97,7 +106,7 @@ func main() {
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish: unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|dev|build|lint|audit|backup|bench|demo|sign-config|mcp|version>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|stop|dev|build|lint|status|audit|backup|bench|demo|sign-config|mcp|version>")
 		os.Exit(1)
 	}
 }

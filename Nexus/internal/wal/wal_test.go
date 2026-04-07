@@ -639,3 +639,54 @@ func TestPendingCount_ReplayInitialises(t *testing.T) {
 		t.Fatalf("after Replay: want PendingCount=3, got %d", got)
 	}
 }
+
+func TestWAL_NoDoubleCloseOnSuccessfulWrite(t *testing.T) {
+	t.Helper()
+
+	// Capture slog output to detect spurious error logs.
+	// The updater uses slog.Error (default logger), so we must override it.
+	var logBuf strings.Builder
+	handler := slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger := slog.New(handler)
+	oldDefault := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(oldDefault)
+
+	dir := t.TempDir()
+	w, err := Open(dir, 50, logger)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() {
+		if err := w.Close(); err != nil {
+			t.Logf("close: %v", err)
+		}
+	}()
+
+	// Append an entry so MarkDelivered has something to rewrite.
+	entry := Entry{
+		PayloadID:      "double-close-test",
+		IdempotencyKey: "idem-dc",
+		Source:         "src",
+		Destination:    "dst",
+		Subject:        "sub",
+		Payload:        json.RawMessage(`{"test":true}`),
+	}
+	if err := w.Append(entry); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	// MarkDelivered triggers the temp-file rewrite path.
+	if err := w.MarkDelivered("double-close-test"); err != nil {
+		t.Fatalf("MarkDelivered: %v", err)
+	}
+
+	// Verify no ERROR-level log lines and no "file already closed" messages.
+	logs := logBuf.String()
+	if strings.Contains(logs, "file already closed") {
+		t.Errorf("detected 'file already closed' in logs:\n%s", logs)
+	}
+	if strings.Contains(logs, "level=ERROR") {
+		t.Errorf("detected ERROR-level log line after successful write:\n%s", logs)
+	}
+}

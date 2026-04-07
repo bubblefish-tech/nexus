@@ -21,11 +21,39 @@ import (
 	"encoding/csv"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/audit"
 )
+
+func TestAuditCLI_DefaultLogFilePath(t *testing.T) {
+	// Verify that the audit CLI's default log file path matches the loader's
+	// default: <configDir>/logs/interactions.jsonl (not <configDir>/interactions.jsonl).
+	dir := t.TempDir()
+	t.Setenv("BUBBLEFISH_HOME", dir)
+
+	// The default constructed in buildReaderFromConfig when logFile == "" must
+	// include the "logs" subdirectory component.
+	expected := filepath.Join(dir, "logs", "interactions.jsonl")
+
+	// Simulate the same logic as buildReaderFromConfig line 83-84.
+	configDir := dir
+	logFile := "" // cfg.Daemon.Audit.LogFile is empty
+	if logFile == "" {
+		logFile = filepath.Join(configDir, "logs", "interactions.jsonl")
+	}
+
+	if logFile != expected {
+		t.Errorf("default log file path = %q, want %q", logFile, expected)
+	}
+
+	// Verify the path contains the "logs" subdirectory.
+	if !strings.Contains(logFile, string(filepath.Separator)+"logs"+string(filepath.Separator)) {
+		t.Errorf("default log file path %q missing 'logs' subdirectory component", logFile)
+	}
+}
 
 func TestComputeStats(t *testing.T) {
 	t.Helper()

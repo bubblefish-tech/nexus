@@ -318,3 +318,78 @@ func TestResolveEnv_File_NotExist(t *testing.T) {
 		t.Fatal("ResolveEnv: expected error for non-existent file, got nil")
 	}
 }
+
+func TestConfigDir_HonorsEnvVar(t *testing.T) {
+	t.Run("EnvVarSet", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("BUBBLEFISH_HOME", dir)
+
+		got, err := config.ConfigDir()
+		if err != nil {
+			t.Fatalf("ConfigDir: %v", err)
+		}
+		if got != dir {
+			t.Errorf("expected %q, got %q", dir, got)
+		}
+	})
+
+	t.Run("EnvVarUnset", func(t *testing.T) {
+		t.Setenv("BUBBLEFISH_HOME", "")
+
+		got, err := config.ConfigDir()
+		if err != nil {
+			t.Fatalf("ConfigDir: %v", err)
+		}
+		home, _ := os.UserHomeDir()
+		want := filepath.Join(home, ".bubblefish", "Nexus")
+		if got != want {
+			t.Errorf("expected default %q, got %q", want, got)
+		}
+	})
+
+	t.Run("EnvVarRelativePath", func(t *testing.T) {
+		t.Setenv("BUBBLEFISH_HOME", "./test-sandbox")
+
+		got, err := config.ConfigDir()
+		if err != nil {
+			t.Fatalf("ConfigDir: %v", err)
+		}
+		if !filepath.IsAbs(got) {
+			t.Errorf("expected absolute path, got %q", got)
+		}
+	})
+}
+
+func TestLoader_WALDefaultsRelativeToConfigDir(t *testing.T) {
+	dir := setupValidConfig(t)
+
+	cfg, err := config.Load(dir, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := filepath.Join(dir, "wal")
+	if cfg.Daemon.WAL.Path != want {
+		t.Errorf("WAL.Path = %q, want %q", cfg.Daemon.WAL.Path, want)
+	}
+	if strings.Contains(cfg.Daemon.WAL.Path, ".bubblefish/Nexus") && !strings.Contains(dir, ".bubblefish/Nexus") {
+		t.Error("WAL path should not contain hardcoded .bubblefish/Nexus when configDir differs")
+	}
+}
+
+func TestLoader_AuditLogDefaultsToConfigDir(t *testing.T) {
+	dir := setupValidConfig(t)
+
+	cfg, err := config.Load(dir, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := filepath.Join(dir, "logs", "interactions.jsonl")
+	if cfg.Daemon.Audit.LogFile != want {
+		t.Errorf("Audit.LogFile = %q, want %q", cfg.Daemon.Audit.LogFile, want)
+	}
+	if strings.Contains(cfg.Daemon.Audit.LogFile, ".bubblefish/Nexus") && !strings.Contains(dir, ".bubblefish/Nexus") {
+		t.Error("Audit log path should not contain hardcoded .bubblefish/Nexus when configDir differs")
+	}
+}

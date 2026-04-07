@@ -1630,3 +1630,21 @@ func (d *Daemon) handleDemoReliability(w http.ResponseWriter, r *http.Request) {
 	d.writeJSON(w, http.StatusOK, result)
 }
 
+// handleShutdown serves POST /api/shutdown — triggers graceful daemon shutdown.
+// Returns 202 Accepted immediately; the actual shutdown fires after a brief
+// delay so the HTTP response is delivered to the client.
+func (d *Daemon) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/shutdown").Inc()
+	d.logger.Info("daemon: shutdown requested via API",
+		"component", "daemon",
+	)
+	d.writeJSON(w, http.StatusAccepted, map[string]string{
+		"status": "shutting_down",
+	})
+	// Trigger shutdown after a brief delay so the 202 response is flushed.
+	go func() {
+		time.Sleep(75 * time.Millisecond)
+		d.RequestShutdown()
+	}()
+}
+
