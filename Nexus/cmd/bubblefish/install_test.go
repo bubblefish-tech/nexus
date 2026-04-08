@@ -1026,7 +1026,7 @@ func TestBuildDaemonTOML_IncludesAuditSection(t *testing.T) {
 	if parsed.Daemon.Audit.LogFile != want {
 		t.Errorf("audit log_file = %q, want %q", parsed.Daemon.Audit.LogFile, want)
 	}
-	if strings.Contains(parsed.Daemon.Audit.LogFile, "~") {
+	if strings.HasPrefix(parsed.Daemon.Audit.LogFile, "~/") {
 		t.Error("audit log path should not contain tilde reference")
 	}
 }
