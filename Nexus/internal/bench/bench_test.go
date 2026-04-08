@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -240,6 +241,7 @@ func TestRunThroughput(t *testing.T) {
 	t.Helper()
 	var reqCount atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(time.Millisecond) // ensure measurable latency on Windows (clock resolution ~15.6ms)
 		n := reqCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"payload_id":"bench-%d","status":"accepted"}`, n)
