@@ -4,6 +4,44 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.1.3 — OAuth 2.1 Hardening
+
+### Added
+- `internal/oauth/cors.go` — shared CORS helper for all OAuth endpoints,
+  enabling browser-based OAuth clients (Claude Web UI, SPAs).
+- `docs/OAUTH_KNOWN_LIMITATIONS.md` — honest documentation of per-client
+  source mapping deferral, JWT revocation window, and single-tenant
+  assumption.
+- `scopes_supported` field in OAuth server metadata response.
+- `OPTIONS` preflight handling on all `/oauth/*` and
+  `/.well-known/oauth-*` endpoints.
+
+### Changed
+- `internal/oauth/authorize.go` — consent page rendering migrated from
+  `fmt.Fprintf` with raw `%s` to `html/template`, HTML-escaping all
+  untrusted query parameters. Consent page footer now reads the version
+  from `internal/version` instead of a hardcoded string.
+- `handleAllow` and `handleDeny` now strictly validate `state` and
+  `code_challenge` presence, matching `handleAuthorize` strictness.
+
+### Security
+- **HIGH — Consent page XSS fixed.** Untrusted OAuth query parameters
+  (`state`, `redirect_uri`, `code_challenge`, `scope`) were rendered into
+  the consent page via `fmt.Fprintf` with no HTML escaping. A malicious
+  OAuth flow with a crafted `state` parameter could execute arbitrary
+  JavaScript in the context of the consent page origin. Fixed by
+  migrating to `html/template`.
+- **MEDIUM — CORS on OAuth endpoints.** OAuth endpoints did not emit
+  `Access-Control-Allow-Origin` headers, silently blocking browser-based
+  OAuth clients. Fixed with a shared CORS helper applied to all
+  handlers.
+
+### Unchanged
+- `bfn_mcp_` static bearer auth — byte-identical behavior.
+- `?key=` query parameter fallback — byte-identical behavior.
+- MCP JSON-RPC protocol, tools, CORS on `/mcp`, SSE transport, stdio
+  bridge — all unchanged.
+
 ## [0.1.2] — 2026-04-07
 
 ### Added

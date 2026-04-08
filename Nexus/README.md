@@ -245,6 +245,18 @@ Pre-built starter configurations in `examples/blessed/`:
 
 See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current limitations including the Go 1.26.1 race detector linker bug, SQLite write serialization, and in-memory cache behavior.
 
+## OAuth 2.1 Support
+
+BubbleFish Nexus v0.1.3 includes an OAuth 2.1 authorization server for
+MCP clients that require OAuth discovery (ChatGPT connectors, Claude Web
+UI custom connectors, etc.). OAuth is **disabled by default**. Clients
+that support Bearer token auth (Claude Desktop, Perplexity Comet, Open
+WebUI, Cursor) continue to use the static `bfn_mcp_` key path with zero
+configuration changes.
+
+See [docs/OAUTH_KNOWN_LIMITATIONS.md](docs/OAUTH_KNOWN_LIMITATIONS.md) for
+the current scope and limitations of the OAuth implementation.
+
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE)
