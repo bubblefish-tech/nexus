@@ -584,7 +584,6 @@ func (d *Daemon) Start() error {
 	// Start MCP server if configured. Failure is non-fatal — the daemon MUST
 	// continue running even if MCP cannot bind.
 	// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
-	cfg.Daemon.LogLevel = "debug" // TEMPORARY: debug OAuth wiring
 	d.startMCPServer(cfg)
 
 	// Initialise JWT validator if enabled.
