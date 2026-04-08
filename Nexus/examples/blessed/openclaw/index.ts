@@ -4,7 +4,7 @@
 // and relevant memories are injected into every response.
 //
 // Copyright (c) 2026 BubbleFish Technologies, Inc.
-// MIT License
+// AGPL-3.0 License
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "@sinclair/typebox";

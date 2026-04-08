@@ -1,0 +1,1186 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e14;--bg2:#0d1219;--bg3:#111820;--bg4:#151d27;--bg5:#1a2332;
+  --border:#1e2d3d;--border2:#243344;--border3:#2d4055;
+  --text:#cdd9e5;--text2:#8b9db0;--text3:#4a6072;--text4:#2d4055;
+  --green:#3dd68c;--green2:#1a5c3a;--green3:#0d2e1d;
+  --teal:#00b4d8;--teal2:#0077a8;--teal3:#003d5a;
+  --blue:#4d9de0;--blue2:#1e4d7a;--blue3:#0d2540;
+  --amber:#f0a500;--amber2:#7a5200;--amber3:#3d2900;
+  --red:#e05555;--red2:#7a2222;--red3:#3d1111;
+  --purple:#a78bfa;--purple2:#4c3784;--purple3:#261a4a;
+  --pink:#f472b6;--cyan:#22d3ee;--lime:#84cc16;
+  --mono:'JetBrains Mono','Cascadia Code','Fira Mono','Consolas',monospace;
+  --tick-interval:2000;
+}
+html,body{width:100%;background:transparent;font-family:var(--mono);font-size:12px;color:var(--text);line-height:1.4}
+
+/* ── CHROME ── */
+.shell{background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;width:100%;max-width:1000px;margin:0 auto;display:flex;flex-direction:column;min-height:560px}
+.titlebar{background:#0a0c10;border-bottom:1px solid var(--border);padding:7px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.trafficlights{display:flex;gap:6px}
+.tl{width:12px;height:12px;border-radius:50%}
+.tl.r{background:#ff5f57}.tl.y{background:#ffbd2e}.tl.g{background:#28c840}
+.termtitle{flex:1;text-align:center;font-size:11px;color:var(--text3);letter-spacing:.08em}
+.uptime-chip{font-size:10px;color:var(--green);background:var(--green3);border:1px solid var(--green2);border-radius:4px;padding:2px 8px;letter-spacing:.04em}
+
+/* ── TABS ── */
+.tabbar{background:#0a0c10;border-bottom:1px solid var(--border);display:flex;align-items:stretch;overflow:hidden;flex-shrink:0}
+.tab{padding:6px 14px;font-size:10.5px;color:var(--text3);cursor:pointer;border-right:1px solid var(--border);display:flex;align-items:center;gap:5px;transition:all .1s;white-space:nowrap;user-select:none;letter-spacing:.03em}
+.tab:hover{background:var(--bg3);color:var(--text2)}
+.tab.active{background:var(--bg2);color:var(--teal);border-bottom:2px solid var(--teal);margin-bottom:-1px}
+.tab .hotkey{font-size:9px;color:var(--text4);background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 4px;margin-right:1px}
+.tab.active .hotkey{color:var(--teal3);background:#001a24;border-color:var(--teal2)}
+.badge{font-size:9px;padding:1px 5px;border-radius:3px;margin-left:2px}
+.badge.warn{background:var(--amber3);color:var(--amber)}
+.badge.err{background:var(--red3);color:var(--red)}
+.badge.ok{background:var(--green3);color:var(--green)}
+
+/* ── BODY ── */
+.body{display:flex;flex:1;overflow:hidden;min-height:0}
+.sidebar{width:180px;border-right:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.content{display:none;flex:1;overflow:hidden}
+.content.active{display:flex;flex-direction:column;height:100%}
+
+/* ── SIDEBAR ── */
+.sb-section{padding:8px 10px 4px;font-size:9px;letter-spacing:.1em;color:var(--text4);text-transform:uppercase;border-top:1px solid var(--border);margin-top:2px}
+.sb-section:first-child{border-top:none;margin-top:0}
+.sb-item{padding:5px 12px;font-size:11px;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:space-between;border-left:2px solid transparent}
+.sb-item:hover{background:var(--bg3);color:var(--text)}
+.sb-item.active{background:var(--bg3);color:var(--teal);border-left-color:var(--teal)}
+.sb-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sb-dot.live{background:var(--green);box-shadow:0 0 4px var(--green)}
+.sb-dot.idle{background:var(--amber)}
+.sb-dot.dead{background:var(--red)}
+.sb-val{font-size:10px;color:var(--text3)}
+.sb-val.ok{color:var(--green)}
+.sb-val.warn{color:var(--amber)}
+
+/* ── STATUSBAR ── */
+.statusbar{background:#0a0c10;border-top:1px solid var(--border);padding:4px 12px;display:flex;align-items:center;gap:16px;font-size:10px;color:var(--text3);flex-shrink:0}
+.sb-kv{display:flex;align-items:center;gap:5px}
+.sb-kv .k{color:var(--text4)}
+.sb-kv .v{color:var(--text)}
+.sb-kv .v.ok{color:var(--green)}
+.sb-kv .v.warn{color:var(--amber)}
+.sb-kv .v.err{color:var(--red)}
+.keyhints{margin-left:auto;display:flex;gap:10px}
+.kh{display:flex;align-items:center;gap:4px;font-size:9.5px}
+.kh .key{background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;color:var(--teal);font-size:9px}
+
+/* ── LAYOUT HELPERS ── */
+.row{display:flex;gap:0}
+.col{display:flex;flex-direction:column}
+.panel{border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin:6px;overflow:hidden;flex-shrink:0}
+.panel-hd{background:var(--bg3);border-bottom:1px solid var(--border);padding:5px 10px;display:flex;align-items:center;gap:8px;font-size:10px;color:var(--text2)}
+.panel-hd .title{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+.panel-hd .title.live::before{content:'● ';color:var(--green);animation:blink 2s infinite}
+.panel-body{padding:8px 10px}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── METRIC CARDS ── */
+.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:6px}
+.metric-card{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 10px;position:relative;overflow:hidden}
+.metric-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px}
+.metric-card.green::after{background:var(--green)}
+.metric-card.teal::after{background:var(--teal)}
+.metric-card.amber::after{background:var(--amber)}
+.metric-card.blue::after{background:var(--blue)}
+.metric-card.purple::after{background:var(--purple)}
+.metric-card.red::after{background:var(--red)}
+.mc-label{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:4px}
+.mc-value{font-size:22px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.mc-sub{font-size:9px;color:var(--text3);margin-top:3px;display:flex;align-items:center;gap:4px}
+.delta-up{color:var(--green);font-size:9px}
+.delta-dn{color:var(--red);font-size:9px}
+
+/* ── SPARKLINE ── */
+.spark{display:flex;align-items:flex-end;gap:1px;height:24px;margin-top:4px}
+.spark-bar{flex:1;border-radius:1px;min-width:3px;transition:height .3s}
+
+/* ── TABLE ── */
+.tbl{width:100%;border-collapse:collapse;font-size:11px}
+.tbl th{font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:var(--text4);text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);font-weight:400}
+.tbl td{padding:5px 8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--bg3);color:var(--text)}
+
+/* ── INLINE BAR ── */
+.ibar{display:flex;align-items:center;gap:6px}
+.ibar-track{flex:1;height:3px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.ibar-fill{height:100%;border-radius:2px;transition:width .5s}
+.ibar-val{min-width:36px;text-align:right;font-size:10px;color:var(--text)}
+
+/* ── PILL ── */
+.pill{display:inline-block;font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.04em;line-height:1.4}
+.pill.live{background:var(--green3);color:var(--green);border:1px solid var(--green2)}
+.pill.idle{background:var(--amber3);color:var(--amber);border:1px solid var(--amber2)}
+.pill.dead{background:var(--red3);color:var(--red);border:1px solid var(--red2)}
+.pill.ok{background:var(--green3);color:var(--green)}
+.pill.warn{background:var(--amber3);color:var(--amber)}
+.pill.err{background:var(--red3);color:var(--red)}
+.pill.info{background:var(--blue3);color:var(--blue)}
+.pill.purple{background:var(--purple3);color:var(--purple)}
+.pill.teal{background:var(--teal3);color:var(--teal)}
+.pill.safe{background:#0d2e20;color:#3dd68c;border:1px solid #1a5c3a}
+.pill.balanced{background:#0d2040;color:#4d9de0;border:1px solid #1e4d7a}
+.pill.fast{background:#3d2900;color:#f0a500;border:1px solid #7a5200}
+
+/* ── STAGE FLOW ── */
+.stage-flow{display:flex;align-items:center;gap:0;padding:8px 10px}
+.stage-box{flex:1;text-align:center;padding:6px 4px;border:1px solid var(--border);border-radius:4px;font-size:10px;position:relative;cursor:default;transition:background .15s}
+.stage-box:hover{background:var(--bg4)}
+.stage-box .sn{font-size:9px;color:var(--text3);letter-spacing:.05em}
+.stage-box .sv{font-size:13px;font-weight:700;margin:2px 0}
+.stage-box .sm{font-size:9px}
+.stage-box.hit{border-color:var(--green2);background:var(--green3)}
+.stage-box.hit .sv{color:var(--green)}
+.stage-box.skip{border-color:var(--border);background:var(--bg2)}
+.stage-box.skip .sv{color:var(--text4)}
+.stage-box.hit .sm{color:var(--green2)}
+.stage-box.skip .sm{color:var(--text4)}
+.stage-arr{font-size:14px;color:var(--border3);padding:0 2px;flex-shrink:0}
+
+/* ── LOG LINE ── */
+.log-scroll{height:100%;overflow-y:auto;padding:4px 0}
+.log-scroll::-webkit-scrollbar{width:4px}
+.log-scroll::-webkit-scrollbar-track{background:var(--bg2)}
+.log-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.ll{display:flex;align-items:baseline;gap:6px;padding:2px 10px;font-size:10.5px;border-left:2px solid transparent}
+.ll:hover{background:var(--bg3)}
+.ll.info{border-color:var(--blue)}
+.ll.ok{border-color:var(--green)}
+.ll.warn{border-color:var(--amber)}
+.ll.err{border-color:var(--red)}
+.ll.security{border-color:var(--purple)}
+.ll.debug{border-color:var(--text4)}
+.ll .ts{color:var(--text4);min-width:64px;flex-shrink:0;font-size:9.5px}
+.ll .src{color:var(--purple);min-width:80px;flex-shrink:0;font-size:10px}
+.ll .msg{color:var(--text2);flex:1}
+.ll .code{margin-left:auto;flex-shrink:0}
+
+/* ── CONFLICT ── */
+.conflict-card{background:var(--bg3);border:1px solid var(--amber2);border-radius:5px;margin:0 8px 6px;padding:8px 10px}
+.conflict-subject{color:var(--amber);font-size:11px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.conflict-entry{display:flex;align-items:flex-start;gap:8px;padding:3px 0;font-size:10.5px}
+.conflict-content{color:var(--text);flex:1}
+.conflict-meta{color:var(--text3);font-size:9.5px;margin-top:1px}
+
+/* ── TIME TRAVEL ── */
+.tt-controls{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.tt-label{font-size:10px;color:var(--text3)}
+.tt-input{background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--teal);padding:4px 8px;font-size:10.5px;font-family:var(--mono);width:200px;outline:none}
+.tt-input:focus{border-color:var(--teal)}
+.tt-btn{background:var(--teal3);border:1px solid var(--teal2);border-radius:4px;color:var(--teal);padding:4px 12px;font-size:10px;cursor:pointer;font-family:var(--mono)}
+.tt-btn:hover{background:var(--teal2)}
+.tt-profile{display:flex;gap:4px;margin-left:auto}
+.profile-btn{background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text3);padding:3px 8px;font-size:9.5px;cursor:pointer;font-family:var(--mono)}
+.profile-btn.active{border-color:var(--teal);color:var(--teal);background:var(--teal3)}
+.profile-btn:hover{color:var(--text)}
+
+/* ── SETTINGS ── */
+.setting-group{border:1px solid var(--border);border-radius:5px;margin:6px 8px;overflow:hidden}
+.setting-group-title{background:var(--bg3);border-bottom:1px solid var(--border);padding:5px 10px;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--border);font-size:11px}
+.setting-row:last-child{border-bottom:none}
+.setting-key{color:var(--text2)}
+.setting-val{color:var(--teal);font-size:10.5px}
+.toggle{width:30px;height:16px;border-radius:8px;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0}
+.toggle.on{background:var(--teal)}
+.toggle.off{background:var(--bg4);border:1px solid var(--border2)}
+.toggle::after{content:'';position:absolute;top:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:left .15s}
+.toggle.on::after{left:16px}
+.toggle.off::after{left:2px;background:var(--text3)}
+
+/* ── PANES ── */
+.split2{display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1;overflow:hidden}
+.split3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;flex:1;overflow:hidden}
+.pane-scroll{overflow-y:auto;flex:1}
+.pane-scroll::-webkit-scrollbar{width:4px}
+.pane-scroll::-webkit-scrollbar-track{background:var(--bg2)}
+.pane-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── VIEW: CONTROL ── */
+#v0{flex-direction:column}
+
+/* ── VIEW: AUDIT ── */
+#v1{flex-direction:column}
+
+/* ── VIEW: SECURITY ── */
+#v2{flex-direction:column}
+
+/* ── VIEW: PIPELINE ── */
+#v3{flex-direction:column}
+
+/* ── VIEW: CONFLICTS ── */
+#v4{flex-direction:column}
+
+/* ── VIEW: TIME-TRAVEL ── */
+#v5{flex-direction:column}
+
+/* ── VIEW: SETTINGS ── */
+#v6{flex-direction:column}
+
+.full-scroll{flex:1;overflow-y:auto}
+.full-scroll::-webkit-scrollbar{width:4px}
+.full-scroll::-webkit-scrollbar-track{background:var(--bg2)}
+.full-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* spark animation */
+@keyframes pulse{0%,100%{opacity:.7}50%{opacity:1}}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite;display:inline-block;margin-right:4px}
+
+/* WAL vis */
+.wal-vis{display:flex;gap:2px;padding:8px 10px;align-items:flex-end;height:56px}
+.wbar{flex:1;border-radius:2px 2px 0 0;min-width:6px;background:var(--teal);opacity:.7;transition:height .4s}
+
+/* heat cell */
+.heat-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:2px;padding:6px 10px}
+.heat-cell{aspect-ratio:1;border-radius:2px;background:var(--bg3)}
+.heat-cell.h1{background:#0d3d26}
+.heat-cell.h2{background:#1a5c3a}
+.heat-cell.h3{background:#27a05a}
+.heat-cell.h4{background:#3dd68c}
+
+/* network graph simplified */
+.net-row{display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:10.5px}
+.net-src{color:var(--text2);min-width:110px}
+.net-arrow{color:var(--text4)}
+.net-dst{color:var(--teal);min-width:100px}
+.net-bytes{color:var(--text3);min-width:60px;text-align:right}
+.net-bar-w{flex:1;height:3px;background:var(--bg4);border-radius:2px}
+.net-bar-f{height:100%;border-radius:2px;background:var(--teal)}
+
+/* provenance badge */
+.prov{font-size:9px;padding:1px 6px;border-radius:3px;font-weight:600}
+.prov.user{background:#261a4a;color:var(--purple)}
+.prov.agent{background:var(--teal3);color:var(--teal)}
+.prov.system{background:var(--bg4);color:var(--text3)}
+
+/* key-val pair inline */
+.kv-inline{display:flex;gap:6px;font-size:10px;padding:2px 0}
+.kv-inline .k{color:var(--text3);min-width:120px}
+.kv-inline .v{color:var(--text)}
+
+/* scrollable log container */
+.log-container{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* WAL integrity icons */
+.integrity-icon{font-size:11px}
+
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- TITLEBAR -->
+  <div class="titlebar">
+    <div class="trafficlights"><div class="tl r"></div><div class="tl y"></div><div class="tl g"></div></div>
+    <div class="termtitle">◈ bubblefish nexus  ·  v0.1.2  ·  pid 18442  ·  D:\Test\BubbleFish\v010-dogfood\home</div>
+    <div class="uptime-chip" id="chip">↑ 04:17:32</div>
+  </div>
+
+  <!-- TABBAR -->
+  <div class="tabbar" id="tabbar">
+    <div class="tab active" data-v="0"><span class="hotkey">1</span>Control</div>
+    <div class="tab" data-v="1"><span class="hotkey">2</span>Audit<span class="badge warn" id="b1">247</span></div>
+    <div class="tab" data-v="2"><span class="hotkey">3</span>Security<span class="badge err" id="b2">3</span></div>
+    <div class="tab" data-v="3"><span class="hotkey">4</span>Pipeline</div>
+    <div class="tab" data-v="4"><span class="hotkey">5</span>Conflicts<span class="badge warn">2</span></div>
+    <div class="tab" data-v="5"><span class="hotkey">6</span>Time-Travel</div>
+    <div class="tab" data-v="6"><span class="hotkey">7</span>Settings</div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sb-section">Daemon</div>
+      <div class="sb-item active">
+        <span>● Status</span>
+        <span class="sb-val ok">LIVE</span>
+      </div>
+      <div class="sb-item">
+        <span>Deployment</span>
+        <span class="sb-val"><span class="pill balanced" style="font-size:8px;padding:1px 5px">balanced</span></span>
+      </div>
+      <div class="sb-item">
+        <span>Mode</span>
+        <span class="sb-val">daemon</span>
+      </div>
+
+      <div class="sb-section">Sources</div>
+      <div class="sb-item">
+        <span style="display:flex;align-items:center;gap:5px"><span class="sb-dot live"></span>claude-desktop</span>
+        <span class="sb-val ok">1.2k</span>
+      </div>
+      <div class="sb-item">
+        <span style="display:flex;align-items:center;gap:5px"><span class="sb-dot live"></span>perplexity</span>
+        <span class="sb-val ok">518</span>
+      </div>
+      <div class="sb-item">
+        <span style="display:flex;align-items:center;gap:5px"><span class="sb-dot idle"></span>open-webui</span>
+        <span class="sb-val warn">idle</span>
+      </div>
+      <div class="sb-item">
+        <span style="display:flex;align-items:center;gap:5px"><span class="sb-dot live"></span>cursor</span>
+        <span class="sb-val ok">92</span>
+      </div>
+
+      <div class="sb-section">Destinations</div>
+      <div class="sb-item">
+        <span>sqlite</span>
+        <span class="sb-val ok">● ok</span>
+      </div>
+      <div class="sb-item">
+        <span>wal</span>
+        <span class="sb-val ok">0 pend</span>
+      </div>
+
+      <div class="sb-section">Ports</div>
+      <div class="sb-item">
+        <span>API</span>
+        <span class="sb-val">:8080</span>
+      </div>
+      <div class="sb-item">
+        <span>MCP</span>
+        <span class="sb-val">:7474</span>
+      </div>
+      <div class="sb-item">
+        <span>Dashboard</span>
+        <span class="sb-val">:8081</span>
+      </div>
+
+      <div class="sb-section">Security</div>
+      <div class="sb-item">
+        <span>WAL integrity</span>
+        <span class="sb-val ok">CRC32</span>
+      </div>
+      <div class="sb-item">
+        <span>Config sig</span>
+        <span class="sb-val ok">✓ valid</span>
+      </div>
+      <div class="sb-item">
+        <span>TLS</span>
+        <span class="sb-val warn">off</span>
+      </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main">
+
+      <!-- ══════════ VIEW 0: CONTROL ══════════ -->
+      <div class="content active" id="v0">
+        <div class="full-scroll">
+
+          <!-- Metric Cards Row 1 -->
+          <div class="metric-grid">
+            <div class="metric-card green">
+              <div class="mc-label">daemon</div>
+              <div class="mc-value" style="color:var(--green);font-size:16px">● LIVE</div>
+              <div class="mc-sub">pid 18442 · uptime <span id="uptime-display">4h 17m</span></div>
+            </div>
+            <div class="metric-card teal">
+              <div class="mc-label">queue depth</div>
+              <div class="mc-value" style="color:var(--teal)" id="qd">0</div>
+              <div class="mc-sub"><span class="delta-up">▲ peak 12</span> · non-blocking</div>
+            </div>
+            <div class="metric-card green">
+              <div class="mc-label">wal pending</div>
+              <div class="mc-value" style="color:var(--green)" id="wal-pend">0</div>
+              <div class="mc-sub">last replay 2ms · DELIVERED</div>
+            </div>
+            <div class="metric-card green">
+              <div class="mc-label">consistency</div>
+              <div class="mc-value" style="color:var(--green)" id="cons-score">1.00</div>
+              <div class="mc-sub">100/100 sampled · 300s interval</div>
+            </div>
+          </div>
+
+          <!-- Metric Cards Row 2 -->
+          <div class="metric-grid">
+            <div class="metric-card blue">
+              <div class="mc-label">writes/sec</div>
+              <div class="mc-value" style="color:var(--blue)" id="wps">2.4</div>
+              <div class="spark" id="wps-spark"></div>
+            </div>
+            <div class="metric-card purple">
+              <div class="mc-label">reads/sec</div>
+              <div class="mc-value" style="color:var(--purple)" id="rps">4.1</div>
+              <div class="spark" id="rps-spark"></div>
+            </div>
+            <div class="metric-card teal">
+              <div class="mc-label">exact cache hit</div>
+              <div class="mc-value" style="color:var(--teal)" id="cht">91%</div>
+              <div class="mc-sub">semantic: <span style="color:var(--blue)" id="chs">67%</span></div>
+            </div>
+            <div class="metric-card amber">
+              <div class="mc-label">p99 write lat</div>
+              <div class="mc-value" style="color:var(--amber)" id="wlat">1.4ms</div>
+              <div class="mc-sub">p50: 0.8ms · WAL: 0.9ms</div>
+            </div>
+          </div>
+
+          <!-- Sources + WAL side-by-side -->
+          <div style="display:flex;gap:0">
+            <div style="flex:1.4">
+              <div class="panel" style="margin-right:0">
+                <div class="panel-hd"><span class="live-dot"></span><span class="title live">Sources</span><span style="margin-left:auto;font-size:9px;color:var(--text4)">r/w · rate-limit · policies</span></div>
+                <div class="panel-body" style="padding:0">
+                  <table class="tbl">
+                    <thead><tr>
+                      <th>source</th><th>status</th><th>writes</th><th>reads</th><th>actor</th><th>profile</th><th>rate</th>
+                    </tr></thead>
+                    <tbody>
+                      <tr>
+                        <td style="color:var(--text)">claude-desktop</td>
+                        <td><span class="pill live">LIVE</span></td>
+                        <td style="color:var(--green)">1,247</td>
+                        <td style="color:var(--blue)">892</td>
+                        <td><span class="prov user">user</span></td>
+                        <td><span class="pill balanced" style="font-size:8px">balanced</span></td>
+                        <td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:12%;background:var(--green)"></div></div><span class="ibar-val" style="color:var(--green)">238/min</span></div></td>
+                      </tr>
+                      <tr>
+                        <td style="color:var(--text)">perplexity-comet</td>
+                        <td><span class="pill live">LIVE</span></td>
+                        <td style="color:var(--green)">518</td>
+                        <td style="color:var(--blue)">411</td>
+                        <td><span class="prov agent">agent</span></td>
+                        <td><span class="pill balanced" style="font-size:8px">balanced</span></td>
+                        <td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:6%;background:var(--teal)"></div></div><span class="ibar-val" style="color:var(--teal)">110/min</span></div></td>
+                      </tr>
+                      <tr>
+                        <td style="color:var(--text)">open-webui</td>
+                        <td><span class="pill idle">IDLE</span></td>
+                        <td style="color:var(--text2)">183</td>
+                        <td style="color:var(--text2)">94</td>
+                        <td><span class="prov user">user</span></td>
+                        <td><span class="pill fast" style="font-size:8px">fast</span></td>
+                        <td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:2%;background:var(--amber)"></div></div><span class="ibar-val" style="color:var(--text3)">0/min</span></div></td>
+                      </tr>
+                      <tr>
+                        <td style="color:var(--text)">cursor</td>
+                        <td><span class="pill live">LIVE</span></td>
+                        <td style="color:var(--green)">92</td>
+                        <td style="color:var(--blue)">67</td>
+                        <td><span class="prov agent">agent</span></td>
+                        <td><span class="pill fast" style="font-size:8px">fast</span></td>
+                        <td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:3%;background:var(--purple)"></div></div><span class="ibar-val" style="color:var(--purple)">18/min</span></div></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- WAL Activity -->
+            <div style="flex:.6">
+              <div class="panel">
+                <div class="panel-hd"><span class="title">WAL Activity</span><span style="margin-left:auto;color:var(--green);font-size:9px">CRC32 · no encryption</span></div>
+                <div style="padding:6px 10px">
+                  <div class="kv-inline"><span class="k">integrity</span><span class="v" style="color:var(--green)">CRC32 ✓</span></div>
+                  <div class="kv-inline"><span class="k">encryption</span><span class="v" style="color:var(--text3)">disabled</span></div>
+                  <div class="kv-inline"><span class="k">pending entries</span><span class="v" style="color:var(--green)">0</span></div>
+                  <div class="kv-inline"><span class="k">last replay</span><span class="v">2ms</span></div>
+                  <div class="kv-inline"><span class="k">disk free</span><span class="v">847 GB</span></div>
+                  <div class="kv-inline"><span class="k">segment size</span><span class="v">50 MB</span></div>
+                  <div class="kv-inline"><span class="k">watchdog</span><span class="v" style="color:var(--green)">● healthy</span></div>
+                  <div class="kv-inline"><span class="k">append p99</span><span class="v">0.9ms</span></div>
+                </div>
+                <div style="padding:2px 10px 4px;font-size:9px;color:var(--text4)">writes last 60s</div>
+                <div class="wal-vis" id="wal-vis"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cache + MCP + Consistency row -->
+          <div style="display:flex;gap:0">
+            <div style="flex:1">
+              <div class="panel" style="margin-right:0">
+                <div class="panel-hd"><span class="title">Cache Performance</span></div>
+                <div class="panel-body" style="padding:0">
+                  <table class="tbl">
+                    <thead><tr><th>cache</th><th>hits</th><th>misses</th><th>hit rate</th><th>evictions</th></tr></thead>
+                    <tbody>
+                      <tr>
+                        <td style="color:var(--text)">exact (LRU)</td>
+                        <td style="color:var(--green)">8,412</td>
+                        <td style="color:var(--amber)">821</td>
+                        <td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:91%;background:var(--green)"></div></div><span class="ibar-val" style="color:var(--green)">91%</span></div></td>
+                        <td style="color:var(--text3)">14</td>
+                      </tr>
+                      <tr>
+                        <td style="color:var(--text)">semantic</td>
+                        <td style="color:var(--blue)">2,114</td>
+                        <td style="color:var(--amber)">1,043</td>
+                        <td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:67%;background:var(--blue)"></div></div><span class="ibar-val" style="color:var(--blue)">67%</span></div></td>
+                        <td style="color:var(--text3)">3</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div style="flex:.8">
+              <div class="panel">
+                <div class="panel-hd"><span class="title">MCP Server</span><span style="margin-left:auto;font-size:9px;color:var(--green)">● :7474 live</span></div>
+                <div style="padding:6px 10px">
+                  <div class="kv-inline"><span class="k">protocol</span><span class="v">JSON-RPC 2.0</span></div>
+                  <div class="kv-inline"><span class="k">transport</span><span class="v">HTTP + SSE + stdio</span></div>
+                  <div class="kv-inline"><span class="k">protocol ver</span><span class="v" style="color:var(--teal)">2024-11-05</span></div>
+                  <div class="kv-inline"><span class="k">tools exposed</span><span class="v">nexus_write · nexus_search · nexus_status</span></div>
+                  <div class="kv-inline"><span class="k">tunnel</span><span class="v" style="color:var(--green)">● cloudflare active</span></div>
+                  <div class="kv-inline"><span class="k">sessions</span><span class="v">3 active</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Write path steps -->
+          <div class="panel">
+            <div class="panel-hd"><span class="live-dot"></span><span class="title live">Write Path — Last Operation</span><span style="margin-left:auto;font-size:9px;color:var(--text3)">POST /inbound/claude-desktop · 14:22:07</span></div>
+            <div style="display:flex;align-items:center;gap:2px;padding:8px 10px;flex-wrap:wrap">
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">1. auth</div><div class="sv" style="font-size:11px">✓ ok</div><div class="sm">0.1ms</div></div>
+              <div class="stage-arr">›</div>
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">2. canWrite</div><div class="sv" style="font-size:11px">✓ ok</div><div class="sm">0.0ms</div></div>
+              <div class="stage-arr">›</div>
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">3. idempotency</div><div class="sv" style="font-size:11px">✓ new</div><div class="sm">0.2ms</div></div>
+              <div class="stage-arr">›</div>
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">4. rate limit</div><div class="sv" style="font-size:11px">✓ ok</div><div class="sm">0.0ms</div></div>
+              <div class="stage-arr">›</div>
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">5. WAL append</div><div class="sv" style="font-size:11px">✓ fsync</div><div class="sm">0.9ms</div></div>
+              <div class="stage-arr">›</div>
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">6. queue send</div><div class="sv" style="font-size:11px">✓ ok</div><div class="sm">0.0ms</div></div>
+              <div class="stage-arr">›</div>
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">7. dest write</div><div class="sv" style="font-size:11px">✓ sqlite</div><div class="sm">0.4ms</div></div>
+              <div class="stage-arr">›</div>
+              <div class="stage-box hit" style="flex:none;min-width:80px"><div class="sn">8. DELIVERED</div><div class="sv" style="font-size:11px">✓ atomic</div><div class="sm">0.1ms</div></div>
+            </div>
+          </div>
+
+          <!-- Write activity heatmap -->
+          <div class="panel">
+            <div class="panel-hd"><span class="title">Memory Write Activity — Last 24h (hourly)</span></div>
+            <div class="heat-grid" id="heat-grid"></div>
+            <div style="padding:0 10px 6px;display:flex;align-items:center;gap:6px;font-size:9px;color:var(--text4)">
+              <div style="width:10px;height:10px;background:var(--bg3);border-radius:2px"></div>0
+              <div style="width:10px;height:10px;background:#0d3d26;border-radius:2px"></div>1–10
+              <div style="width:10px;height:10px;background:#1a5c3a;border-radius:2px"></div>11–50
+              <div style="width:10px;height:10px;background:#27a05a;border-radius:2px"></div>51–100
+              <div style="width:10px;height:10px;background:#3dd68c;border-radius:2px"></div>100+
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ══════════ VIEW 1: AUDIT ══════════ -->
+      <div class="content" id="v1">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2)">
+          <span style="font-size:9px;color:var(--text3);letter-spacing:.06em;text-transform:uppercase">Filter:</span>
+          <span class="profile-btn active">all</span>
+          <span class="profile-btn">200</span>
+          <span class="profile-btn">401/403</span>
+          <span class="profile-btn">WAL</span>
+          <span class="profile-btn">security</span>
+          <span style="margin-left:auto;font-size:10px;color:var(--text3)">247 events · last 24h · auto-refresh 5s</span>
+        </div>
+        <div class="log-container">
+          <div style="display:flex;align-items:baseline;gap:6px;padding:3px 10px;font-size:9px;color:var(--text4);border-bottom:1px solid var(--border);flex-shrink:0">
+            <span style="min-width:64px">time</span>
+            <span style="min-width:80px">source</span>
+            <span style="flex:1">action</span>
+            <span>result</span>
+          </div>
+          <div class="log-scroll" style="flex:1">
+            <div class="ll ok"><span class="ts">14:22:07</span><span class="src">claude-desktop</span><span class="msg">POST /inbound/claude-desktop — stored memory <span style="color:var(--teal)">[work/project]</span> — id=4f2b — actor=user</span><span class="code"><span class="pill ok">200</span></span></div>
+            <div class="ll info"><span class="ts">14:21:55</span><span class="src">perplexity</span><span class="msg">GET /query/sqlite — 6-stage cascade — profile=balanced — 3 results — stage=structured — decay applied</span><span class="code"><span class="pill ok">200</span></span></div>
+            <div class="ll err"><span class="ts">14:21:33</span><span class="src" style="color:var(--red)">unknown</span><span class="msg">POST /inbound/bad-source — auth failure — <span style="color:var(--red)">unknown_source</span> — ip=127.0.0.1</span><span class="code"><span class="pill err">401</span></span></div>
+            <div class="ll info"><span class="ts">14:20:48</span><span class="src" style="color:var(--text3)">admin</span><span class="msg">GET /api/status — dashboard poll — consistency_score=1.00</span><span class="code"><span class="pill info">200</span></span></div>
+            <div class="ll ok"><span class="ts">14:20:01</span><span class="src">claude-desktop</span><span class="msg">POST /inbound/claude-desktop — stored memory <span style="color:var(--teal)">[personal/health]</span> — id=4f2a — actor=user</span><span class="code"><span class="pill ok">200</span></span></div>
+            <div class="ll ok"><span class="ts">14:19:44</span><span class="src">open-webui</span><span class="msg">GET /query/sqlite — fast path — subject=work/project — 1 result — 0.8ms</span><span class="code"><span class="pill ok">200</span></span></div>
+            <div class="ll warn"><span class="ts">14:19:12</span><span class="src" style="color:var(--text3)">admin</span><span class="msg">POST /api/shutdown — stop command received — graceful 3-stage shutdown initiated</span><span class="code"><span class="pill warn">202</span></span></div>
+            <div class="ll info"><span class="ts">14:18:59</span><span class="src">claude-desktop</span><span class="msg">MCP initialize — protocolVersion=2024-11-05 — client=claude-desktop/1.0</span><span class="code"><span class="pill ok">200</span></span></div>
+            <div class="ll info"><span class="ts">14:18:59</span><span class="src">claude-desktop</span><span class="msg">MCP tools/list — nexus_write · nexus_search · nexus_status — 3 tools exposed</span><span class="code"><span class="pill ok">200</span></span></div>
+            <div class="ll ok"><span class="ts">14:18:03</span><span class="src" style="color:var(--text3)">system</span><span class="msg">WAL replay complete — 0 pending entries — 4 replayed — 2ms — all DELIVERED</span><span class="code"><span class="pill ok">OK</span></span></div>
+            <div class="ll err"><span class="ts">14:17:22</span><span class="src" style="color:var(--red)">open-webui</span><span class="msg">GET /query/sqlite — wrong token class — admin key on data endpoint — <span style="color:var(--red)">wrong_token_class</span></span><span class="code"><span class="pill err">401</span></span></div>
+            <div class="ll ok"><span class="ts">14:16:55</span><span class="src" style="color:var(--text3)">system</span><span class="msg">consistency assertion — 100 sampled — 100 found — score=1.00 — PASS</span><span class="code"><span class="pill ok">PASS</span></span></div>
+            <div class="ll info"><span class="ts">14:16:02</span><span class="src">perplexity</span><span class="msg">MCP GET /mcp — SSE stream opened — session=sess_8f2a — client=perplexity-comet</span><span class="code"><span class="pill teal">SSE</span></span></div>
+            <div class="ll security"><span class="ts">14:15:44</span><span class="src" style="color:var(--purple)">security</span><span class="msg">config signature verified — all compiled configs valid — signed-mode=off — lint warnings=0</span><span class="code"><span class="pill purple">SEC</span></span></div>
+            <div class="ll ok"><span class="ts">14:14:30</span><span class="src">cursor</span><span class="msg">POST /inbound/cursor — stored memory <span style="color:var(--teal)">[work/code]</span> — id=4f29 — actor=agent — profile=fast</span><span class="code"><span class="pill ok">200</span></span></div>
+            <div class="ll info"><span class="ts">14:12:18</span><span class="src" style="color:var(--text3)">system</span><span class="msg">WAL watchdog — disk_free=847GB — append_p99=0.9ms — writable=true — healthy</span><span class="code"><span class="pill ok">OK</span></span></div>
+            <div class="ll ok"><span class="ts">14:10:03</span><span class="src">claude-desktop</span><span class="msg">GET /query/sqlite — profile=deep — semantic search — 7 candidates — reranked to 5 — 18ms</span><span class="code"><span class="pill ok">200</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ VIEW 2: SECURITY ══════════ -->
+      <div class="content" id="v2">
+        <div class="full-scroll">
+
+          <!-- Security Metrics -->
+          <div class="metric-grid">
+            <div class="metric-card green">
+              <div class="mc-label">auth failures (24h)</div>
+              <div class="mc-value" style="color:var(--amber)">3</div>
+              <div class="mc-sub">last: 14:21:33 · unknown_source</div>
+            </div>
+            <div class="metric-card green">
+              <div class="mc-label">policy denials (24h)</div>
+              <div class="mc-value" style="color:var(--red)">1</div>
+              <div class="mc-sub">source: open-webui · personal/health</div>
+            </div>
+            <div class="metric-card green">
+              <div class="mc-label">rate limit hits</div>
+              <div class="mc-value" style="color:var(--green)">0</div>
+              <div class="mc-sub">global: 2000/min · all clear</div>
+            </div>
+            <div class="metric-card green">
+              <div class="mc-label">WAL integrity</div>
+              <div class="mc-value" style="color:var(--green);font-size:14px">0 CRC fails</div>
+              <div class="mc-sub">HMAC: disabled · tamper: 0</div>
+            </div>
+          </div>
+
+          <!-- Source Policies -->
+          <div class="panel">
+            <div class="panel-hd"><span class="title">Source Policies</span><span style="margin-left:auto;font-size:9px;color:var(--text4)">compiled from sources/ · read-only view · edit via TOML</span></div>
+            <table class="tbl">
+              <thead><tr>
+                <th>source</th><th>can_read</th><th>can_write</th><th>subjects</th><th>destinations</th><th>profiles</th><th>rate limit</th><th>auth fails</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td style="color:var(--text)">claude-desktop</td>
+                  <td style="color:var(--green)">✓</td><td style="color:var(--green)">✓</td>
+                  <td style="color:var(--text2);font-size:9.5px">work/* · personal/*</td>
+                  <td style="color:var(--teal);font-size:9.5px">sqlite</td>
+                  <td style="font-size:9.5px">fast · balanced · deep</td>
+                  <td style="color:var(--text3)">2000/min</td>
+                  <td style="color:var(--green)">0</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--text)">perplexity-comet</td>
+                  <td style="color:var(--green)">✓</td><td style="color:var(--green)">✓</td>
+                  <td style="color:var(--text2);font-size:9.5px">*</td>
+                  <td style="color:var(--teal);font-size:9.5px">sqlite</td>
+                  <td style="font-size:9.5px">balanced · deep</td>
+                  <td style="color:var(--text3)">2000/min</td>
+                  <td style="color:var(--green)">0</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--text)">open-webui</td>
+                  <td style="color:var(--green)">✓</td><td style="color:var(--red)">✗</td>
+                  <td style="color:var(--text2);font-size:9.5px">work/*</td>
+                  <td style="color:var(--teal);font-size:9.5px">sqlite</td>
+                  <td style="font-size:9.5px">fast only</td>
+                  <td style="color:var(--text3)">500/min</td>
+                  <td style="color:var(--red)">2</td>
+                </tr>
+                <tr>
+                  <td style="color:var(--text)">cursor</td>
+                  <td style="color:var(--green)">✓</td><td style="color:var(--green)">✓</td>
+                  <td style="color:var(--text2);font-size:9.5px">work/code · work/arch</td>
+                  <td style="color:var(--teal);font-size:9.5px">sqlite</td>
+                  <td style="font-size:9.5px">fast · balanced</td>
+                  <td style="color:var(--text3)">1000/min</td>
+                  <td style="color:var(--green)">0</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Security Events + Hardening Status -->
+          <div style="display:flex;gap:0">
+            <div style="flex:1.2">
+              <div class="panel" style="margin-right:0">
+                <div class="panel-hd"><span class="title">Recent Security Events</span><span style="margin-left:auto;font-size:9px;color:var(--text4)">→ security-events.jsonl (SIEM)</span></div>
+                <div style="padding:0">
+                  <div class="ll err"><span class="ts">14:21:33</span><span class="src" style="color:var(--red);min-width:90px">auth_failure</span><span class="msg">source=bad-source · reason=unknown_source · ip=127.0.0.1 · endpoint=/inbound</span></div>
+                  <div class="ll err"><span class="ts">14:17:22</span><span class="src" style="color:var(--red);min-width:90px">auth_failure</span><span class="msg">source=open-webui · reason=wrong_token_class · ip=127.0.0.1 · endpoint=/query</span></div>
+                  <div class="ll warn"><span class="ts">09:04:11</span><span class="src" style="color:var(--amber);min-width:90px">policy_denied</span><span class="msg">source=open-webui · subject=personal/health · reason=subject_not_allowed</span></div>
+                  <div class="ll security"><span class="ts">08:00:01</span><span class="src" style="color:var(--purple);min-width:90px">admin_call</span><span class="msg">GET /api/status · /api/policies · /api/security/summary · from=127.0.0.1</span></div>
+                  <div class="ll ok"><span class="ts">04:05:00</span><span class="src" style="color:var(--green);min-width:90px">startup</span><span class="msg">config signature verified · WAL watchdog started · consistency assertions enabled</span></div>
+                </div>
+              </div>
+            </div>
+            <div style="flex:.8">
+              <div class="panel">
+                <div class="panel-hd"><span class="title">Hardening Status</span></div>
+                <div style="padding:6px 10px">
+                  <div class="kv-inline"><span class="k">deployment mode</span><span class="v"><span class="pill balanced" style="font-size:9px">balanced</span></span></div>
+                  <div class="kv-inline"><span class="k">TLS</span><span class="v" style="color:var(--amber)">disabled</span></div>
+                  <div class="kv-inline"><span class="k">mTLS</span><span class="v" style="color:var(--text3)">disabled</span></div>
+                  <div class="kv-inline"><span class="k">WAL HMAC</span><span class="v" style="color:var(--text3)">disabled</span></div>
+                  <div class="kv-inline"><span class="k">WAL encryption</span><span class="v" style="color:var(--text3)">disabled</span></div>
+                  <div class="kv-inline"><span class="k">config signing</span><span class="v" style="color:var(--amber)">off (signed-mode)</span></div>
+                  <div class="kv-inline"><span class="k">trusted proxies</span><span class="v" style="color:var(--text3)">none configured</span></div>
+                  <div class="kv-inline"><span class="k">JWT mapping</span><span class="v" style="color:var(--text3)">disabled</span></div>
+                  <div class="kv-inline"><span class="k">token timing</span><span class="v" style="color:var(--green)">constant-time ✓</span></div>
+                  <div class="kv-inline"><span class="k">bind address</span><span class="v" style="color:var(--green)">127.0.0.1 ✓</span></div>
+                  <div class="kv-inline"><span class="k">secrets in logs</span><span class="v" style="color:var(--green)">never ✓</span></div>
+                  <div style="margin-top:6px;padding:4px 6px;background:var(--amber3);border:1px solid var(--amber2);border-radius:4px;font-size:9.5px;color:var(--amber)">⚠ 2 lint warnings · run: bubblefish lint</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ══════════ VIEW 3: PIPELINE ══════════ -->
+      <div class="content" id="v3">
+        <div class="full-scroll">
+
+          <!-- Profile selector -->
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0">
+            <span style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">profile:</span>
+            <span class="profile-btn">fast</span>
+            <span class="profile-btn active">balanced</span>
+            <span class="profile-btn">deep</span>
+            <span style="margin-left:12px;font-size:9px;color:var(--text3)">decay:</span>
+            <span style="font-size:10px;color:var(--teal)">exponential · half_life=7d</span>
+            <span style="margin-left:auto;font-size:9px;color:var(--text3)">last query: 14:21:55 · perplexity · 7.2ms total</span>
+          </div>
+
+          <!-- 6-stage cascade visual -->
+          <div class="panel">
+            <div class="panel-hd"><span class="live-dot"></span><span class="title live">6-Stage Retrieval Cascade — Last Query</span></div>
+            <div style="padding:8px 6px">
+              <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px">
+                <div class="stage-box hit">
+                  <div class="sn">Stage 0</div>
+                  <div style="font-size:10px;color:var(--text3);margin:1px 0">policy gate</div>
+                  <div class="sv">✓ pass</div>
+                  <div class="sm">0.0ms · always</div>
+                </div>
+                <div class="stage-box hit">
+                  <div class="sn">Stage 1</div>
+                  <div style="font-size:10px;color:var(--text3);margin:1px 0">exact cache</div>
+                  <div class="sv">HIT</div>
+                  <div class="sm">0.4ms · LRU</div>
+                </div>
+                <div class="stage-box skip">
+                  <div class="sn">Stage 2</div>
+                  <div style="font-size:10px;color:var(--text4);margin:1px 0">semantic cache</div>
+                  <div class="sv" style="font-size:11px">SKIP</div>
+                  <div class="sm">short-circuit</div>
+                </div>
+                <div class="stage-box hit">
+                  <div class="sn">Stage 3</div>
+                  <div style="font-size:10px;color:var(--text3);margin:1px 0">structured SQL</div>
+                  <div class="sv">3 results</div>
+                  <div class="sm">2.7ms · indexed</div>
+                </div>
+                <div class="stage-box hit">
+                  <div class="sn">Stage 4</div>
+                  <div style="font-size:10px;color:var(--text3);margin:1px 0">vector search</div>
+                  <div class="sv">7 cands</div>
+                  <div class="sm">5.1ms · sqlite-vec</div>
+                </div>
+                <div class="stage-box hit">
+                  <div class="sn">Stage 5</div>
+                  <div style="font-size:10px;color:var(--text3);margin:1px 0">hybrid+decay</div>
+                  <div class="sv">→ 3 final</div>
+                  <div class="sm">1.7ms · reranked</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Per-stage latency bars -->
+          <div class="panel">
+            <div class="panel-hd"><span class="title">Per-Stage Latency Breakdown</span><span style="margin-left:auto;font-size:9px;color:var(--text3)">total: 7.2ms · profile: balanced · over-sample: 100</span></div>
+            <table class="tbl">
+              <thead><tr><th>stage</th><th>name</th><th>status</th><th>candidates</th><th>latency</th><th>% of total</th></tr></thead>
+              <tbody>
+                <tr><td style="color:var(--text3)">0</td><td>policy gate</td><td><span class="pill ok">pass</span></td><td>—</td><td>0.0ms</td><td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:1%;background:var(--green)"></div></div></div></td></tr>
+                <tr><td style="color:var(--text3)">1</td><td>exact cache</td><td><span class="pill ok">HIT</span></td><td>3</td><td>0.4ms</td><td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:6%;background:var(--green)"></div></div></div></td></tr>
+                <tr><td style="color:var(--text3)">2</td><td>semantic cache</td><td><span class="pill info">SKIP</span></td><td>—</td><td>—</td><td>—</td></tr>
+                <tr><td style="color:var(--text3)">3</td><td>structured lookup</td><td><span class="pill ok">3 results</span></td><td>3</td><td>2.7ms</td><td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:38%;background:var(--blue)"></div></div></div></td></tr>
+                <tr><td style="color:var(--text3)">4</td><td>semantic retrieval</td><td><span class="pill ok">7 cands</span></td><td>7</td><td>5.1ms</td><td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:71%;background:var(--purple)"></div></div></div></td></tr>
+                <tr><td style="color:var(--text3)">5</td><td>hybrid merge+decay</td><td><span class="pill ok">3 final</span></td><td>3</td><td>1.7ms</td><td><div class="ibar"><div class="ibar-track"><div class="ibar-fill" style="width:24%;background:var(--amber)"></div></div></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Throughput + Temporal decay params -->
+          <div style="display:flex;gap:0">
+            <div style="flex:1">
+              <div class="panel" style="margin-right:0">
+                <div class="panel-hd"><span class="title">Throughput — Last 60s</span></div>
+                <div style="padding:6px 10px">
+                  <div class="kv-inline"><span class="k">writes/sec</span><div class="ibar" style="flex:1"><div class="ibar-track"><div class="ibar-fill" style="width:22%;background:var(--green)"></div></div><span class="ibar-val" style="color:var(--green)">2.4 w/s</span></div></div>
+                  <div class="kv-inline"><span class="k">reads/sec</span><div class="ibar" style="flex:1"><div class="ibar-track"><div class="ibar-fill" style="width:41%;background:var(--blue)"></div></div><span class="ibar-val" style="color:var(--blue)">4.1 r/s</span></div></div>
+                  <div class="kv-inline"><span class="k">fast path hits</span><div class="ibar" style="flex:1"><div class="ibar-track"><div class="ibar-fill" style="width:34%;background:var(--teal)"></div></div><span class="ibar-val" style="color:var(--teal)">34%</span></div></div>
+                  <div class="kv-inline"><span class="k">viz events dropped</span><span class="v" style="color:var(--green)">0</span></div>
+                  <div class="kv-inline"><span class="k">event sink delivered</span><span class="v" style="color:var(--text3)">disabled</span></div>
+                </div>
+              </div>
+            </div>
+            <div style="flex:1">
+              <div class="panel">
+                <div class="panel-hd"><span class="title">Temporal Decay Config</span></div>
+                <div style="padding:6px 10px">
+                  <div class="kv-inline"><span class="k">mode</span><span class="v">exponential</span></div>
+                  <div class="kv-inline"><span class="k">half_life_days</span><span class="v" style="color:var(--teal)">7</span></div>
+                  <div class="kv-inline"><span class="k">algorithm</span><span class="v" style="font-size:9.5px;color:var(--text2)">(cos_sim × 0.7) + (e^(−λ·days) × 0.3)</span></div>
+                  <div class="kv-inline"><span class="k">over_sample</span><span class="v">100 (balanced)</span></div>
+                  <div class="kv-inline"><span class="k">deep over_sample</span><span class="v">500</span></div>
+                  <div class="kv-inline"><span class="k">deterministic</span><span class="v" style="color:var(--green)">yes ✓</span></div>
+                  <div class="kv-inline"><span class="k">per-collection</span><span class="v" style="color:var(--text3)">none configured</span></div>
+                  <div class="kv-inline"><span class="k">applied (24h)</span><span class="v" style="color:var(--purple)">2,847 times</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Network topology -->
+          <div class="panel">
+            <div class="panel-hd"><span class="title">Network Topology — Memory Flows</span></div>
+            <div style="padding:4px 0">
+              <div class="net-row"><span class="net-src">claude-desktop</span><span class="net-arrow">——MCP stdio——›</span><span class="net-dst">Nexus :7474</span><span class="net-bytes">1,247 writes</span><div class="net-bar-w"><div class="net-bar-f" style="width:78%;background:var(--green)"></div></div></div>
+              <div class="net-row"><span class="net-src">perplexity-comet</span><span class="net-arrow">—SSE GET /mcp——›</span><span class="net-dst">Nexus :7474</span><span class="net-bytes">518 writes</span><div class="net-bar-w"><div class="net-bar-f" style="width:34%;background:var(--teal)"></div></div></div>
+              <div class="net-row"><span class="net-src">open-webui</span><span class="net-arrow">—pipelines :9099——›</span><span class="net-dst">Nexus :8080</span><span class="net-bytes">183 writes</span><div class="net-bar-w"><div class="net-bar-f" style="width:12%;background:var(--amber)"></div></div></div>
+              <div class="net-row"><span class="net-src">cursor</span><span class="net-arrow">—HTTP POST——›</span><span class="net-dst">Nexus :8080</span><span class="net-bytes">92 writes</span><div class="net-bar-w"><div class="net-bar-f" style="width:6%;background:var(--purple)"></div></div></div>
+              <div class="net-row"><span class="net-src">cloudflare tunnel</span><span class="net-arrow">—HTTPS →— :7474</span><span class="net-dst">Nexus :7474</span><span class="net-bytes" style="color:var(--green)">● live</span><div class="net-bar-w"><div class="net-bar-f" style="width:100%;background:var(--green);opacity:.4"></div></div></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ══════════ VIEW 4: CONFLICTS ══════════ -->
+      <div class="content" id="v4">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0">
+          <span style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Filter:</span>
+          <span class="profile-btn active">all subjects</span>
+          <span class="profile-btn">work/*</span>
+          <span class="profile-btn">personal/*</span>
+          <span style="margin-left:12px;font-size:9px;color:var(--text3)">actor:</span>
+          <span class="profile-btn active">all</span>
+          <span class="profile-btn">user</span>
+          <span class="profile-btn">agent</span>
+          <span style="margin-left:auto;font-size:10px;color:var(--amber)">⚠ 2 conflict groups detected · read-only · resolve via CLI</span>
+        </div>
+        <div class="full-scroll" style="padding:4px 0">
+
+          <div class="conflict-card">
+            <div class="conflict-subject">
+              <span style="color:var(--text3)">⚡</span>
+              subject: <span style="color:var(--teal)">personal/health</span>
+              <span style="color:var(--text3)">·</span>
+              entity_key: <span style="color:var(--amber)">current_weight</span>
+              <span class="pill warn" style="margin-left:auto">2 conflicting</span>
+            </div>
+            <div class="conflict-entry">
+              <span style="color:var(--text4);font-size:11px;flex-shrink:0">A</span>
+              <div>
+                <div class="conflict-content">"My current weight is 185 lbs"</div>
+                <div class="conflict-meta">source: claude-desktop · actor: user · 2026-04-05T09:12:00Z · id=3a7f · <span style="color:var(--green)">older</span></div>
+              </div>
+            </div>
+            <div class="conflict-entry">
+              <span style="color:var(--teal);font-size:11px;flex-shrink:0">B</span>
+              <div>
+                <div class="conflict-content">"I weigh about 178 pounds right now"</div>
+                <div class="conflict-meta">source: perplexity-comet · actor: user · 2026-04-06T14:03:00Z · id=4d2a · <span style="color:var(--teal)">newer — decay favors this</span></div>
+              </div>
+            </div>
+            <div style="margin-top:6px;padding:4px 8px;background:var(--bg4);border-radius:3px;font-size:9.5px;color:var(--text3)">
+              temporal decay score: A=0.41 · B=0.78 · B ranked higher · resolution: allow temporal decay or delete A manually
+            </div>
+          </div>
+
+          <div class="conflict-card">
+            <div class="conflict-subject">
+              <span style="color:var(--text3)">⚡</span>
+              subject: <span style="color:var(--teal)">work/project</span>
+              <span style="color:var(--text3)">·</span>
+              entity_key: <span style="color:var(--amber)">deadline</span>
+              <span class="pill warn" style="margin-left:auto">2 conflicting</span>
+            </div>
+            <div class="conflict-entry">
+              <span style="color:var(--text4);font-size:11px;flex-shrink:0">A</span>
+              <div>
+                <div class="conflict-content">"The launch deadline is April 15th"</div>
+                <div class="conflict-meta">source: claude-desktop · actor: user · 2026-04-04T10:00:00Z · id=2c1a · <span style="color:var(--red)">older — may be stale</span></div>
+              </div>
+            </div>
+            <div class="conflict-entry">
+              <span style="color:var(--teal);font-size:11px;flex-shrink:0">B</span>
+              <div>
+                <div class="conflict-content">"We pushed the deadline to April 22nd due to scope changes"</div>
+                <div class="conflict-meta">source: open-webui · actor: user · 2026-04-07T08:30:00Z · id=4f10 · <span style="color:var(--teal)">newer — decay favors this</span></div>
+              </div>
+            </div>
+            <div style="margin-top:6px;padding:4px 8px;background:var(--bg4);border-radius:3px;font-size:9.5px;color:var(--text3)">
+              temporal decay score: A=0.22 · B=0.91 · B ranked higher · heuristic: left side of "is" pattern
+            </div>
+          </div>
+
+          <div style="padding:8px 10px;font-size:10px;color:var(--text3)">
+            <span style="color:var(--teal)">r</span> resolve selected &nbsp;·&nbsp;
+            <span style="color:var(--teal)">d</span> delete older entry &nbsp;·&nbsp;
+            <span style="color:var(--teal)">/</span> filter &nbsp;·&nbsp;
+            <span style="color:var(--teal)">bubblefish conflicts --resolve</span> for CLI resolution
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ══════════ VIEW 5: TIME-TRAVEL ══════════ -->
+      <div class="content" id="v5">
+        <div class="tt-controls">
+          <span class="tt-label">as_of (RFC3339):</span>
+          <input class="tt-input" id="tt-input" value="2026-04-06T14:00:00Z" />
+          <button class="tt-btn" onclick="runTT()">query ↵</button>
+          <span style="margin-left:12px;font-size:9px;color:var(--text3)">subject filter:</span>
+          <input class="tt-input" style="width:130px" placeholder="work/* (optional)" />
+          <div class="tt-profile" style="margin-left:8px">
+            <span class="profile-btn active">fast</span>
+            <span class="profile-btn">balanced</span>
+            <span class="profile-btn">deep</span>
+          </div>
+        </div>
+        <div style="padding:4px 10px;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2)">
+          Showing memory state at <span style="color:var(--teal)" id="tt-ts">2026-04-06T14:00:00Z</span> — <span id="tt-count" style="color:var(--text)">4 entries</span> — WHERE timestamp &lt;= as_of · read-only · no data modification
+        </div>
+        <div class="full-scroll">
+          <table class="tbl" id="tt-table">
+            <thead><tr>
+              <th>#</th><th>payload_id</th><th>subject</th><th>content (truncated)</th><th>source</th><th>actor</th><th>timestamp</th><th>decay score</th>
+            </tr></thead>
+            <tbody id="tt-tbody">
+              <tr><td style="color:var(--text3)">1</td><td style="color:var(--text3);font-size:9.5px">4f29</td><td style="color:var(--teal)">personal/health</td><td style="color:var(--text)">My current weight is 185 lbs and I've been...</td><td>claude-desktop</td><td><span class="prov user">user</span></td><td style="color:var(--text3);font-size:9.5px">2026-04-05T09:12:00Z</td><td style="color:var(--green)">0.78</td></tr>
+              <tr><td style="color:var(--text3)">2</td><td style="color:var(--text3);font-size:9.5px">4d21</td><td style="color:var(--teal)">work/project</td><td style="color:var(--text)">The launch deadline is April 15th for the BubbleFish...</td><td>claude-desktop</td><td><span class="prov user">user</span></td><td style="color:var(--text3);font-size:9.5px">2026-04-04T10:00:00Z</td><td style="color:var(--amber)">0.45</td></tr>
+              <tr><td style="color:var(--text3)">3</td><td style="color:var(--text3);font-size:9.5px">3c88</td><td style="color:var(--teal)">work/code</td><td style="color:var(--text)">I prefer Go over Python for systems code because...</td><td>cursor</td><td><span class="prov agent">agent</span></td><td style="color:var(--text3);font-size:9.5px">2026-04-03T15:30:00Z</td><td style="color:var(--amber)">0.41</td></tr>
+              <tr><td style="color:var(--text3)">4</td><td style="color:var(--text3);font-size:9.5px">2a14</td><td style="color:var(--teal)">personal/prefs</td><td style="color:var(--text)">I like my coffee black, no sugar, prefer pour-over...</td><td>claude-desktop</td><td><span class="prov user">user</span></td><td style="color:var(--text3);font-size:9.5px">2026-04-02T08:15:00Z</td><td style="color:var(--red)">0.22</td></tr>
+            </tbody>
+          </table>
+          <div style="padding:8px 10px;font-size:10px;color:var(--text3)">
+            _nexus: stage=timetravel · result_count=4 · as_of=2026-04-06T14:00:00Z · consistency_score=1.00 · temporal_decay_applied=true
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ VIEW 6: SETTINGS ══════════ -->
+      <div class="content" id="v6">
+        <div class="full-scroll">
+
+          <div class="setting-group">
+            <div class="setting-group-title">Daemon</div>
+            <div class="setting-row"><span class="setting-key">deployment_mode</span><span class="setting-val"><span class="pill balanced">balanced</span></span></div>
+            <div class="setting-row"><span class="setting-key">bind</span><span class="setting-val">127.0.0.1:8080</span></div>
+            <div class="setting-row"><span class="setting-key">log_level</span><span class="setting-val">info</span></div>
+            <div class="setting-row"><span class="setting-key">log_format</span><span class="setting-val">json</span></div>
+            <div class="setting-row"><span class="setting-key">shutdown_timeout_seconds</span><span class="setting-val">30</span></div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">WAL</div>
+            <div class="setting-row"><span class="setting-key">wal.path</span><span class="setting-val" style="font-size:9.5px">D:\Test\BubbleFish\v010-dogfood\home\wal</span></div>
+            <div class="setting-row"><span class="setting-key">wal.max_segment_size_mb</span><span class="setting-val">50</span></div>
+            <div class="setting-row"><span class="setting-key">wal.integrity.mode</span><span class="setting-val" style="color:var(--green)">crc32</span></div>
+            <div class="setting-row"><span class="setting-key">wal.encryption.enabled</span><div class="toggle off"></div></div>
+            <div class="setting-row"><span class="setting-key">wal.watchdog.interval_seconds</span><span class="setting-val">30</span></div>
+            <div class="setting-row"><span class="setting-key">wal.watchdog.min_disk_bytes</span><span class="setting-val">104857600 (100MB)</span></div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">Security</div>
+            <div class="setting-row"><span class="setting-key">tls.enabled</span><div class="toggle off"></div></div>
+            <div class="setting-row"><span class="setting-key">trusted_proxies</span><span class="setting-val" style="color:var(--text3)">(none)</span></div>
+            <div class="setting-row"><span class="setting-key">jwt.enabled</span><div class="toggle off"></div></div>
+            <div class="setting-row"><span class="setting-key">security_events.enabled</span><div class="toggle on"></div></div>
+            <div class="setting-row"><span class="setting-key">security_events.log_file</span><span class="setting-val" style="font-size:9.5px">…\home\logs\security-events.jsonl</span></div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">Retrieval</div>
+            <div class="setting-row"><span class="setting-key">retrieval.default_profile</span><span class="setting-val">balanced</span></div>
+            <div class="setting-row"><span class="setting-key">retrieval.time_decay</span><div class="toggle on"></div></div>
+            <div class="setting-row"><span class="setting-key">retrieval.half_life_days</span><span class="setting-val">7</span></div>
+            <div class="setting-row"><span class="setting-key">retrieval.decay_mode</span><span class="setting-val">exponential</span></div>
+            <div class="setting-row"><span class="setting-key">retrieval.over_sample_factor</span><span class="setting-val">100</span></div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">MCP Server</div>
+            <div class="setting-row"><span class="setting-key">mcp.enabled</span><div class="toggle on"></div></div>
+            <div class="setting-row"><span class="setting-key">mcp.port</span><span class="setting-val">7474</span></div>
+            <div class="setting-row"><span class="setting-key">mcp.source_name</span><span class="setting-val">default</span></div>
+            <div class="setting-row"><span class="setting-key">mcp.api_key</span><span class="setting-val" style="color:var(--text3)">bfn_mcp_473a…8057</span></div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">Embedding</div>
+            <div class="setting-row"><span class="setting-key">embedding.enabled</span><div class="toggle on"></div></div>
+            <div class="setting-row"><span class="setting-key">embedding.provider</span><span class="setting-val">ollama</span></div>
+            <div class="setting-row"><span class="setting-key">embedding.model</span><span class="setting-val">nomic-embed-text</span></div>
+            <div class="setting-row"><span class="setting-key">embedding.dimensions</span><span class="setting-val">768</span></div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-group-title">Consistency Assertions</div>
+            <div class="setting-row"><span class="setting-key">consistency.enabled</span><div class="toggle on"></div></div>
+            <div class="setting-row"><span class="setting-key">consistency.interval_seconds</span><span class="setting-val">300</span></div>
+            <div class="setting-row"><span class="setting-key">consistency.sample_size</span><span class="setting-val">100</span></div>
+          </div>
+
+          <div style="padding:8px 10px;font-size:10px;color:var(--text3)">
+            Settings are read-only in TUI. Edit <span style="color:var(--teal)">daemon.toml</span> directly · then <span style="color:var(--teal)">bubblefish build</span> · hot-reload: source configs only · full restart for all other changes
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /main -->
+  </div><!-- /body -->
+
+  <!-- STATUSBAR -->
+  <div class="statusbar">
+    <div class="sb-kv"><span class="k">status</span><span class="v ok">● live</span></div>
+    <div class="sb-kv"><span class="k">wal</span><span class="v ok">0 pending</span></div>
+    <div class="sb-kv"><span class="k">consistency</span><span class="v ok" id="sb-cons">1.00</span></div>
+    <div class="sb-kv"><span class="k">sources</span><span class="v">3 active</span></div>
+    <div class="sb-kv"><span class="k">writes</span><span class="v" id="sb-wps">2.4/s</span></div>
+    <div class="sb-kv"><span class="k">reads</span><span class="v" id="sb-rps">4.1/s</span></div>
+    <div class="sb-kv"><span class="k">cache</span><span class="v ok">91%</span></div>
+    <div class="keyhints">
+      <div class="kh"><span class="key">1-7</span>tabs</div>
+      <div class="kh"><span class="key">j/k</span>nav</div>
+      <div class="kh"><span class="key">/</span>filter</div>
+      <div class="kh"><span class="key">r</span>refresh</div>
+      <div class="kh"><span class="key">?</span>help</div>
+      <div class="kh"><span class="key">q</span>quit</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Tab switching ──
+const tabs = document.querySelectorAll('.tab');
+const views = document.querySelectorAll('.content');
+tabs.forEach(t => {
+  t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('active'));
+    views.forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('v' + t.dataset.v).classList.add('active');
+  });
+});
+
+// ── Keyboard nav ──
+document.addEventListener('keydown', e => {
+  if (e.key >= '1' && e.key <= '7') {
+    const idx = parseInt(e.key) - 1;
+    if (tabs[idx]) tabs[idx].click();
+  }
+});
+
+// ── Build sparklines ──
+function buildSpark(id, color, vals) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const max = Math.max(...vals, 1);
+  el.innerHTML = vals.map(v => {
+    const h = Math.max(4, Math.round((v / max) * 22));
+    return `<div class="spark-bar" style="height:${h}px;background:${color};opacity:.8"></div>`;
+  }).join('');
+}
+
+let wpsData = [1.8,2.1,1.9,2.4,2.2,2.8,2.4,2.1,2.6,2.4,2.3,2.4];
+let rpsData = [3.1,3.8,4.1,3.9,4.2,4.0,3.7,4.1,4.4,4.1,3.9,4.1];
+
+buildSpark('wps-spark','#3dd68c', wpsData);
+buildSpark('rps-spark','#a78bfa', rpsData);
+
+// ── WAL viz bars ──
+function buildWAL() {
+  const el = document.getElementById('wal-vis');
+  if (!el) return;
+  const vals = [2,5,8,3,12,7,4,9,6,11,3,8,5,2,7,10,4,6,8,3];
+  const max = Math.max(...vals);
+  el.innerHTML = vals.map(v => {
+    const h = Math.max(4, Math.round((v / max) * 40));
+    return `<div class="wbar" style="height:${h}px"></div>`;
+  }).join('');
+}
+buildWAL();
+
+// ── Heat grid ──
+function buildHeat() {
+  const el = document.getElementById('heat-grid');
+  if (!el) return;
+  const classes = ['','h1','h1','h2','h2','h2','h3','h3','h4','h3','h3','h2','h2','h1','h2','h3','h2','h2','h3','h4','h3','h2','h1',''];
+  el.innerHTML = classes.map(c => `<div class="heat-cell ${c}" title="writes: ${c?Math.floor(Math.random()*100+1):0}"></div>`).join('');
+}
+buildHeat();
+
+// ── Live updates ──
+let uptimeSeconds = 4*3600 + 17*60 + 32;
+setInterval(() => {
+  uptimeSeconds++;
+  const h = Math.floor(uptimeSeconds/3600);
+  const m = Math.floor((uptimeSeconds%3600)/60);
+  const s = uptimeSeconds % 60;
+  const str = h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+  const el = document.getElementById('uptime-display');
+  const chip = document.getElementById('chip');
+  if (el) el.textContent = str.replace(/0h /,'');
+  if (chip) chip.textContent = '↑ ' + String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}, 1000);
+
+// Slowly animate metrics
+setInterval(() => {
+  const wVar = (Math.random() * 0.6 - 0.3);
+  const rVar = (Math.random() * 0.8 - 0.4);
+  const newW = Math.max(0.1, 2.4 + wVar);
+  const newR = Math.max(0.1, 4.1 + rVar);
+
+  const wEl = document.getElementById('wps');
+  const rEl = document.getElementById('rps');
+  const sbW = document.getElementById('sb-wps');
+  const sbR = document.getElementById('sb-rps');
+
+  if (wEl) wEl.textContent = newW.toFixed(1);
+  if (rEl) rEl.textContent = newR.toFixed(1);
+  if (sbW) sbW.textContent = newW.toFixed(1) + '/s';
+  if (sbR) sbR.textContent = newR.toFixed(1) + '/s';
+
+  wpsData = [...wpsData.slice(1), newW];
+  rpsData = [...rpsData.slice(1), newR];
+  buildSpark('wps-spark','#3dd68c', wpsData);
+  buildSpark('rps-spark','#a78bfa', rpsData);
+}, 2000);
+
+// ── Time travel ──
+function runTT() {
+  const ts = document.getElementById('tt-input').value;
+  const tsEl = document.getElementById('tt-ts');
+  if (tsEl) tsEl.textContent = ts;
+}
+
+// ── Profile button clicks ──
+document.querySelectorAll('.profile-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const parent = this.parentElement;
+    parent.querySelectorAll('.profile-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

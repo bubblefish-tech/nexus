@@ -8,7 +8,7 @@
     "extensions": ["./index.ts"]
   },
   "keywords": ["openclaw", "memory", "nexus", "bubblefish", "local-first"],
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "author": "BubbleFish Technologies, Inc.",
   "homepage": "https://github.com/bubblefish-tech/nexus",
   "peerDependencies": {

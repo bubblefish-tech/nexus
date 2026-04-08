@@ -55,6 +55,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  audit        query, export, and tail the interaction audit log")
 		fmt.Fprintln(os.Stderr, "  stop         gracefully stop a running bubblefish daemon")
 	fmt.Fprintln(os.Stderr, "  status       show daemon health and resolved paths")
+		fmt.Fprintln(os.Stderr, "  tui          interactive terminal dashboard (Bubble Tea)")
 		fmt.Fprintln(os.Stderr, "  doctor       run configuration and connectivity health checks")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
@@ -89,6 +90,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "bubblefish mcp: unknown subcommand %q\n", os.Args[2])
 			os.Exit(1)
 		}
+	case "tui":
+		runTUI()
 	case "doctor":
 		runDoctor()
 	case "stop":

@@ -41,7 +41,14 @@
       "Bash(wait)",
       "Bash(curl -s -X POST http://127.0.0.1:8090/api/shutdown -H 'Authorization: Bearer bfn_admin_4a3238b5ca146d82f552a03296276a6c5591d4886fbbbfa0ca4f0fe30e999ded')",
       "Bash(D:/Test/BubbleFish/v010-dogfood/bubblefish.exe stop:*)",
-      "Bash(./bubblefish.exe mcp:*)"
+      "Bash(./bubblefish.exe mcp:*)",
+      "Bash(go get:*)",
+      "Bash(BUBBLEFISH_HOME=\"D:/Test/BubbleFish/v010-dogfood/home\" ./bubblefish.exe stop)",
+      "Bash(BUBBLEFISH_HOME=\"D:/Test/BubbleFish/v010-dogfood/home\" ./bubblefish.exe start)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:7474/mcp)"
     ]
-  }
+  },
+  "disabledMcpjsonServers": [
+    "bubblefish-nexus"
+  ]
 }
