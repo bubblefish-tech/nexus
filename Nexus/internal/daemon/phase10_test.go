@@ -106,6 +106,22 @@ func TestPhase10_ConsistencyScore_AllDelivered(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 
+	// Wait for WAL batch flush — the queue worker batches MarkDeliveredBatch
+	// calls on a 100ms timer, so entries may not be marked DELIVERED yet even
+	// though they are already in SQLite. Poll the WAL directly until all
+	// entries are marked DELIVERED.
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		n, err := d.WALDeliveredCount(total)
+		if err != nil {
+			t.Fatalf("WALDeliveredCount: %v", err)
+		}
+		if n == total {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	// Run consistency check — all delivered, score must be 1.0.
 	d.RunConsistencyCheck(total)
 

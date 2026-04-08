@@ -279,6 +279,13 @@ func (d *Daemon) ConsistencyScore() float64 {
 	return math.Float64frombits(d.consistencyScore.Load())
 }
 
+// WALDeliveredCount returns the number of DELIVERED entries in the WAL.
+// Used by tests to wait for the queue worker's batch flush to complete.
+func (d *Daemon) WALDeliveredCount(sampleSize int) (int, error) {
+	entries, err := d.wal.SampleDelivered(sampleSize)
+	return len(entries), err
+}
+
 // SetAuditReader sets the audit reader for testing.
 func (d *Daemon) SetAuditReader(r *audit.AuditReader) {
 	d.auditReader = r

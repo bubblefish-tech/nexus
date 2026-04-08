@@ -152,6 +152,9 @@ func Open(dir string, maxSizeMB int64, logger *slog.Logger, opts ...Option) (*WA
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("wal: create directory: %w", err)
 	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return nil, fmt.Errorf("wal: chmod directory: %w", err)
+	}
 	w := &WAL{
 		dir:           dir,
 		maxSize:       maxSizeMB << 20,
