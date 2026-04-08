@@ -236,7 +236,7 @@ func sendWrite(client *http.Client, opts Options, index int) (float64, error) {
 
 	t0 := time.Now()
 	resp, err := client.Do(req)
-	dur := float64(time.Since(t0).Microseconds()) / 1000.0 // ms
+	dur := float64(time.Since(t0).Nanoseconds()) / 1e6 // ms, nanosecond precision
 	if err != nil {
 		return 0, err
 	}
@@ -375,7 +375,7 @@ func sendQuery(client *http.Client, opts Options) (float64, *debugPayload, error
 
 	t0 := time.Now()
 	resp, err := client.Do(req)
-	dur := float64(time.Since(t0).Microseconds()) / 1000.0
+	dur := float64(time.Since(t0).Nanoseconds()) / 1e6 // ms, nanosecond precision
 	if err != nil {
 		return 0, nil, err
 	}
