@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -406,6 +407,38 @@ func resolveAndValidate(cfg *Config, configDir string, logger *slog.Logger) erro
 	// Validate WAL path is set (default to config dir if empty).
 	if cfg.Daemon.WAL.Path == "" {
 		cfg.Daemon.WAL.Path = filepath.Join(configDir, "wal")
+	}
+
+	// Validate OAuth config if enabled.
+	// Reference: Post-Build Add-On Update Technical Specification Section 6.2.
+	if cfg.Daemon.OAuth.Enabled {
+		if cfg.Daemon.OAuth.IssuerURL == "" {
+			return fmt.Errorf("SCHEMA_ERROR: oauth.issuer_url is required when oauth is enabled")
+		}
+		// private_key_file MUST use file: reference. Plain literals are rejected.
+		pkf := cfg.Daemon.OAuth.PrivateKeyFile
+		if pkf != "" && !strings.HasPrefix(pkf, "file:") && !strings.HasPrefix(pkf, "env:") {
+			return fmt.Errorf("SCHEMA_ERROR: oauth.private_key_file must use file: or env: reference, not a plain literal")
+		}
+		if len(cfg.Daemon.OAuth.Clients) == 0 {
+			if logger != nil {
+				logger.Warn("oauth enabled but no clients registered",
+					"component", "config",
+				)
+			}
+		}
+		if !strings.HasPrefix(cfg.Daemon.OAuth.IssuerURL, "https://") {
+			// Allow localhost for development.
+			if !strings.Contains(cfg.Daemon.OAuth.IssuerURL, "localhost") &&
+				!strings.Contains(cfg.Daemon.OAuth.IssuerURL, "127.0.0.1") {
+				if logger != nil {
+					logger.Warn("oauth issuer_url should use HTTPS",
+						"component", "config",
+						"issuer_url", cfg.Daemon.OAuth.IssuerURL,
+					)
+				}
+			}
+		}
 	}
 
 	return nil

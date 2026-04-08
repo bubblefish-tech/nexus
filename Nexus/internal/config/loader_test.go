@@ -377,6 +377,71 @@ func TestLoader_WALDefaultsRelativeToConfigDir(t *testing.T) {
 	}
 }
 
+func TestOAuthConfigEnabledNoIssuer(t *testing.T) {
+	dir := t.TempDir()
+	daemonTOML := minimalDaemonTOML("admin-key") + `
+[daemon.oauth]
+enabled = true
+issuer_url = ""
+`
+	writeTOML(t, filepath.Join(dir, "daemon.toml"), daemonTOML)
+	_, err := config.Load(dir, nil)
+	if err == nil {
+		t.Fatal("Load: expected SCHEMA_ERROR for enabled OAuth with empty issuer_url")
+	}
+	if !strings.Contains(err.Error(), "SCHEMA_ERROR") {
+		t.Errorf("error %q should contain SCHEMA_ERROR", err.Error())
+	}
+	if !strings.Contains(err.Error(), "issuer_url") {
+		t.Errorf("error %q should mention issuer_url", err.Error())
+	}
+}
+
+func TestOAuthConfigPlainLiteralKey(t *testing.T) {
+	dir := t.TempDir()
+	daemonTOML := minimalDaemonTOML("admin-key") + `
+[daemon.oauth]
+enabled = true
+issuer_url = "https://example.com"
+private_key_file = "-----BEGIN RSA PRIVATE KEY-----"
+`
+	writeTOML(t, filepath.Join(dir, "daemon.toml"), daemonTOML)
+	_, err := config.Load(dir, nil)
+	if err == nil {
+		t.Fatal("Load: expected SCHEMA_ERROR for plain literal private_key_file")
+	}
+	if !strings.Contains(err.Error(), "SCHEMA_ERROR") {
+		t.Errorf("error %q should contain SCHEMA_ERROR", err.Error())
+	}
+}
+
+func TestOAuthConfigDisabled(t *testing.T) {
+	dir := setupValidConfig(t)
+	cfg, err := config.Load(dir, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Daemon.OAuth.Enabled {
+		t.Error("OAuth should be disabled by default")
+	}
+}
+
+func TestOAuthConfigNoClients(t *testing.T) {
+	dir := t.TempDir()
+	daemonTOML := minimalDaemonTOML("admin-key") + `
+[daemon.oauth]
+enabled = true
+issuer_url = "https://example.com"
+private_key_file = "file:/tmp/key.pem"
+`
+	writeTOML(t, filepath.Join(dir, "daemon.toml"), daemonTOML)
+	// Should load successfully (warn only, not error).
+	_, err := config.Load(dir, nil)
+	if err != nil {
+		t.Fatalf("Load: unexpected error: %v", err)
+	}
+}
+
 func TestLoader_AuditLogDefaultsToConfigDir(t *testing.T) {
 	dir := setupValidConfig(t)
 

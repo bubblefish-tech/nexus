@@ -55,6 +55,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  audit        query, export, and tail the interaction audit log")
 		fmt.Fprintln(os.Stderr, "  stop         gracefully stop a running bubblefish daemon")
 	fmt.Fprintln(os.Stderr, "  status       show daemon health and resolved paths")
+		fmt.Fprintln(os.Stderr, "  doctor       run configuration and connectivity health checks")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
@@ -88,6 +89,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "bubblefish mcp: unknown subcommand %q\n", os.Args[2])
 			os.Exit(1)
 		}
+	case "doctor":
+		runDoctor()
 	case "stop":
 		runStop(os.Args[2:])
 	case "status":
@@ -106,7 +109,7 @@ func main() {
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish: unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|stop|dev|build|lint|status|audit|backup|bench|demo|sign-config|mcp|version>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish <install|start|stop|dev|build|lint|doctor|status|audit|backup|bench|demo|sign-config|mcp|version>")
 		os.Exit(1)
 	}
 }

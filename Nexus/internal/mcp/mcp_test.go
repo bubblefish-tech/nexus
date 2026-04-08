@@ -679,3 +679,149 @@ func runSelfTest() error {
 
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// Phase OA-5: JWT authentication in MCP server
+// ---------------------------------------------------------------------------
+
+// mockJWTValidator implements mcp.JWTValidator for testing.
+type mockJWTValidator struct {
+	validTokens map[string]bool
+}
+
+func (m *mockJWTValidator) ValidateAccessToken(token string) bool {
+	return m.validTokens[token]
+}
+
+func TestMCPAuthenticate_ValidJWT(t *testing.T) {
+	pipeline := newTestPipeline()
+	_, baseURL, stop := startServer(t, pipeline, "bfn_mcp_statickey123")
+	defer stop()
+
+	// We can't use SetOAuthServer on the server returned by startServer directly
+	// because it's already started. Instead, test at the HTTP level by creating
+	// a server with an oauth validator.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	_ = baseURL // unused, using our own server
+
+	validator := &mockJWTValidator{validTokens: map[string]bool{
+		"valid-jwt-token-abc123": true,
+	}}
+
+	srv := mcp.New("127.0.0.1", port, []byte("bfn_mcp_statickey123"), "test-source", pipeline, nil)
+	srv.SetOAuthServer(validator)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srv.Stop() }()
+
+	jwtURL := "http://" + srv.Addr() + "/mcp"
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp := rpcCall(t, client, jwtURL, "valid-jwt-token-abc123", "ping", nil)
+	if resp["error"] != nil {
+		t.Fatalf("expected valid JWT to authenticate, got error: %v", resp["error"])
+	}
+}
+
+func TestMCPAuthenticate_ExpiredJWT(t *testing.T) {
+	pipeline := newTestPipeline()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	validator := &mockJWTValidator{validTokens: map[string]bool{}}
+
+	srv := mcp.New("127.0.0.1", port, []byte("bfn_mcp_statickey123"), "test-source", pipeline, nil)
+	srv.SetOAuthServer(validator)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srv.Stop() }()
+
+	url := "http://" + srv.Addr() + "/mcp"
+	body := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer expired-jwt-token")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for expired JWT, got %d", resp.StatusCode)
+	}
+}
+
+func TestMCPAuthenticate_OAuthDisabled_JWTRejected(t *testing.T) {
+	pipeline := newTestPipeline()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	// No SetOAuthServer — oauth is disabled.
+	srv := mcp.New("127.0.0.1", port, []byte("bfn_mcp_statickey123"), "test-source", pipeline, nil)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srv.Stop() }()
+
+	url := "http://" + srv.Addr() + "/mcp"
+	body := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer some-jwt-looking-token")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when OAuth disabled and JWT provided, got %d", resp.StatusCode)
+	}
+}
+
+func TestMCPAuthenticate_StaticKeyStillWorks(t *testing.T) {
+	pipeline := newTestPipeline()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	validator := &mockJWTValidator{validTokens: map[string]bool{}}
+
+	srv := mcp.New("127.0.0.1", port, []byte("bfn_mcp_statickey123"), "test-source", pipeline, nil)
+	srv.SetOAuthServer(validator)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srv.Stop() }()
+
+	url := "http://" + srv.Addr() + "/mcp"
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// bfn_mcp_ static key must still work even with OAuth enabled.
+	resp := rpcCall(t, client, url, "bfn_mcp_statickey123", "ping", nil)
+	if resp["error"] != nil {
+		t.Fatalf("expected bfn_mcp_ static key to still work with OAuth enabled, got error: %v", resp["error"])
+	}
+}

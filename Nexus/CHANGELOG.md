@@ -4,6 +4,30 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2] — 2026-04-07
+
+### Added
+
+- **OAuth 2.1 Authorization Server** — full RFC 8414 compliant OAuth server enabling ChatGPT and other OAuth-only MCP clients to connect to Nexus
+- **4 new HTTP endpoints** — `/.well-known/oauth-authorization-server`, `/oauth/authorize`, `/oauth/token`, `/oauth/jwks`
+- **RSA-2048 key management** — auto-generated on first start, PEM storage with 0600 permissions
+- **JWT access tokens** — RS256 signed, 1hr TTL, `bfn_source` claim for source mapping
+- **PKCE (S256)** — proof key for code exchange; `plain` method rejected
+- **Self-contained consent page** — branded HTML with no external dependencies
+- **In-memory auth code store** — thread-safe, 5-minute TTL, single-use, automatic purge
+- **MCP authenticate() extension** — JWT acceptance alongside existing `bfn_mcp_` static keys (backward compatible)
+- **`[daemon.oauth]` config block** — full configuration in daemon.toml with client registration
+- **`bubblefish install --oauth-issuer`** — install flag for OAuth setup
+- **Doctor OAuth checks** — issuer_url, key file, client registration, HTTPS validation
+
+### Security
+
+- PKCE verification uses `subtle.ConstantTimeCompare` — never `==`
+- Auth codes are single-use — deleted before JWT issuance
+- `redirect_uri` mismatch returns 400, never redirects
+- `private_key_file` as plain literal refused at startup (`SCHEMA_ERROR`)
+- Private key never appears in logs, responses, or error messages
+
 ## [0.1.0] — 2026-04-06
 
 Initial public release.

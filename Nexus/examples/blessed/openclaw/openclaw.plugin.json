@@ -1,0 +1,9 @@
+{
+  "id": "bubblefish-nexus",
+  "name": "BubbleFish Nexus",
+  "description": "Sovereign local-first AI memory. Connects OpenClaw to your BubbleFish Nexus daemon — write, search, and retrieve memories across all your AI tools.",
+  "version": "1.0.0",
+  "author": "BubbleFish Technologies, Inc.",
+  "homepage": "https://github.com/bubblefish-tech/nexus",
+  "license": "MIT"
+}

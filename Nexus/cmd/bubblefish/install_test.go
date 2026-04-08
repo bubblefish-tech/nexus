@@ -85,7 +85,7 @@ func TestBuildDaemonTOML(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, _ := buildDaemonTOML("/test/config", tt.mode, "test-admin-key", "test-mcp-key")
+			result, _ := buildDaemonTOML("/test/config", tt.mode, "test-admin-key", "test-mcp-key", "")
 			for _, w := range tt.want {
 				if !strings.Contains(result, w) {
 					t.Errorf("mode=%s: expected %q in output", tt.mode, w)
@@ -885,7 +885,7 @@ func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
 			t.Fatalf("UserHomeDir: %v", err)
 		}
 		defaultDir := filepath.Join(home, ".bubblefish", "Nexus")
-		content, _ := buildDaemonTOML(defaultDir, "balanced", "test-key", "test-mcp-key")
+		content, _ := buildDaemonTOML(defaultDir, "balanced", "test-key", "test-mcp-key", "")
 
 		var parsed daemonPaths
 		if _, err := toml.Decode(content, &parsed); err != nil {
@@ -908,7 +908,7 @@ func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
 
 	t.Run("SandboxPath", func(t *testing.T) {
 		sandbox := t.TempDir()
-		content, _ := buildDaemonTOML(sandbox, "balanced", "test-key", "test-mcp-key")
+		content, _ := buildDaemonTOML(sandbox, "balanced", "test-key", "test-mcp-key", "")
 
 		var parsed daemonPaths
 		if _, err := toml.Decode(content, &parsed); err != nil {
@@ -941,6 +941,68 @@ func TestBuildDaemonTOML_PathsRespectConfigDir(t *testing.T) {
 	})
 }
 
+func TestDoInstallOAuthIssuer(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+	opts.oauthIssuer = "https://example.com"
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	// Verify daemon.toml contains OAuth block.
+	data, err := os.ReadFile(filepath.Join(opts.configDir, "daemon.toml"))
+	if err != nil {
+		t.Fatalf("read daemon.toml: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `[daemon.oauth]`) {
+		t.Error("daemon.toml missing [daemon.oauth] section")
+	}
+	if !strings.Contains(content, `enabled = true`) {
+		t.Error("daemon.toml missing enabled = true")
+	}
+	if !strings.Contains(content, `issuer_url = "https://example.com"`) {
+		t.Error("daemon.toml missing issuer_url")
+	}
+	if !strings.Contains(content, `private_key_file = "file:`) {
+		t.Error("daemon.toml missing private_key_file with file: prefix")
+	}
+	if !strings.Contains(content, `client_id = "chatgpt"`) {
+		t.Error("daemon.toml missing chatgpt client")
+	}
+
+	// Verify install summary includes OAuth info.
+	stdout := opts.stdout.(*bytes.Buffer).String()
+	if !strings.Contains(stdout, "OAuth enabled:") {
+		t.Error("install summary should mention OAuth enabled")
+	}
+	if !strings.Contains(stdout, "https://example.com") {
+		t.Error("install summary should mention OAuth issuer URL")
+	}
+	if !strings.Contains(stdout, "redirect_uris") {
+		t.Error("install summary should mention updating redirect_uris")
+	}
+}
+
+func TestDoInstallNoOAuthByDefault(t *testing.T) {
+	t.Helper()
+	opts := testOpts(t, nil)
+
+	if err := doInstall(opts); err != nil {
+		t.Fatalf("doInstall: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(opts.configDir, "daemon.toml"))
+	if err != nil {
+		t.Fatalf("read daemon.toml: %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, `[daemon.oauth]`) {
+		t.Error("daemon.toml should NOT contain [daemon.oauth] when --oauth-issuer not provided")
+	}
+}
+
 func TestBuildDaemonTOML_IncludesAuditSection(t *testing.T) {
 	t.Helper()
 
@@ -953,7 +1015,7 @@ func TestBuildDaemonTOML_IncludesAuditSection(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	content, _ := buildDaemonTOML(dir, "simple", "test-key", "test-mcp-key")
+	content, _ := buildDaemonTOML(dir, "simple", "test-key", "test-mcp-key", "")
 
 	var parsed auditPaths
 	if _, err := toml.Decode(content, &parsed); err != nil {

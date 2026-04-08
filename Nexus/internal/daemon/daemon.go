@@ -31,6 +31,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -58,6 +59,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/firewall"
 	"github.com/BubbleFish-Nexus/internal/jwtauth"
+	"github.com/BubbleFish-Nexus/internal/oauth"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
@@ -861,6 +863,11 @@ func (d *Daemon) startMCPServer(cfg *config.Config) {
 
 	// Daemon itself is the Pipeline implementation.
 	srv := mcp.New(bind, port, cfg.ResolvedMCPKey, sourceName, d, d.logger)
+
+	// Wire OAuth server if enabled — must happen before Start() so endpoints
+	// are registered on the mux.
+	d.setupOAuthServer(cfg, srv)
+
 	if err := srv.Start(); err != nil {
 		d.logger.Warn("daemon: MCP server start failed — MCP disabled, HTTP continues",
 			"component", "daemon",
@@ -873,6 +880,134 @@ func (d *Daemon) startMCPServer(cfg *config.Config) {
 	d.logger.Info("daemon: MCP server started",
 		"component", "daemon",
 		"addr", srv.Addr(),
+	)
+}
+
+// startOAuthServer loads or generates the RSA key and creates the OAuthServer
+// if [daemon.oauth] enabled = true. It registers OAuth endpoints on the MCP
+// server's HTTP mux and sets the JWT validator.
+//
+// Must be called BEFORE startMCPServer calls srv.Start() — but in practice the
+// daemon calls startMCPServer which creates and starts the MCP server, so we
+// wire OAuth before MCP start by modifying startMCPServer to call this first.
+//
+// Reference: Post-Build Add-On Update Technical Specification Section 6.
+func (d *Daemon) setupOAuthServer(cfg *config.Config, srv *mcp.Server) {
+	if !cfg.Daemon.OAuth.Enabled {
+		return
+	}
+
+	oauthCfg := cfg.Daemon.OAuth
+
+	// Resolve private key file path.
+	keyFileRef := oauthCfg.PrivateKeyFile
+	if keyFileRef == "" {
+		configDir, err := config.ConfigDir()
+		if err != nil {
+			d.logger.Warn("daemon: oauth: cannot resolve config dir for key file",
+				"component", "oauth",
+				"error", err,
+			)
+			return
+		}
+		keyFileRef = "file:" + filepath.Join(configDir, "oauth_private.key")
+	}
+
+	// Resolve the file: reference to get the actual path.
+	keyPath := keyFileRef
+	if strings.HasPrefix(keyPath, "file:") {
+		keyPath = strings.TrimPrefix(keyPath, "file:")
+	}
+
+	// Expand ~ to home directory.
+	if strings.HasPrefix(keyPath, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			d.logger.Warn("daemon: oauth: cannot resolve home dir",
+				"component", "oauth",
+				"error", err,
+			)
+			return
+		}
+		keyPath = filepath.Join(home, keyPath[1:])
+	}
+
+	// Load or generate RSA key.
+	var key *rsa.PrivateKey
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		var genErr error
+		key, genErr = oauth.GenerateRSAKey()
+		if genErr != nil {
+			d.logger.Warn("daemon: oauth: failed to generate RSA key",
+				"component", "oauth",
+				"error", genErr,
+			)
+			return
+		}
+		if saveErr := oauth.SaveRSAKey(key, keyPath); saveErr != nil {
+			d.logger.Warn("daemon: oauth: failed to save RSA key",
+				"component", "oauth",
+				"error", saveErr,
+			)
+			return
+		}
+		d.logger.Info("oauth: generated RSA-2048 key pair",
+			"component", "oauth",
+			"path", keyPath,
+		)
+	} else {
+		var loadErr error
+		key, loadErr = oauth.LoadRSAKey(keyPath)
+		if loadErr != nil {
+			d.logger.Warn("daemon: oauth: failed to load RSA key",
+				"component", "oauth",
+				"error", loadErr,
+			)
+			return
+		}
+		d.logger.Info("oauth: loaded RSA key pair",
+			"component", "oauth",
+			"path", keyPath,
+		)
+	}
+
+	// Build OAuth config.
+	accessTTL := time.Hour
+	if oauthCfg.AccessTokenTTLSecs > 0 {
+		accessTTL = time.Duration(oauthCfg.AccessTokenTTLSecs) * time.Second
+	}
+	codeTTL := 5 * time.Minute
+	if oauthCfg.AuthCodeTTLSecs > 0 {
+		codeTTL = time.Duration(oauthCfg.AuthCodeTTLSecs) * time.Second
+	}
+
+	clients := make([]oauth.OAuthClient, len(oauthCfg.Clients))
+	for i, c := range oauthCfg.Clients {
+		clients[i] = oauth.OAuthClient{
+			ClientID:        c.ClientID,
+			ClientName:      c.ClientName,
+			RedirectURIs:    c.RedirectURIs,
+			OAuthSourceName: c.OAuthSourceName,
+			AllowedScopes:   c.AllowedScopes,
+		}
+	}
+
+	oauthSrv := oauth.NewOAuthServer(oauth.OAuthConfig{
+		Enabled:        true,
+		IssuerURL:      oauthCfg.IssuerURL,
+		PrivateKeyFile: keyPath,
+		AccessTokenTTL: accessTTL,
+		AuthCodeTTL:    codeTTL,
+		Clients:        clients,
+	}, key, d.logger)
+
+	// Wire OAuth into the MCP server.
+	srv.SetOAuthServer(oauthSrv)
+	srv.SetOAuthHandlers(oauthSrv)
+
+	d.logger.Info("oauth: server started",
+		"component", "oauth",
+		"issuer", oauthCfg.IssuerURL,
 	)
 }
 

@@ -62,6 +62,7 @@ type installOptions struct {
 	mode          string
 	profile       string
 	oauthTemplate string
+	oauthIssuer   string
 	force         bool
 	configDir     string
 	prompt        promptFunc
@@ -84,6 +85,7 @@ func runInstall(args []string) {
 	mode := fs.String("mode", "balanced", "deployment mode: simple, balanced, safe")
 	profile := fs.String("profile", "", "install profile: openwebui")
 	oauthTemplate := fs.String("oauth-template", "", "generate OAuth template: caddy, traefik")
+	oauthIssuer := fs.String("oauth-issuer", "", "enable OAuth 2.1 server with this issuer URL")
 	force := fs.Bool("force", false, "overwrite existing config")
 	homeFlag := fs.String("home", "", "override config directory location (also configurable via BUBBLEFISH_HOME)")
 	if err := fs.Parse(args); err != nil {
@@ -102,6 +104,7 @@ func runInstall(args []string) {
 		mode:          *mode,
 		profile:       *profile,
 		oauthTemplate: *oauthTemplate,
+		oauthIssuer:   *oauthIssuer,
 		force:         *force,
 		configDir:     configDir,
 		prompt:        stdinPrompt,
@@ -172,7 +175,7 @@ func doInstall(opts installOptions) error {
 	// MCP source_name is always "default" so it routes through the default
 	// source config created below. The generated mcpKey is written into
 	// daemon.toml and printed in the install summary.
-	daemonTOML, bindAddr := buildDaemonTOML(configDir, opts.mode, adminKey, mcpKey)
+	daemonTOML, bindAddr := buildDaemonTOML(configDir, opts.mode, adminKey, mcpKey, opts.oauthIssuer)
 	if err := writeConfigFile(daemonPath, daemonTOML, opts.force); err != nil {
 		return fmt.Errorf("write daemon.toml: %v", err)
 	}
@@ -258,6 +261,12 @@ func doInstall(opts installOptions) error {
 	_, _ = fmt.Fprintf(w, "  admin token:     %s\n", adminKey)
 	_, _ = fmt.Fprintf(w, "  source API key:  %s\n", sourceKey)
 	_, _ = fmt.Fprintf(w, "  MCP API key:     %s\n", mcpKey)
+	if opts.oauthIssuer != "" {
+		_, _ = fmt.Fprintf(w, "  OAuth enabled:   true\n")
+		_, _ = fmt.Fprintf(w, "  OAuth issuer:    %s\n", opts.oauthIssuer)
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "  NOTE: Update redirect_uris in daemon.toml with ChatGPT's actual callback URL.")
+	}
 	_, _ = fmt.Fprintln(w)
 
 	// Print next steps -- Simple Mode walks through start -> write -> read -> integrate.
@@ -316,7 +325,7 @@ func writeConfigFile(path, content string, force bool) error {
 // It returns the TOML content and the resolved bind address (e.g. "127.0.0.1:8080").
 // Paths inside the TOML (WAL, security log) are templated against configDir.
 // mcpKey is the generated bfn_mcp_ token written into [daemon.mcp] api_key.
-func buildDaemonTOML(configDir, mode, adminKey, mcpKey string) (string, string) {
+func buildDaemonTOML(configDir, mode, adminKey, mcpKey, oauthIssuer string) (string, string) {
 	bind := "127.0.0.1"
 	port := 8080
 	logLevel := "info"
@@ -428,6 +437,28 @@ log_file = "%s"
 `, version.Version, mode, port, bind, adminKey, logLevel, logFormat, mode,
 		queueSize, walPath, walIntegrity, walEncryption, rateLimit, embeddingEnabled, mcpKey, webPort,
 		auditLogPath, securityLogPath)
+
+	// Append OAuth block if --oauth-issuer was provided.
+	if oauthIssuer != "" {
+		keyPath := filepath.ToSlash(filepath.Join(configDir, "oauth_private.key"))
+		t += fmt.Sprintf(`
+# OAuth 2.1 Authorization Server
+# Enables ChatGPT and other OAuth-only MCP clients
+[daemon.oauth]
+enabled = true
+issuer_url = "%s"
+private_key_file = "file:%s"
+access_token_ttl_seconds = 3600
+auth_code_ttl_seconds = 300
+
+[[daemon.oauth.clients]]
+client_id = "chatgpt"
+client_name = "ChatGPT"
+redirect_uris = ["https://chatgpt.com/aip/g/CHANGE_ME/oauth/callback"]
+oauth_source_name = "default"
+allowed_scopes = ["openid", "mcp"]
+`, oauthIssuer, keyPath)
+	}
 
 	return t, fmt.Sprintf("%s:%d", bind, port)
 }

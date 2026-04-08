@@ -170,16 +170,34 @@ func newSessionID() (string, error) {
 }
 
 // ---------------------------------------------------------------------------
+// JWT validation interface (satisfied by *oauth.OAuthServer)
+// ---------------------------------------------------------------------------
+
+// JWTValidator validates JWT access tokens. When non-nil on the Server,
+// authenticate() will accept valid JWTs in addition to static bfn_mcp_ keys.
+type JWTValidator interface {
+	ValidateAccessToken(tokenString string) bool
+}
+
+// HandlerRegistrar registers additional HTTP handlers on the MCP mux.
+// Satisfied by *oauth.OAuthServer.
+type HandlerRegistrar interface {
+	RegisterHandlers(mux *http.ServeMux)
+}
+
+// ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
 
 type Server struct {
-	resolvedKey []byte
-	sourceName  string
-	pipeline    Pipeline
-	logger      *slog.Logger
-	bind        string
-	port        int
+	resolvedKey  []byte
+	sourceName   string
+	pipeline     Pipeline
+	logger       *slog.Logger
+	bind         string
+	port         int
+	oauthServer  JWTValidator    // optional; nil when OAuth is disabled
+	oauthHandlers HandlerRegistrar // optional; registers OAuth HTTP endpoints
 
 	httpServer *http.Server
 	listener   net.Listener
@@ -204,6 +222,20 @@ func New(bind string, port int, resolvedKey []byte, sourceName string, pipeline 
 	}
 }
 
+// SetOAuthServer configures an optional JWT validator for OAuth access tokens.
+// When set, authenticate() accepts valid JWTs in addition to static bfn_mcp_ keys.
+// Pass nil to disable JWT authentication.
+func (s *Server) SetOAuthServer(v JWTValidator) {
+	s.oauthServer = v
+}
+
+// SetOAuthHandlers configures an optional handler registrar for OAuth HTTP
+// endpoints. Must be called before Start(). The registrar's RegisterHandlers
+// method will be called on the MCP server's HTTP mux.
+func (s *Server) SetOAuthHandlers(reg HandlerRegistrar) {
+	s.oauthHandlers = reg
+}
+
 func (s *Server) Start() error {
 	if s.bind != "127.0.0.1" {
 		return fmt.Errorf("mcp: bind address must be 127.0.0.1, got %q", s.bind)
@@ -219,6 +251,11 @@ func (s *Server) Start() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", s.handleMCP)
+
+	// Register OAuth endpoints on the same mux if configured.
+	if s.oauthHandlers != nil {
+		s.oauthHandlers.RegisterHandlers(mux)
+	}
 
 	s.httpServer = &http.Server{
 		Handler:           mux,
@@ -601,24 +638,39 @@ func (s *Server) handleNotification(req rpcRequest) {
 //
 // INVARIANT: uses subtle.ConstantTimeCompare — never ==.
 func (s *Server) authenticate(r *http.Request) bool {
+	token := s.extractBearerToken(r)
+	if token == "" {
+		return false
+	}
+
+	// Path 1: Static bfn_mcp_ key (existing — unchanged)
+	if strings.HasPrefix(token, "bfn_mcp_") {
+		provided := []byte(token)
+		return subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1
+	}
+
+	// Path 2: JWT access token (new — OAuth clients)
+	if s.oauthServer != nil {
+		return s.oauthServer.ValidateAccessToken(token)
+	}
+
+	// Non-prefixed token but no OAuth configured — try static key comparison
+	// as fallback for legacy keys that don't have the bfn_mcp_ prefix.
+	provided := []byte(token)
+	return subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1
+}
+
+// extractBearerToken retrieves the bearer token from the Authorization header
+// or the ?key= query parameter.
+func (s *Server) extractBearerToken(r *http.Request) string {
 	// Try Authorization: Bearer header first.
 	h := r.Header.Get("Authorization")
 	const prefix = "Bearer "
 	if strings.HasPrefix(h, prefix) {
-		provided := []byte(strings.TrimSpace(h[len(prefix):]))
-		if subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1 {
-			return true
-		}
+		return strings.TrimSpace(h[len(prefix):])
 	}
 	// Fallback: ?key= query param for clients that embed auth in the URL.
-	key := r.URL.Query().Get("key")
-	if key != "" {
-		provided := []byte(key)
-		if subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1 {
-			return true
-		}
-	}
-	return false
+	return r.URL.Query().Get("key")
 }
 
 // ---------------------------------------------------------------------------

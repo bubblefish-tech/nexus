@@ -95,6 +95,27 @@ type DaemonConfig struct {
 	Events         EventsConfig         `toml:"events"`
 	Audit          AuditConfig          `toml:"audit"`
 	RetrievalFirewall DaemonRetrievalFirewallConfig `toml:"retrieval_firewall"`
+	OAuth          OAuthDaemonConfig    `toml:"oauth"`
+}
+
+// OAuthDaemonConfig models [daemon.oauth].
+// Reference: Post-Build Add-On Update Technical Specification Section 6.1.
+type OAuthDaemonConfig struct {
+	Enabled              bool                    `toml:"enabled"`
+	IssuerURL            string                  `toml:"issuer_url"`
+	PrivateKeyFile       string                  `toml:"private_key_file"`
+	AccessTokenTTLSecs   int                     `toml:"access_token_ttl_seconds"`
+	AuthCodeTTLSecs      int                     `toml:"auth_code_ttl_seconds"`
+	Clients              []OAuthClientConfig     `toml:"clients"`
+}
+
+// OAuthClientConfig models [[daemon.oauth.clients]].
+type OAuthClientConfig struct {
+	ClientID        string   `toml:"client_id"`
+	ClientName      string   `toml:"client_name"`
+	RedirectURIs    []string `toml:"redirect_uris"`
+	OAuthSourceName string   `toml:"oauth_source_name"`
+	AllowedScopes   []string `toml:"allowed_scopes"`
 }
 
 // AuditConfig models [daemon.audit].
