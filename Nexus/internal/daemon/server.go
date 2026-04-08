@@ -77,6 +77,7 @@ func (d *Daemon) buildRouter() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(d.requireAdminToken)
 		r.Get("/api/status", d.handleAdminStatus)
+		r.Get("/api/config", d.handleAdminConfig)
 		r.Get("/api/lint", d.handleLint)
 		// Structured security events — admin only.
 		// Reference: Tech Spec Section 12, Phase R-17.

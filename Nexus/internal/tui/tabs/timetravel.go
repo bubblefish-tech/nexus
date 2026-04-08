@@ -20,6 +20,7 @@ package tabs
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/BubbleFish-Nexus/internal/tui/api"
 	"github.com/BubbleFish-Nexus/internal/tui/components"
@@ -223,7 +224,7 @@ func (t *TimeTravelTab) View(width, height int) string {
 			lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(content),
 			lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(r.Source),
 			badge,
-			lipgloss.NewStyle().Foreground(styles.TextMuted).Render(r.Timestamp),
+			lipgloss.NewStyle().Foreground(styles.TextMuted).Render(r.Timestamp.In(time.Local).Format("2006-01-02 15:04:05")),
 		)
 		sections = append(sections, row)
 	}

@@ -140,3 +140,9 @@ func (c *Client) AuditLog(limit int) (*AuditResponse, error) {
 	var r AuditResponse
 	return &r, c.get("/api/audit/log?limit="+strconv.Itoa(limit), &r)
 }
+
+// Config fetches GET /api/config.
+func (c *Client) Config() (*ConfigResponse, error) {
+	var r ConfigResponse
+	return &r, c.get("/api/config", &r)
+}

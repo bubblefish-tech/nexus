@@ -43,13 +43,13 @@ func (h HeatGrid) View() string {
 		case v == 0:
 			color = styles.BorderBase
 		case v <= 10:
-			color = lipgloss.Color("#1a4a2e")
+			color = styles.HeatLow
 		case v <= 50:
-			color = lipgloss.Color("#2d7a4a")
+			color = styles.HeatMedLow
 		case v <= 100:
-			color = lipgloss.Color("#3dd68c")
+			color = styles.HeatMedHi
 		default:
-			color = lipgloss.Color("#5fffb1")
+			color = styles.HeatHigh
 		}
 		cell := lipgloss.NewStyle().Foreground(color).Render("■■")
 		cells = append(cells, cell)
@@ -60,10 +60,10 @@ func (h HeatGrid) View() string {
 	legend := lipgloss.NewStyle().Foreground(styles.TextMuted).Render(
 		"  0 ") +
 		lipgloss.NewStyle().Foreground(styles.BorderBase).Render("■") + " " +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#1a4a2e")).Render("■") + " " +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#2d7a4a")).Render("■") + " " +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#3dd68c")).Render("■") + " " +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#5fffb1")).Render("■") +
+		lipgloss.NewStyle().Foreground(styles.HeatLow).Render("■") + " " +
+		lipgloss.NewStyle().Foreground(styles.HeatMedLow).Render("■") + " " +
+		lipgloss.NewStyle().Foreground(styles.HeatMedHi).Render("■") + " " +
+		lipgloss.NewStyle().Foreground(styles.HeatHigh).Render("■") +
 		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(" 100+")
 
 	return lipgloss.JoinVertical(lipgloss.Left, grid, legend)

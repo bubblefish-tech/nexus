@@ -47,13 +47,14 @@ func (m Model) View() string {
 
 	// Normal layout: tabbar + (sidebar + main) + statusbar.
 	tabbar := m.viewTabbar()
-	sbStatus := "running"
-	sbVersion := "0.1.2"
+	sbStatus := "—"
+	sbVersion := "—"
 	sbQueue := 0
 	if !m.daemonUp {
 		sbStatus = "down"
 	}
 	if m.statusCache != nil {
+		sbStatus = m.statusCache.Status
 		sbVersion = m.statusCache.Version
 		sbQueue = m.statusCache.QueueDepth
 	}

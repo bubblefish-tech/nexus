@@ -29,16 +29,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// auditEventsMsg carries the result of a security events API call.
-type auditEventsMsg struct {
-	data *api.SecurityEventsResponse
+// auditLogMsg carries the result of an audit log API call.
+type auditLogMsg struct {
+	data *api.AuditResponse
 	err  error
 }
 
-// AuditTab displays security events in a scrollable log table.
+// AuditTab displays audit log records in a scrollable log table.
 type AuditTab struct {
 	table      components.LogTable
-	events     []api.SecurityEvent
+	records    []api.AuditRecord
 	err        error
 	autoScroll bool
 	filtering  bool
@@ -71,11 +71,11 @@ func (t *AuditTab) Init() tea.Cmd { return nil }
 // Update handles incoming messages and key events.
 func (t *AuditTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch m := msg.(type) {
-	case auditEventsMsg:
+	case auditLogMsg:
 		t.err = m.err
 		if m.data != nil {
-			t.events = m.data.Events
-			t.count = len(m.data.Events)
+			t.records = m.data.Records
+			t.count = len(m.data.Records)
 			t.rebuildRows()
 		}
 		return t, nil
@@ -124,43 +124,42 @@ func (t *AuditTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	return t, nil
 }
 
-// FireRefresh dispatches the security events API call.
+// FireRefresh dispatches the audit log API call.
 func (t *AuditTab) FireRefresh(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
-		data, err := client.SecurityEvents(200)
-		return auditEventsMsg{data: data, err: err}
+		data, err := client.AuditLog(200)
+		return auditLogMsg{data: data, err: err}
 	}
 }
 
-// rebuildRows converts security events to LogRows.
+// rebuildRows converts audit records to LogRows.
 func (t *AuditTab) rebuildRows() {
-	rows := make([]components.LogRow, 0, len(t.events))
-	for _, ev := range t.events {
+	rows := make([]components.LogRow, 0, len(t.records))
+	for _, rec := range t.records {
 		level := "info"
 		switch {
-		case strings.Contains(ev.EventType, "tamper"):
-			level = "security"
-		case strings.Contains(ev.EventType, "fail") || strings.Contains(ev.EventType, "denied"):
+		case rec.PolicyDecision == "denied":
 			level = "err"
-		case strings.Contains(ev.EventType, "rate_limit"):
+		case rec.PolicyDecision == "filtered":
 			level = "warn"
-		case strings.Contains(ev.EventType, "success") || strings.Contains(ev.EventType, "ok"):
+		case rec.HTTPStatusCode >= 400 && rec.HTTPStatusCode < 500:
+			level = "warn"
+		case rec.HTTPStatusCode >= 500:
+			level = "err"
+		case rec.PolicyDecision == "allowed":
 			level = "ok"
 		}
 
-		detail := ""
-		for k, v := range ev.Details {
-			if detail != "" {
-				detail += ", "
-			}
-			detail += k + "=" + v
+		code := fmt.Sprintf("%d", rec.HTTPStatusCode)
+		if rec.PolicyDecision != "" && rec.PolicyDecision != "allowed" {
+			code += " " + rec.PolicyDecision
 		}
 
 		rows = append(rows, components.LogRow{
-			Time:    ev.Timestamp.Format("15:04:05.000"),
-			Source:  ev.IP,
-			Message: ev.EventType + " " + ev.Endpoint,
-			Code:    detail,
+			Time:    rec.Timestamp.Format("15:04:05.000"),
+			Source:  rec.Source,
+			Message: rec.OperationType + " " + rec.Endpoint,
+			Code:    code,
 			Level:   level,
 		})
 	}

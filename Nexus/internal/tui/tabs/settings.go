@@ -34,9 +34,16 @@ type settingsStatusMsg struct {
 	err  error
 }
 
+// settingsConfigMsg carries the result of a config API call for the settings tab.
+type settingsConfigMsg struct {
+	data *api.ConfigResponse
+	err  error
+}
+
 // SettingsTab displays read-only daemon configuration.
 type SettingsTab struct {
 	status  *api.StatusResponse
+	config  *api.ConfigResponse
 	err     error
 	editMsg string
 }
@@ -52,20 +59,35 @@ func (t *SettingsTab) Name() string { return "Settings" }
 // Init returns the first command (none needed).
 func (t *SettingsTab) Init() tea.Cmd { return nil }
 
-// FireRefresh fetches fresh status data from the daemon.
+// FireRefresh fetches fresh status and config data from the daemon.
 func (t *SettingsTab) FireRefresh(client *api.Client) tea.Cmd {
-	return func() tea.Msg {
-		data, err := client.Status()
-		return settingsStatusMsg{data: data, err: err}
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			data, err := client.Status()
+			return settingsStatusMsg{data: data, err: err}
+		},
+		func() tea.Msg {
+			data, err := client.Config()
+			return settingsConfigMsg{data: data, err: err}
+		},
+	)
 }
 
 // Update handles incoming messages.
 func (t *SettingsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
 	case settingsStatusMsg:
-		t.err = msg.err
+		if msg.err != nil {
+			t.err = msg.err
+		}
 		t.status = msg.data
+		return t, nil
+
+	case settingsConfigMsg:
+		if msg.err != nil {
+			t.err = msg.err
+		}
+		t.config = msg.data
 		return t, nil
 
 	case tea.KeyMsg:
@@ -85,7 +107,6 @@ func (t *SettingsTab) View(width, height int) string {
 
 	if t.err != nil {
 		sections = append(sections, styles.ErrorStyle.Render(fmt.Sprintf("Error: %v", t.err)))
-		return lipgloss.JoinVertical(lipgloss.Left, sections...)
 	}
 
 	version := "-"
@@ -120,36 +141,129 @@ func (t *SettingsTab) View(width, height int) string {
 		return strings.Join(lines, "\n")
 	}
 
-	// Daemon section.
+	// Values from /api/config (live) or fallback.
+	cfg := t.config
+
+	bind := "-"
+	port := "-"
+	logLevel := "-"
+	mode := "-"
+	queueSize := "-"
+	if cfg != nil {
+		bind = cfg.Daemon.Bind
+		port = fmt.Sprintf("%d", cfg.Daemon.Port)
+		logLevel = cfg.Daemon.LogLevel
+		mode = cfg.Daemon.Mode
+		queueSize = fmt.Sprintf("%d", cfg.Daemon.QueueSize)
+	}
+
 	sections = append(sections, renderSection("Daemon", [][2]string{
 		{"Status", components.PillStatus(status)},
 		{"Version", version},
-		{"Listen Address", "127.0.0.1:3407"},
-		{"PID File", "~/.bubblefish/nexus.pid"},
+		{"Listen Address", bind + ":" + port},
+		{"Log Level", logLevel},
+		{"Mode", mode},
+		{"Queue Size", queueSize},
 	}))
 
 	// WAL section.
+	walPath := "-"
+	walSegSize := "-"
+	walIntegrity := "-"
+	walEncryption := "-"
+	walWatchdog := "-"
+	if cfg != nil {
+		walPath = cfg.WAL.Path
+		walSegSize = fmt.Sprintf("%dMB", cfg.WAL.MaxSegmentSizeMB)
+		walIntegrity = cfg.WAL.IntegrityMode
+		if walIntegrity == "" {
+			walIntegrity = "crc32"
+		}
+		walEncryption = boolStr(cfg.WAL.EncryptionEnabled)
+		walWatchdog = fmt.Sprintf("%ds", cfg.WAL.WatchdogIntervalS)
+	}
 	sections = append(sections, renderSection("WAL", [][2]string{
-		{"WAL Path", "~/.bubblefish/wal/"},
-		{"Sync Mode", "full"},
-		{"Max Segment Size", "64MB"},
-		{"Retention", "7d"},
+		{"WAL Path", walPath},
+		{"Max Segment Size", walSegSize},
+		{"Integrity Mode", walIntegrity},
+		{"Encryption", walEncryption},
+		{"Watchdog Interval", walWatchdog},
 	}))
 
 	// MCP section.
+	mcpEnabled := "-"
+	mcpPort := "-"
+	mcpSource := "-"
+	if cfg != nil {
+		mcpEnabled = boolStr(cfg.MCP.Enabled)
+		mcpPort = fmt.Sprintf("%d", cfg.MCP.Port)
+		mcpSource = cfg.MCP.SourceName
+	}
 	sections = append(sections, renderSection("MCP", [][2]string{
-		{"MCP Enabled", "true"},
-		{"MCP Transport", "stdio"},
-		{"MCP Auth", "token"},
+		{"MCP Enabled", mcpEnabled},
+		{"MCP Port", mcpPort},
+		{"MCP Source", mcpSource},
+	}))
+
+	// Embedding section.
+	embEnabled := "-"
+	embModel := "-"
+	embProvider := "-"
+	if cfg != nil {
+		embEnabled = boolStr(cfg.Embedding.Enabled)
+		embModel = cfg.Embedding.Model
+		embProvider = cfg.Embedding.Provider
+	}
+	sections = append(sections, renderSection("Embedding", [][2]string{
+		{"Enabled", embEnabled},
+		{"Provider", embProvider},
+		{"Model", embModel},
 	}))
 
 	// Retrieval section.
+	retDecay := "-"
+	retProfile := "-"
+	retHalfLife := "-"
+	if cfg != nil {
+		retDecay = boolStr(cfg.Retrieval.TimeDecay)
+		retProfile = cfg.Retrieval.DefaultProfile
+		retHalfLife = fmt.Sprintf("%.1f days", cfg.Retrieval.HalfLifeDays)
+	}
 	sections = append(sections, renderSection("Retrieval", [][2]string{
-		{"Pipeline Stages", "6"},
-		{"Cache TTL", "300s"},
-		{"Semantic Threshold", "0.75"},
-		{"Temporal Decay", "enabled"},
-		{"Embedding Model", "all-MiniLM-L6-v2"},
+		{"Temporal Decay", retDecay},
+		{"Default Profile", retProfile},
+		{"Half-Life", retHalfLife},
+	}))
+
+	// TLS section.
+	tlsEnabled := "-"
+	tlsMin := "-"
+	if cfg != nil {
+		tlsEnabled = boolStr(cfg.TLS.Enabled)
+		tlsMin = cfg.TLS.MinVersion
+		if tlsMin == "" {
+			tlsMin = "default"
+		}
+	}
+	sections = append(sections, renderSection("TLS", [][2]string{
+		{"TLS Enabled", tlsEnabled},
+		{"Min Version", tlsMin},
+	}))
+
+	// Sources & Destinations.
+	srcList := "-"
+	dstList := "-"
+	if cfg != nil {
+		if len(cfg.Sources) > 0 {
+			srcList = strings.Join(cfg.Sources, ", ")
+		}
+		if len(cfg.Destinations) > 0 {
+			dstList = strings.Join(cfg.Destinations, ", ")
+		}
+	}
+	sections = append(sections, renderSection("Data Paths", [][2]string{
+		{"Sources", srcList},
+		{"Destinations", dstList},
 	}))
 
 	// Edit message.
@@ -164,6 +278,14 @@ func (t *SettingsTab) View(width, height int) string {
 	sections = append(sections, styles.MutedStyle.Render(footer))
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// boolStr returns "enabled" or "disabled" for a bool value.
+func boolStr(b bool) string {
+	if b {
+		return "enabled"
+	}
+	return "disabled"
 }
 
 // Compile-time interface check.

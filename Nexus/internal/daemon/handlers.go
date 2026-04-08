@@ -987,6 +987,77 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAdminConfig returns a sanitized view of the daemon configuration.
+// NEVER includes secrets (admin_token, api_key, key_file contents, etc.).
+func (d *Daemon) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/config").Inc()
+	cfg := d.getConfig()
+
+	// Source names (no keys).
+	sourceNames := make([]string, 0, len(cfg.Sources))
+	for _, s := range cfg.Sources {
+		sourceNames = append(sourceNames, s.Name)
+	}
+
+	// Destination names (no keys).
+	destNames := make([]string, 0, len(cfg.Destinations))
+	for _, dst := range cfg.Destinations {
+		destNames = append(destNames, dst.Name)
+	}
+
+	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"daemon": map[string]interface{}{
+			"bind":       cfg.Daemon.Bind,
+			"port":       cfg.Daemon.Port,
+			"log_level":  cfg.Daemon.LogLevel,
+			"mode":       cfg.Daemon.Mode,
+			"queue_size": cfg.Daemon.QueueSize,
+		},
+		"wal": map[string]interface{}{
+			"path":                 cfg.Daemon.WAL.Path,
+			"max_segment_size_mb":  cfg.Daemon.WAL.MaxSegmentSizeMB,
+			"integrity_mode":       cfg.Daemon.WAL.Integrity.Mode,
+			"encryption_enabled":   cfg.Daemon.WAL.Encryption.Enabled,
+			"watchdog_interval_s":  cfg.Daemon.WAL.Watchdog.IntervalSeconds,
+			"watchdog_min_disk":    cfg.Daemon.WAL.Watchdog.MinDiskBytes,
+		},
+		"mcp": map[string]interface{}{
+			"enabled":     cfg.Daemon.MCP.Enabled,
+			"port":        cfg.Daemon.MCP.Port,
+			"bind":        cfg.Daemon.MCP.Bind,
+			"source_name": cfg.Daemon.MCP.SourceName,
+		},
+		"web": map[string]interface{}{
+			"port":         cfg.Daemon.Web.Port,
+			"require_auth": cfg.Daemon.Web.RequireAuth,
+		},
+		"embedding": map[string]interface{}{
+			"enabled":    cfg.Daemon.Embedding.Enabled,
+			"provider":   cfg.Daemon.Embedding.Provider,
+			"model":      cfg.Daemon.Embedding.Model,
+			"dimensions": cfg.Daemon.Embedding.Dimensions,
+		},
+		"tls": map[string]interface{}{
+			"enabled":     cfg.Daemon.TLS.Enabled,
+			"min_version": cfg.Daemon.TLS.MinVersion,
+		},
+		"rate_limit": map[string]interface{}{
+			"global_rpm": cfg.Daemon.RateLimit.GlobalRequestsPerMinute,
+		},
+		"retrieval": map[string]interface{}{
+			"time_decay":       cfg.Retrieval.TimeDecay,
+			"half_life_days":   cfg.Retrieval.HalfLifeDays,
+			"default_profile":  cfg.Retrieval.DefaultProfile,
+		},
+		"audit": map[string]interface{}{
+			"enabled":    cfg.Daemon.Audit.Enabled,
+			"dual_write": cfg.Daemon.Audit.AuditDualWriteEnabled(),
+		},
+		"sources":      sourceNames,
+		"destinations": destNames,
+	})
+}
+
 // handleLint runs config lint checks and returns findings as JSON.
 // Updates the bubblefish_config_lint_warnings gauge.
 //

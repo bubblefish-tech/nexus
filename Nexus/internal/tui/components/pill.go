@@ -31,16 +31,16 @@ func PillStatus(status string) string {
 	var fg, bg lipgloss.Color
 	switch strings.ToLower(status) {
 	case "live", "ok", "enabled", "running", "ready", "pass":
-		fg = lipgloss.Color("#0a0e14")
+		fg = styles.BgBase
 		bg = styles.ColorGreen
 	case "idle", "partial":
-		fg = lipgloss.Color("#0a0e14")
+		fg = styles.BgBase
 		bg = styles.ColorBlue
 	case "warn", "degraded":
-		fg = lipgloss.Color("#0a0e14")
+		fg = styles.BgBase
 		bg = styles.ColorAmber
 	case "dead", "err", "error", "critical", "disabled", "fail":
-		fg = lipgloss.Color("#0a0e14")
+		fg = styles.BgBase
 		bg = styles.ColorRed
 	default:
 		fg = styles.TextSecondary

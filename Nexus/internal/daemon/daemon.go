@@ -1004,6 +1004,7 @@ func (d *Daemon) setupOAuthServer(cfg *config.Config, srv *mcp.Server) {
 	// Wire OAuth into the MCP server.
 	srv.SetOAuthServer(oauthSrv)
 	srv.SetOAuthHandlers(oauthSrv)
+	srv.SetOAuthIssuerURL(oauthCfg.IssuerURL)
 
 	d.logger.Info("oauth: server started",
 		"component", "oauth",

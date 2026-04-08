@@ -20,6 +20,7 @@ package tabs
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/BubbleFish-Nexus/internal/tui/api"
 	"github.com/BubbleFish-Nexus/internal/tui/components"
@@ -150,7 +151,7 @@ func renderConflictCard(c api.ConflictEntry, width int) string {
 	// Timestamps.
 	lines = append(lines, styles.StatLabel.Render("TIMESTAMPS"))
 	for _, ts := range c.Timestamps {
-		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(ts))
+		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(ts.In(time.Local).Format(time.RFC3339)))
 	}
 	lines = append(lines, "")
 

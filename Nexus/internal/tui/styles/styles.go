@@ -55,6 +55,17 @@ var (
 	ColorGray   = lipgloss.Color("#4a6072")
 )
 
+// Heat grid gradient.
+var (
+	HeatLow    = lipgloss.Color("#1a4a2e")
+	HeatMedLow = lipgloss.Color("#2d7a4a")
+	HeatMedHi  = lipgloss.Color("#3dd68c")
+	HeatHigh   = lipgloss.Color("#5fffb1")
+)
+
+// Contrast foreground for colored pill/badge backgrounds.
+var TextContrast = lipgloss.Color("#ffffff")
+
 // Computed styles.
 var (
 	ActiveTab = lipgloss.NewStyle().

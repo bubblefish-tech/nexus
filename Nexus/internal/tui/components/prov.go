@@ -35,13 +35,13 @@ func ProvBadge(actorType string) string {
 	var fg, bg lipgloss.Color
 	switch actorType {
 	case "user":
-		fg = lipgloss.Color("#ffffff")
+		fg = styles.TextContrast
 		bg = styles.ColorPurple
 	case "agent":
-		fg = lipgloss.Color("#ffffff")
+		fg = styles.TextContrast
 		bg = styles.ColorTeal
 	default:
-		fg = lipgloss.Color("#ffffff")
+		fg = styles.TextContrast
 		bg = styles.ColorGray
 	}
 

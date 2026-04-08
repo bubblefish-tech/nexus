@@ -196,8 +196,9 @@ type Server struct {
 	logger       *slog.Logger
 	bind         string
 	port         int
-	oauthServer  JWTValidator    // optional; nil when OAuth is disabled
-	oauthHandlers HandlerRegistrar // optional; registers OAuth HTTP endpoints
+	oauthServer    JWTValidator    // optional; nil when OAuth is disabled
+	oauthHandlers  HandlerRegistrar // optional; registers OAuth HTTP endpoints
+	oauthIssuerURL string           // set when OAuth is enabled; used for WWW-Authenticate header
 
 	httpServer *http.Server
 	listener   net.Listener
@@ -234,6 +235,12 @@ func (s *Server) SetOAuthServer(v JWTValidator) {
 // method will be called on the MCP server's HTTP mux.
 func (s *Server) SetOAuthHandlers(reg HandlerRegistrar) {
 	s.oauthHandlers = reg
+}
+
+// SetOAuthIssuerURL sets the OAuth issuer URL used in WWW-Authenticate headers
+// on 401 responses. Must be called before Start() when OAuth is enabled.
+func (s *Server) SetOAuthIssuerURL(url string) {
+	s.oauthIssuerURL = url
 }
 
 func (s *Server) Start() error {
@@ -378,6 +385,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSSEStream(w http.ResponseWriter, r *http.Request) {
 	if !s.authenticate(r) {
 		setCORSHeaders(w)
+		s.setWWWAuthenticate(w)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(rpcResponse{
@@ -460,6 +468,7 @@ func (s *Server) handleSSEStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
 	if !s.authenticate(r) {
 		setCORSHeaders(w)
+		s.setWWWAuthenticate(w)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -502,6 +511,7 @@ func (s *Server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if !s.authenticate(r) {
 		setCORSHeaders(w)
+		s.setWWWAuthenticate(w)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(rpcResponse{
@@ -658,6 +668,17 @@ func (s *Server) authenticate(r *http.Request) bool {
 	// as fallback for legacy keys that don't have the bfn_mcp_ prefix.
 	provided := []byte(token)
 	return subtle.ConstantTimeCompare(provided, s.resolvedKey) == 1
+}
+
+// setWWWAuthenticate adds a WWW-Authenticate header to 401 responses when OAuth
+// is enabled, per RFC 6750 §3 and the MCP OAuth specification.
+func (s *Server) setWWWAuthenticate(w http.ResponseWriter) {
+	if s.oauthServer != nil && s.oauthIssuerURL != "" {
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf(
+			`Bearer realm="BubbleFish Nexus", authorization_uri="%s/oauth/authorize", resource_metadata="%s/.well-known/oauth-authorization-server"`,
+			s.oauthIssuerURL, s.oauthIssuerURL,
+		))
+	}
 }
 
 // extractBearerToken retrieves the bearer token from the Authorization header

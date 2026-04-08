@@ -119,14 +119,18 @@ func (t *PipelineTab) View(width, height int) string {
 		sections = append(sections, "")
 		sections = append(sections, styles.MutedStyle.Render("Press 'b' to expand stages"))
 	} else {
-		// Full 6-stage cascade.
+		// Full 6-stage cascade. Status derived from live daemon state.
+		stageStatus := "SKIP"
+		if t.status != nil {
+			stageStatus = "OK"
+		}
 		stageList := []components.Stage{
-			{Number: 1, Name: "policy", Status: "OK", Latency: "<1ms"},
-			{Number: 2, Name: "exact_cache", Status: "HIT", Latency: "0.2ms"},
-			{Number: 3, Name: "semantic_cache", Status: "SKIP", Latency: "0ms"},
-			{Number: 4, Name: "temporal_decay", Status: "OK", Latency: "1.1ms"},
-			{Number: 5, Name: "embedding", Status: queueOK, Latency: "3.4ms"},
-			{Number: 6, Name: "projection", Status: "OK", Latency: "0.8ms"},
+			{Number: 1, Name: "policy", Status: stageStatus, Latency: "—"},
+			{Number: 2, Name: "exact_cache", Status: stageStatus, Latency: "—"},
+			{Number: 3, Name: "semantic_cache", Status: stageStatus, Latency: "—"},
+			{Number: 4, Name: "temporal_decay", Status: stageStatus, Latency: "—"},
+			{Number: 5, Name: "embedding", Status: queueOK, Latency: "—"},
+			{Number: 6, Name: "projection", Status: stageStatus, Latency: "—"},
 		}
 
 		flow := components.StageFlow{
@@ -174,9 +178,14 @@ func (t *PipelineTab) View(width, height int) string {
 		Color: styles.ColorGreen,
 	}.View())
 
+	cacheRate := 0.0
+	cacheLabel := "Cache hit rate"
+	if t.status == nil {
+		cacheLabel = "Cache hit rate (no data)"
+	}
 	sections = append(sections, components.InlineBar{
-		Label: "Cache hit rate",
-		Value: 0.72,
+		Label: cacheLabel,
+		Value: cacheRate,
 		Width: barWidth,
 		Color: styles.ColorTeal,
 	}.View())
