@@ -448,6 +448,16 @@ func cosineSimilarity(a, b []float32) float32 {
 	return dot / (float32(math.Sqrt(float64(normA))) * float32(math.Sqrt(float64(normB))))
 }
 
+// MemoryCount returns the total number of memory records in the SQLite
+// destination. Used by the /api/status admin endpoint.
+func (d *SQLiteDestination) MemoryCount() (int64, error) {
+	var count int64
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM memories").Scan(&count); err != nil {
+		return 0, fmt.Errorf("destination: sqlite: memory count: %w", err)
+	}
+	return count, nil
+}
+
 // Ping verifies the database connection is alive by executing a lightweight
 // query. Used by the doctor command and /ready health endpoint.
 func (d *SQLiteDestination) Ping() error {

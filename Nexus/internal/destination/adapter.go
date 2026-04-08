@@ -136,6 +136,14 @@ type Querier interface {
 	Query(params QueryParams) (QueryResult, error)
 }
 
+// MemoryCounter is an optional interface for destination backends that support
+// counting the total number of stored memories. Used by the /api/status admin
+// endpoint to populate the memories_total field. Callers must type-assert.
+type MemoryCounter interface {
+	// MemoryCount returns the total number of memory records in the destination.
+	MemoryCount() (int64, error)
+}
+
 // ConflictGroup represents a set of contradictory memories sharing the same
 // subject and collection (entity_key) but with divergent content.
 // Reference: Tech Spec Section 13.2 — Conflict Inspector.

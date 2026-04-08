@@ -29,6 +29,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/tray"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/web"
+	dashboardui "github.com/BubbleFish-Nexus/web/dashboard"
 )
 
 // runStart executes the `bubblefish start` command.
@@ -81,6 +82,9 @@ func runStart() {
 			Logger:           logger,
 			SecurityProvider: daemon.NewDashboardSecurityProvider(d),
 			AuditProvider:    daemon.NewDashboardAuditProvider(d),
+			AdminHandler:     d.BuildAdminRouter(),
+			DashboardHTML:    dashboardui.HTML,
+			LogoPNG:          dashboardui.LogoPNG,
 		})
 		go func() {
 			if err := dashboard.Start(); err != nil {

@@ -77,6 +77,8 @@ func (d *Daemon) buildRouter() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(d.requireAdminToken)
 		r.Get("/api/status", d.handleAdminStatus)
+		r.Get("/api/cache", d.handleAdminCache)
+		r.Get("/api/policies", d.handleAdminPolicies)
 		r.Get("/api/config", d.handleAdminConfig)
 		r.Get("/api/lint", d.handleLint)
 		// Structured security events — admin only.
@@ -88,8 +90,8 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/conflicts", d.handleConflicts)
 		r.Get("/api/timetravel", d.handleTimeTravel)
 		// Live pipeline visualization SSE — admin only.
-		// Reference: Tech Spec Section 12, Phase R-21.
-		r.Get("/api/viz/events", d.handleVizEvents)
+		// Moved to separate route below for query-param token support.
+		// r.Get("/api/viz/events", d.handleVizEvents)
 		// Reliability demo — admin only.
 		// Reference: Tech Spec Section 12, Section 13.3, Phase R-26.
 		r.Post("/api/demo/reliability", d.handleDemoReliability)
@@ -107,6 +109,48 @@ func (d *Daemon) buildRouter() http.Handler {
 			promhttp.HandlerOpts{EnableOpenMetrics: false},
 		).ServeHTTP)
 	})
+
+	// SSE endpoint — accepts admin token from either Authorization header
+	// OR ?token= query param (EventSource cannot send headers).
+	// Reference: dashboard-contract.md Authentication section.
+	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
+
+	return r
+}
+
+// BuildAdminRouter creates a chi router with all admin API routes and their
+// auth middleware. This is used both by the daemon's data-plane router and
+// by the web dashboard server (port 8081) to serve admin endpoints on the
+// same origin as the dashboard HTML.
+func (d *Daemon) BuildAdminRouter() http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(d.loggingMiddleware)
+
+	r.Group(func(r chi.Router) {
+		r.Use(d.requireAdminToken)
+		r.Get("/api/status", d.handleAdminStatus)
+		r.Get("/api/cache", d.handleAdminCache)
+		r.Get("/api/policies", d.handleAdminPolicies)
+		r.Get("/api/config", d.handleAdminConfig)
+		r.Get("/api/lint", d.handleLint)
+		r.Get("/api/security/events", d.handleSecurityEvents)
+		r.Get("/api/security/summary", d.handleSecuritySummary)
+		r.Get("/api/conflicts", d.handleConflicts)
+		r.Get("/api/timetravel", d.handleTimeTravel)
+		r.Post("/api/demo/reliability", d.handleDemoReliability)
+		r.Get("/api/audit/log", d.handleAuditLog)
+		r.Get("/api/audit/stats", d.handleAuditStats)
+		r.Get("/api/audit/export", d.handleAuditExport)
+		r.Post("/api/shutdown", d.handleShutdown)
+		r.Get("/metrics", promhttp.HandlerFor(
+			d.metrics.Registry(),
+			promhttp.HandlerOpts{EnableOpenMetrics: false},
+		).ServeHTTP)
+	})
+
+	// SSE with query-param auth.
+	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
 
 	return r
 }

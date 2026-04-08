@@ -19,11 +19,15 @@ package daemon
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -622,6 +626,25 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		WALAppendMs:          float64(time.Since(walStart).Microseconds()) / 1000.0,
 	})
 
+	// Emit pipeline visualization event for WRITE — non-blocking.
+	// Reference: dashboard-contract.md GET /api/viz/events.
+	writeActorType := actorType
+	if writeActorType == "" {
+		writeActorType = "user"
+	}
+	d.vizPipe.Emit(vizpipe.Event{
+		RequestID:   requestID,
+		Source:      src.Name,
+		Op:          "WRITE",
+		Subject:     subject,
+		ActorType:   writeActorType,
+		Status:      "ALLOWED",
+		Labels:      []string{},
+		ResultCount: 0,
+		TotalMs:     float64(time.Since(writeStart).Microseconds()) / 1000.0,
+		Stages:      nil,
+	})
+
 	// Step 13 — Return 200 + payload_id.
 	d.writeJSON(w, http.StatusOK, writeResponse{
 		PayloadID: payloadID,
@@ -837,20 +860,45 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	d.metrics.ReadLatency.WithLabelValues(src.Name, "/query").Observe(queryDuration.Seconds())
 
 	// Emit pipeline visualization event — non-blocking.
-	// Reference: Tech Spec Section 13.2.
-	hitMiss := "miss"
-	if cascResult.RetrievalStage <= 2 {
-		hitMiss = "hit"
+	// Reference: dashboard-contract.md GET /api/viz/events.
+	vizStatus := "ALLOWED"
+	var vizLabels []string
+	if cascResult.FirewallResult != nil && cascResult.FirewallResult.Filtered {
+		vizStatus = "FILTERED"
+		vizLabels = cascResult.FirewallResult.FilteredLabels
 	}
+	if vizLabels == nil {
+		vizLabels = []string{}
+	}
+
+	// Build 6-element stages array. The winning stage gets hit:true.
+	stageNames := [6]string{"policy", "cache", "semantic", "lookup", "vector", "merge"}
+	stages := make([]vizpipe.StageInfo, 6)
+	for i := range stages {
+		stages[i] = vizpipe.StageInfo{Stage: i, Name: stageNames[i]}
+	}
+	winStage := cascResult.RetrievalStage
+	if winStage >= 0 && winStage < 6 {
+		stages[winStage].Hit = true
+		stages[winStage].Ms = float64(queryDuration.Microseconds()) / 1000.0
+	}
+
+	actorType := src.DefaultActorType
+	if actorType == "" {
+		actorType = "user"
+	}
+
 	d.vizPipe.Emit(vizpipe.Event{
 		RequestID:   middleware.GetReqID(r.Context()),
-		Stage:       query.StageName(cascResult.RetrievalStage),
-		DurationMs:  float64(queryDuration.Milliseconds()),
-		HitMiss:     hitMiss,
-		ResultCount: len(cascResult.Records),
 		Source:      src.Name,
-		Destination: destName,
-		Profile:     cascResult.Profile,
+		Op:          "QUERY",
+		Subject:     subject,
+		ActorType:   actorType,
+		Status:      vizStatus,
+		Labels:      vizLabels,
+		ResultCount: len(cascResult.Records),
+		TotalMs:     float64(queryDuration.Microseconds()) / 1000.0,
+		Stages:      stages,
 	})
 
 	meta := nexusMetadata{
@@ -968,9 +1016,13 @@ func (d *Daemon) handleReady(w http.ResponseWriter, r *http.Request) {
 // Admin Handlers (minimal for Phase 0C)
 // ---------------------------------------------------------------------------
 
-// handleAdminStatus returns a status response including queue and WAL state.
+// handleAdminStatus returns the full daemon status matching the dashboard
+// contract shape exactly.
+// Reference: dashboard-contract.md GET /api/status.
 func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	d.metrics.AdminCallsTotal.WithLabelValues("/api/status").Inc()
+
+	cfg := d.getConfig()
 
 	queueDepth := 0
 	if d.queue != nil {
@@ -979,11 +1031,98 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 
 	consistencyScore := math.Float64frombits(d.consistencyScore.Load())
 
+	// Memory stats.
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	// WAL state.
+	walPending := int64(0)
+	walSegment := ""
+	if d.wal != nil {
+		walPending = d.wal.PendingCount()
+		walSegment = d.wal.CurrentSegment()
+	}
+	walHealthy := d.walHealthy.Load() == 1
+
+	// Cache hit rates.
+	exactHits := int64(0)
+	exactMisses := int64(0)
+	semHits := int64(0)
+	semMisses := int64(0)
+	if d.exactStats != nil {
+		exactHits = d.exactStats.HitCount()
+		exactMisses = d.exactStats.MissCount()
+	}
+	if d.semanticStats != nil {
+		semHits = d.semanticStats.HitCount()
+		semMisses = d.semanticStats.MissCount()
+	}
+	totalHits := exactHits + semHits
+	totalMisses := exactMisses + semMisses
+	totalQueries := totalHits + totalMisses
+
+	hitRate := 0.0
+	exactRate := 0.0
+	semanticRate := 0.0
+	if totalQueries > 0 {
+		hitRate = float64(totalHits) / float64(totalQueries)
+		exactRate = float64(exactHits) / float64(totalQueries)
+		semanticRate = float64(semHits) / float64(totalQueries)
+	}
+
+	// Destination health.
+	destName := "sqlite"
+	if len(cfg.Destinations) > 0 {
+		destName = cfg.Destinations[0].Name
+	}
+	destHealthy := true
+	var destLastError interface{} = nil
+	if d.dest != nil {
+		if err := d.dest.Ping(); err != nil {
+			destHealthy = false
+			destLastError = err.Error()
+		}
+	}
+
+	// Memory count from destination.
+	var memoriesTotal int64
+	if mc, ok := d.dest.(destination.MemoryCounter); ok {
+		if count, err := mc.MemoryCount(); err == nil {
+			memoriesTotal = count
+		}
+	}
+
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":            "running",
-		"version":           version.Version,
-		"queue_depth":       queueDepth,
+		"version":              version.Version,
+		"uptime_seconds":       int(time.Since(d.startedAt).Seconds()),
+		"pid":                  os.Getpid(),
+		"bind":                 fmt.Sprintf("%s:%d", cfg.Daemon.Bind, cfg.Daemon.Port),
+		"web_port":             cfg.Daemon.Web.Port,
+		"memory_resident_bytes": memStats.Sys,
+		"goroutines":           runtime.NumGoroutine(),
+		"queue_depth":          queueDepth,
+		"wal": map[string]interface{}{
+			"pending_entries":           walPending,
+			"healthy":                   walHealthy,
+			"last_checkpoint_seconds_ago": 0, // checkpoint not yet tracked
+			"integrity_mode":            cfg.Daemon.WAL.Integrity.Mode,
+			"current_segment":           walSegment,
+		},
 		"consistency_score": consistencyScore,
+		"destinations": []map[string]interface{}{
+			{
+				"name":       destName,
+				"healthy":    destHealthy,
+				"last_error": destLastError,
+			},
+		},
+		"cache": map[string]interface{}{
+			"hit_rate":      hitRate,
+			"exact_rate":    exactRate,
+			"semantic_rate": semanticRate,
+		},
+		"sources_total":  len(cfg.Sources),
+		"memories_total": memoriesTotal,
 	})
 }
 
@@ -1058,10 +1197,9 @@ func (d *Daemon) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleLint runs config lint checks and returns findings as JSON.
-// Updates the bubblefish_config_lint_warnings gauge.
-//
-// Reference: Tech Spec Section 6.7, Phase R-11.
+// handleLint runs config lint checks and returns warnings matching the
+// dashboard contract shape exactly.
+// Reference: dashboard-contract.md GET /api/lint.
 func (d *Daemon) handleLint(w http.ResponseWriter, r *http.Request) {
 	d.metrics.AdminCallsTotal.WithLabelValues("/api/lint").Inc()
 
@@ -1080,11 +1218,29 @@ func (d *Daemon) handleLint(w http.ResponseWriter, r *http.Request) {
 	result := lint.Run(cfg, configDir)
 	d.metrics.ConfigLintWarnings.Set(float64(result.WarningCount()))
 
-	status := http.StatusOK
-	if result.HasErrors() {
-		status = http.StatusUnprocessableEntity
+	// Transform to dashboard contract shape: warnings[] with code, file, line.
+	type contractWarning struct {
+		Severity string `json:"severity"`
+		Code     string `json:"code"`
+		Message  string `json:"message"`
+		File     string `json:"file"`
+		Line     int    `json:"line"`
 	}
-	d.writeJSON(w, status, result)
+
+	warnings := make([]contractWarning, len(result.Findings))
+	for i, f := range result.Findings {
+		warnings[i] = contractWarning{
+			Severity: string(f.Severity),
+			Code:     f.Check,
+			Message:  f.Message,
+			File:     "daemon.toml",
+			Line:     0,
+		}
+	}
+
+	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"warnings": warnings,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1445,9 +1601,60 @@ func (d *Daemon) handleConflicts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Transform to dashboard contract shape.
+	type contractMemory struct {
+		Source    string `json:"source"`
+		ActorType string `json:"actor_type"`
+		TS        string `json:"ts"`
+		Content   string `json:"content"`
+	}
+	type contractConflict struct {
+		ID        string           `json:"id"`
+		Subject   string           `json:"subject"`
+		Entity    string           `json:"entity"`
+		GroupSize int              `json:"group_size"`
+		Memories  []contractMemory `json:"memories"`
+	}
+
+	out := make([]contractConflict, len(groups))
+	for i, g := range groups {
+		// Stable ID from subject + entity_key.
+		idHash := sha256.Sum256([]byte(g.Subject + g.EntityKey))
+		id := "cf_" + hex.EncodeToString(idHash[:])[:6]
+
+		memories := make([]contractMemory, g.Count)
+		for j := 0; j < g.Count; j++ {
+			src := ""
+			if j < len(g.Sources) {
+				src = g.Sources[j]
+			}
+			content := ""
+			if j < len(g.ConflictingValues) {
+				content = g.ConflictingValues[j]
+			}
+			ts := ""
+			if j < len(g.Timestamps) {
+				ts = g.Timestamps[j].UTC().Format(time.RFC3339)
+			}
+			memories[j] = contractMemory{
+				Source:    src,
+				ActorType: "user",
+				TS:        ts,
+				Content:   content,
+			}
+		}
+
+		out[i] = contractConflict{
+			ID:        id,
+			Subject:   g.Subject,
+			Entity:    g.EntityKey,
+			GroupSize: g.Count,
+			Memories:  memories,
+		}
+	}
+
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"conflicts": groups,
-		"count":     len(groups),
+		"conflicts": out,
 	})
 }
 
@@ -1574,6 +1781,35 @@ func (d *Daemon) handleVizEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// handleVizEventsWithQueryAuth wraps handleVizEvents with auth that accepts
+// the admin token from either the Authorization header OR ?token= query param.
+// EventSource cannot send custom headers, so SSE clients pass the token as a
+// query parameter.
+// Reference: dashboard-contract.md Authentication section.
+func (d *Daemon) handleVizEventsWithQueryAuth(w http.ResponseWriter, r *http.Request) {
+	// Try standard Authorization header first.
+	result, ok := d.authenticate(r)
+	if !ok || !result.isAdmin {
+		// Fall back to ?token= query param.
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			d.emitAuthFailure(r, "missing")
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
+				"admin token required (header or ?token= query param)", 0)
+			return
+		}
+		cfg := d.getConfig()
+		if subtle.ConstantTimeCompare([]byte(token), cfg.ResolvedAdminKey) != 1 {
+			d.emitAuthFailure(r, "invalid_query_token")
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
+				"invalid admin token", 0)
+			return
+		}
+	}
+	d.emitAdminAccess(r)
+	d.handleVizEvents(w, r)
 }
 
 // ---------------------------------------------------------------------------

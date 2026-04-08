@@ -50,11 +50,14 @@ func TestEmitAndSubscribe(t *testing.T) {
 
 	p.Emit(Event{
 		RequestID:   "req-1",
-		Stage:       "exact_cache",
-		DurationMs:  1.5,
-		HitMiss:     "hit",
-		ResultCount: 5,
 		Source:      "claude",
+		Op:          "QUERY",
+		Subject:     "user:test",
+		ActorType:   "user",
+		Status:      "ALLOWED",
+		Labels:      []string{},
+		ResultCount: 5,
+		TotalMs:     1.5,
 	})
 
 	select {
@@ -62,11 +65,11 @@ func TestEmitAndSubscribe(t *testing.T) {
 		if e.RequestID != "req-1" {
 			t.Errorf("request_id = %q, want req-1", e.RequestID)
 		}
-		if e.Stage != "exact_cache" {
-			t.Errorf("stage = %q, want exact_cache", e.Stage)
+		if e.Op != "QUERY" {
+			t.Errorf("op = %q, want QUERY", e.Op)
 		}
-		if e.HitMiss != "hit" {
-			t.Errorf("hit_miss = %q, want hit", e.HitMiss)
+		if e.Status != "ALLOWED" {
+			t.Errorf("status = %q, want ALLOWED", e.Status)
 		}
 		if e.ResultCount != 5 {
 			t.Errorf("result_count = %d, want 5", e.ResultCount)
@@ -125,7 +128,7 @@ func TestMultipleSubscribers(t *testing.T) {
 	ch2, unsub2 := p.Subscribe()
 	defer unsub2()
 
-	p.Emit(Event{RequestID: "multi", Stage: "db_query"})
+	p.Emit(Event{RequestID: "multi", Op: "QUERY", Labels: []string{}})
 
 	for _, ch := range []<-chan Event{ch1, ch2} {
 		select {
@@ -188,11 +191,19 @@ func TestMarshalSSE(t *testing.T) {
 	t.Helper()
 	e := Event{
 		RequestID:   "req-1",
-		Stage:       "exact_cache",
-		DurationMs:  1.5,
-		HitMiss:     "hit",
+		Source:      "test-source",
+		Op:          "QUERY",
+		Subject:     "user:test",
+		ActorType:   "user",
+		Status:      "ALLOWED",
+		Labels:      []string{},
 		ResultCount: 3,
+		TotalMs:     1.5,
 		Timestamp:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Stages: []StageInfo{
+			{Stage: 0, Name: "policy", Ms: 0.1, Hit: false},
+			{Stage: 1, Name: "cache", Ms: 1.4, Hit: true},
+		},
 	}
 	data, err := MarshalSSE(e)
 	if err != nil {
@@ -235,7 +246,7 @@ func TestConcurrentEmit(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < perGoroutine; i++ {
-				p.Emit(Event{RequestID: "conc", Stage: "test"})
+				p.Emit(Event{RequestID: "conc", Op: "QUERY", Labels: []string{}})
 			}
 		}()
 	}

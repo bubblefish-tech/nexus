@@ -17,7 +17,11 @@
 
 package cache
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"sync/atomic"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 // Stats holds the Prometheus counters for exact-cache hit and miss events.
 // Register counters on the daemon's private registry by passing it to NewStats.
@@ -30,6 +34,11 @@ import "github.com/prometheus/client_golang/prometheus"
 type Stats struct {
 	hits   prometheus.Counter
 	misses prometheus.Counter
+
+	// hitCount and missCount are atomic counters mirroring the Prometheus
+	// counters for direct read access by admin endpoints without proto parsing.
+	hitCount  atomic.Int64
+	missCount atomic.Int64
 }
 
 // NewStats creates and registers the two exact-cache counters on reg. Panics
@@ -49,7 +58,19 @@ func NewStats(reg prometheus.Registerer) *Stats {
 }
 
 // Hit increments the cache hit counter.
-func (s *Stats) Hit() { s.hits.Inc() }
+func (s *Stats) Hit() {
+	s.hits.Inc()
+	s.hitCount.Add(1)
+}
 
 // Miss increments the cache miss counter.
-func (s *Stats) Miss() { s.misses.Inc() }
+func (s *Stats) Miss() {
+	s.misses.Inc()
+	s.missCount.Add(1)
+}
+
+// HitCount returns the total number of cache hits since startup.
+func (s *Stats) HitCount() int64 { return s.hitCount.Load() }
+
+// MissCount returns the total number of cache misses since startup.
+func (s *Stats) MissCount() int64 { return s.missCount.Load() }

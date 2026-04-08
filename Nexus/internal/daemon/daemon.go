@@ -150,6 +150,14 @@ type Daemon struct {
 	// math.Float64frombits. Reference: Tech Spec Section 11.5.
 	consistencyScore atomic.Uint64
 
+	// startedAt records when Start() was called, for uptime calculation.
+	startedAt time.Time
+
+	// exactStats and semanticStats hold cache counter references for the
+	// /api/status and /api/cache admin endpoints.
+	exactStats    *cache.Stats
+	semanticStats *cache.SemanticStats
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -201,6 +209,8 @@ func (d *Daemon) getConfig() *config.Config {
 //
 // Start is not safe to call concurrently. Call it once per Daemon.
 func (d *Daemon) Start() error {
+	d.startedAt = time.Now()
+
 	cfg := d.getConfig()
 
 	// Verify config signatures if signing is enabled.
@@ -367,8 +377,11 @@ func (d *Daemon) Start() error {
 	}
 
 	// Initialise exact cache (Stage 1) and semantic cache (Stage 2).
-	d.exactCache = cache.NewExactCache(cache.DefaultMaxBytes, cache.NewStats(d.metrics.Registry()))
-	d.semanticCache = cache.NewSemanticCache(cache.DefaultSemanticMaxEntries, cache.NewSemanticStats(d.metrics.Registry()))
+	// Store stats refs on the daemon for admin endpoint access.
+	d.exactStats = cache.NewStats(d.metrics.Registry())
+	d.semanticStats = cache.NewSemanticStats(d.metrics.Registry())
+	d.exactCache = cache.NewExactCache(cache.DefaultMaxBytes, d.exactStats)
+	d.semanticCache = cache.NewSemanticCache(cache.DefaultSemanticMaxEntries, d.semanticStats)
 
 	// Initialise idempotency store.
 	d.idem = idempotency.New()
@@ -571,6 +584,7 @@ func (d *Daemon) Start() error {
 	// Start MCP server if configured. Failure is non-fatal — the daemon MUST
 	// continue running even if MCP cannot bind.
 	// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
+	cfg.Daemon.LogLevel = "debug" // TEMPORARY: debug OAuth wiring
 	d.startMCPServer(cfg)
 
 	// Initialise JWT validator if enabled.

@@ -33,18 +33,30 @@ import (
 	"time"
 )
 
-// Event represents a pipeline visualization event.
-// Reference: Tech Spec Section 13.2.
+// StageInfo describes a single pipeline stage within a request.
+// Reference: dashboard-contract.md viz/events stages[] element.
+type StageInfo struct {
+	Stage int     `json:"stage"`
+	Name  string  `json:"name"`
+	Ms    float64 `json:"ms"`
+	Hit   bool    `json:"hit"`
+}
+
+// Event represents a pipeline visualization event matching the dashboard
+// contract shape exactly. One event per request.
+// Reference: dashboard-contract.md GET /api/viz/events.
 type Event struct {
-	RequestID   string    `json:"request_id"`
-	Stage       string    `json:"stage"`
-	DurationMs  float64   `json:"duration_ms"`
-	HitMiss     string    `json:"hit_miss"` // "hit", "miss", or ""
-	ResultCount int       `json:"result_count"`
-	Timestamp   time.Time `json:"timestamp"`
-	Source      string    `json:"source,omitempty"`
-	Destination string    `json:"destination,omitempty"`
-	Profile     string    `json:"profile,omitempty"`
+	Timestamp   time.Time    `json:"ts"`
+	RequestID   string       `json:"request_id"`
+	Source      string       `json:"source"`
+	Op          string       `json:"op"`         // "WRITE" or "QUERY"
+	Subject     string       `json:"subject"`
+	ActorType   string       `json:"actor_type"` // "user", "agent", "system"
+	Status      string       `json:"status"`     // "ALLOWED", "FILTERED", "DENIED"
+	Labels      []string     `json:"labels"`
+	ResultCount int          `json:"result_count"`
+	TotalMs     float64      `json:"total_ms"`
+	Stages      []StageInfo  `json:"stages"` // nil for WRITE
 }
 
 // Pipe is the lossy visualization event pipe. Emit from the query path

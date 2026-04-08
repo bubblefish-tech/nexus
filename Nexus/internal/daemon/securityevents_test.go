@@ -114,20 +114,37 @@ func TestHandleSecurityEvents(t *testing.T) {
 	}
 
 	var resp struct {
-		Events []securitylog.Event `json:"events"`
+		Events []struct {
+			TS       string `json:"ts"`
+			Kind     string `json:"kind"`
+			Source   string `json:"source"`
+			Severity string `json:"severity"`
+			Message  string `json:"message"`
+		} `json:"events"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// 3 original events + 1 admin_access from the handler itself.
+	// Events are returned newest-first. The handler itself emits an admin_access
+	// event, so we expect at least 4 (3 emitted + 1 admin_access).
 	if len(resp.Events) < 3 {
 		t.Fatalf("expected at least 3 events, got %d", len(resp.Events))
 	}
 
-	// First 3 events should be our emitted events.
-	if resp.Events[0].EventType != "auth_failure" {
-		t.Errorf("events[0] type = %q, want auth_failure", resp.Events[0].EventType)
+	// Find the auth_failure event in the list (newest-first order).
+	found := false
+	for _, e := range resp.Events {
+		if e.Kind == "auth_failure" {
+			found = true
+			if e.Severity != "warn" {
+				t.Errorf("auth_failure severity = %q, want warn", e.Severity)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find auth_failure event in response")
 	}
 }
 
@@ -147,16 +164,21 @@ func TestHandleSecuritySummary(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 
-	var summary securitylog.Summary
+	var summary struct {
+		AuthFailuresTotal  int `json:"auth_failures_total"`
+		PolicyDenialsTotal int `json:"policy_denials_total"`
+		RateLimitHitsTotal int `json:"rate_limit_hits_total"`
+		AdminCallsTotal    int `json:"admin_calls_total"`
+	}
 	if err := json.Unmarshal(w.Body.Bytes(), &summary); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if summary.AuthFailures != 2 {
-		t.Errorf("AuthFailures = %d, want 2", summary.AuthFailures)
+	if summary.AuthFailuresTotal != 2 {
+		t.Errorf("auth_failures_total = %d, want 2", summary.AuthFailuresTotal)
 	}
-	if summary.PolicyDenials != 1 {
-		t.Errorf("PolicyDenials = %d, want 1", summary.PolicyDenials)
+	if summary.PolicyDenialsTotal != 1 {
+		t.Errorf("policy_denials_total = %d, want 1", summary.PolicyDenialsTotal)
 	}
 }
 

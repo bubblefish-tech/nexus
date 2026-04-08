@@ -425,6 +425,86 @@ func TestMetadataMethodNotAllowed(t *testing.T) {
 	}
 }
 
+// ── Protected Resource Metadata Tests (RFC 9728) ────────────────────────────
+
+func TestProtectedResourceEndpoint(t *testing.T) {
+	srv := NewOAuthServer(OAuthConfig{
+		IssuerURL: "https://nexus.example.com",
+	}, mustGenKey(t), slog.Default())
+
+	mux := http.NewServeMux()
+	srv.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", ct)
+	}
+
+	var meta map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &meta); err != nil {
+		t.Fatalf("unmarshal protected resource metadata: %v", err)
+	}
+	if meta["resource"] != "https://nexus.example.com" {
+		t.Errorf("unexpected resource: %v", meta["resource"])
+	}
+}
+
+func TestProtectedResourceFields(t *testing.T) {
+	issuer := "https://nexus.example.com"
+	srv := NewOAuthServer(OAuthConfig{
+		IssuerURL: issuer,
+	}, mustGenKey(t), slog.Default())
+
+	mux := http.NewServeMux()
+	srv.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	var meta protectedResourceMetadata
+	if err := json.Unmarshal(rec.Body.Bytes(), &meta); err != nil {
+		t.Fatalf("unmarshal protected resource metadata: %v", err)
+	}
+
+	if meta.Resource != issuer {
+		t.Errorf("resource: got %q, want %q", meta.Resource, issuer)
+	}
+	if len(meta.AuthorizationServers) != 1 || meta.AuthorizationServers[0] != issuer {
+		t.Errorf("authorization_servers: got %v, want [%q]", meta.AuthorizationServers, issuer)
+	}
+	if len(meta.BearerMethodsSupported) != 1 || meta.BearerMethodsSupported[0] != "header" {
+		t.Errorf("bearer_methods_supported: got %v, want [\"header\"]", meta.BearerMethodsSupported)
+	}
+	if meta.ResourceDocumentation != "https://github.com/bubblefish-tech/nexus" {
+		t.Errorf("resource_documentation: got %q", meta.ResourceDocumentation)
+	}
+}
+
+func TestProtectedResourceMethodNotAllowed(t *testing.T) {
+	srv := NewOAuthServer(OAuthConfig{
+		IssuerURL: "https://nexus.example.com",
+	}, mustGenKey(t), slog.Default())
+
+	mux := http.NewServeMux()
+	srv.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/.well-known/oauth-protected-resource", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST, got %d", rec.Code)
+	}
+}
+
 // ── Authorization Endpoint Tests ────────────────────────────────────────────
 
 func testServer(t *testing.T) (*OAuthServer, *http.ServeMux) {

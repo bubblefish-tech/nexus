@@ -18,6 +18,7 @@
 package daemon
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -75,14 +76,55 @@ func (d *Daemon) handleSecurityEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	events := d.securityLog.Recent(limit)
+
+	// Transform to dashboard contract shape: ts, kind, source, severity, message.
+	type contractEvent struct {
+		TS       string `json:"ts"`
+		Kind     string `json:"kind"`
+		Source   string `json:"source"`
+		Severity string `json:"severity"`
+		Message  string `json:"message"`
+	}
+
+	out := make([]contractEvent, len(events))
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		severity := "info"
+		switch e.EventType {
+		case "auth_failure", "policy_denied", "rate_limit_hit":
+			severity = "warn"
+		case "wal_tamper_detected", "config_signature_invalid":
+			severity = "error"
+		}
+
+		msg := e.EventType
+		if e.Endpoint != "" {
+			msg += " on " + e.Endpoint
+		}
+		if detail, ok := e.Details["reason"]; ok {
+			msg += ": " + fmt.Sprint(detail)
+		}
+		if detail, ok := e.Details["token_class"]; ok {
+			msg += " (" + fmt.Sprint(detail) + ")"
+		}
+
+		out[len(events)-1-i] = contractEvent{
+			TS:       e.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z"),
+			Kind:     e.EventType,
+			Source:   e.Source,
+			Severity: severity,
+			Message:  msg,
+		}
+	}
+
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"events": events,
+		"events": out,
 	})
 }
 
 // handleSecuritySummary serves GET /api/security/summary — returns aggregated
-// counts of security events by type.
-// Reference: Tech Spec Section 12.
+// counts matching the dashboard contract shape exactly.
+// Reference: dashboard-contract.md GET /api/security/summary.
 func (d *Daemon) handleSecuritySummary(w http.ResponseWriter, r *http.Request) {
 	d.metrics.AdminCallsTotal.WithLabelValues("/api/security/summary").Inc()
 
@@ -97,13 +139,24 @@ func (d *Daemon) handleSecuritySummary(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if d.securityLog == nil {
-		d.writeJSON(w, http.StatusOK, securitylog.Summary{
-			BySource: map[string]int{},
+		d.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"auth_failures_total":   0,
+			"policy_denials_total":  0,
+			"rate_limit_hits_total": 0,
+			"admin_calls_total":     0,
+			"by_source":             map[string]interface{}{},
 		})
 		return
 	}
 
-	d.writeJSON(w, http.StatusOK, d.securityLog.Summarize())
+	summary, bySource := d.securityLog.SummarizeDetailed()
+	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"auth_failures_total":   summary.AuthFailures,
+		"policy_denials_total":  summary.PolicyDenials,
+		"rate_limit_hits_total": summary.RateLimitHits,
+		"admin_calls_total":     summary.AdminAccess,
+		"by_source":             bySource,
+	})
 }
 
 // emitAuthFailure emits an auth_failure security event.

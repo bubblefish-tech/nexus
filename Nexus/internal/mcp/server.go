@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -648,6 +649,7 @@ func (s *Server) handleNotification(req rpcRequest) {
 //
 // INVARIANT: uses subtle.ConstantTimeCompare — never ==.
 func (s *Server) authenticate(r *http.Request) bool {
+	s.logger.Debug("mcp: authenticate called", "component", "mcp", "has_oauth", s.oauthServer != nil, "issuer_url", s.oauthIssuerURL)
 	token := s.extractBearerToken(r)
 	if token == "" {
 		return false
@@ -673,6 +675,7 @@ func (s *Server) authenticate(r *http.Request) bool {
 // setWWWAuthenticate adds a WWW-Authenticate header to 401 responses when OAuth
 // is enabled, per RFC 6750 §3 and the MCP OAuth specification.
 func (s *Server) setWWWAuthenticate(w http.ResponseWriter) {
+	fmt.Fprintf(os.Stderr, "DEBUG setWWWAuthenticate: oauthServer=%v issuerURL=%q\n", s.oauthServer != nil, s.oauthIssuerURL)
 	if s.oauthServer != nil && s.oauthIssuerURL != "" {
 		w.Header().Set("WWW-Authenticate", fmt.Sprintf(
 			`Bearer realm="BubbleFish Nexus", authorization_uri="%s/oauth/authorize", resource_metadata="%s/.well-known/oauth-authorization-server"`,

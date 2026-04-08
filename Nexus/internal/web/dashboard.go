@@ -124,7 +124,10 @@ type Config struct {
 	AdminKey         []byte // Resolved admin token bytes.
 	Logger           *slog.Logger
 	SecurityProvider SecurityProvider // Optional; security tab disabled if nil.
-	AuditProvider   AuditProvider    // Optional; audit tab disabled if nil.
+	AuditProvider    AuditProvider   // Optional; audit tab disabled if nil.
+	AdminHandler     http.Handler    // Optional; when set, /api/* routes are delegated to this handler.
+	DashboardHTML    string          // Optional; v4 dashboard HTML content. When set, replaces the builtin skeleton.
+	LogoPNG          []byte          // Optional; embedded logo PNG served at /logo_metal.png.
 }
 
 // Dashboard is the web dashboard server. All state is held in struct fields.
@@ -144,8 +147,30 @@ func New(cfg Config) *Dashboard {
 func (d *Dashboard) Start() error {
 	mux := http.NewServeMux()
 
-	// All routes require admin auth when RequireAuth is true.
-	mux.HandleFunc("/", d.withAuth(d.handleIndex))
+	// Delegate admin API routes to the daemon's admin handler when configured.
+	// This allows the v4 dashboard (served on this port) to call admin
+	// endpoints on the same origin without CORS.
+	if d.cfg.AdminHandler != nil {
+		mux.Handle("/api/", d.cfg.AdminHandler)
+	}
+
+	// Serve embedded logo PNG if available. The v4 HTML references it as
+	// "logo_metal.png" (relative path), so serve at /logo_metal.png.
+	if len(d.cfg.LogoPNG) > 0 {
+		logoData := d.cfg.LogoPNG
+		mux.HandleFunc("/logo_metal.png", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(logoData)
+		})
+	}
+
+	// The index page is served WITHOUT auth — the admin token is injected
+	// server-side into the HTML, acting as session delivery. The server
+	// only binds to 127.0.0.1 so only local processes can reach it.
+	// API endpoints are protected by the daemon's own requireAdminToken middleware.
+	mux.HandleFunc("/", d.handleIndex)
 	mux.HandleFunc("/api/dashboard/status", d.withAuth(d.handleStatus))
 	mux.HandleFunc("/api/dashboard/events", d.withAuth(d.handleSSE))
 	mux.HandleFunc("/api/dashboard/security", d.withAuth(d.handleSecurity))
@@ -218,7 +243,9 @@ func (d *Dashboard) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// handleIndex serves the dashboard HTML skeleton.
+// handleIndex serves the dashboard HTML. When DashboardHTML is configured (v4),
+// it injects the admin token and disables mock mode. Otherwise falls back to
+// the built-in skeleton.
 // INVARIANT: Uses textContent exclusively. NEVER inner HTML.
 func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -228,10 +255,26 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	if d.cfg.DashboardHTML != "" {
+		// v4 dashboard loads Google Fonts via @import — allow in CSP.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com")
+		w.WriteHeader(http.StatusOK)
+		// Serve v4 dashboard with token injection.
+		html := d.cfg.DashboardHTML
+		html = strings.Replace(html, "MOCK_MODE: true,", "MOCK_MODE: false,", 1)
+		// JSON-escape the token to prevent XSS from token values.
+		escapedToken := strings.ReplaceAll(string(d.cfg.AdminKey), `\`, `\\`)
+		escapedToken = strings.ReplaceAll(escapedToken, `'`, `\'`)
+		html = strings.Replace(html, "ADMIN_TOKEN: '',", "ADMIN_TOKEN: '"+escapedToken+"',", 1)
+		_, _ = fmt.Fprint(w, html)
+		return
+	}
+
+	// Fallback: built-in skeleton dashboard.
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
 	w.WriteHeader(http.StatusOK)
-
-	// Dashboard HTML — all dynamic content uses textContent, NEVER inner HTML.
 	_, _ = fmt.Fprint(w, dashboardHTML)
 }
 

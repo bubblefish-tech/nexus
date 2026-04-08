@@ -35,6 +35,39 @@ type serverMetadata struct {
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 }
 
+// protectedResourceMetadata represents the OAuth 2.0 Protected Resource
+// Metadata document defined by RFC 9728.
+type protectedResourceMetadata struct {
+	Resource                string   `json:"resource"`
+	AuthorizationServers    []string `json:"authorization_servers"`
+	BearerMethodsSupported  []string `json:"bearer_methods_supported"`
+	ResourceDocumentation   string   `json:"resource_documentation"`
+}
+
+// handleProtectedResource serves the OAuth 2.0 Protected Resource Metadata
+// document at /.well-known/oauth-protected-resource (RFC 9728).
+// Required by ChatGPT's MCP connector for OAuth discovery.
+// No authentication is required.
+func (s *OAuthServer) handleProtectedResource(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	issuer := s.config.IssuerURL
+	meta := protectedResourceMetadata{
+		Resource:               issuer,
+		AuthorizationServers:   []string{issuer},
+		BearerMethodsSupported: []string{"header"},
+		ResourceDocumentation:  "https://github.com/bubblefish-tech/nexus",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(meta); err != nil {
+		s.logger.Error("oauth: encode protected resource metadata", "error", err)
+	}
+}
+
 // handleMetadata serves the OAuth 2.0 Authorization Server Metadata document
 // at /.well-known/oauth-authorization-server (RFC 8414).
 // No authentication is required.

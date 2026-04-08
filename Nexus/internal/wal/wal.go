@@ -421,6 +421,14 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 // PendingCount returns the current count of PENDING WAL entries. Incremented
 // on Append and Replay, decremented on MarkDelivered/MarkPermanentFailure.
 // Safe to call concurrently. Reference: Tech Spec Section 4.4.
+// CurrentSegment returns the filename (not full path) of the current WAL
+// segment. Used by the /api/status admin endpoint.
+func (w *WAL) CurrentSegment() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return filepath.Base(w.currentPath)
+}
+
 func (w *WAL) PendingCount() int64 {
 	return w.pendingCount.Load()
 }

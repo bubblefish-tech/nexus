@@ -153,6 +153,9 @@ func (c *ExactCache) Len() int { return c.lru.Len() }
 // BytesUsed returns the total estimated byte footprint of cached entries.
 func (c *ExactCache) BytesUsed() int64 { return c.lru.BytesUsed() }
 
+// Evictions returns the total number of LRU evictions since creation.
+func (c *ExactCache) Evictions() int64 { return c.lru.Evictions() }
+
 // estimateSize approximates the heap footprint of a CacheEntry in bytes.
 // It sums the string lengths of all record fields plus per-record overhead.
 // This avoids the cost of JSON serialisation on every Put.

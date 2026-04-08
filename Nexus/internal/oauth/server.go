@@ -100,6 +100,7 @@ func (s *OAuthServer) IssuerURL() string {
 // RegisterHandlers registers OAuth HTTP endpoints on the given ServeMux.
 func (s *OAuthServer) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleMetadata)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleProtectedResource)
 	mux.HandleFunc("/oauth/authorize", s.handleAuthorize)
 	mux.HandleFunc("/oauth/authorize/allow", s.handleAllow)
 	mux.HandleFunc("/oauth/authorize/deny", s.handleDeny)

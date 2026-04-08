@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/prometheus/client_golang/prometheus"
@@ -38,6 +39,11 @@ import (
 type SemanticStats struct {
 	hits   prometheus.Counter
 	misses prometheus.Counter
+
+	// hitCount and missCount are atomic counters mirroring the Prometheus
+	// counters for direct read access by admin endpoints.
+	hitCount  atomic.Int64
+	missCount atomic.Int64
 }
 
 // NewSemanticStats creates and registers the two semantic-cache counters on reg.
@@ -60,6 +66,7 @@ func NewSemanticStats(reg prometheus.Registerer) *SemanticStats {
 func (s *SemanticStats) Hit() {
 	if s != nil {
 		s.hits.Inc()
+		s.hitCount.Add(1)
 	}
 }
 
@@ -67,7 +74,26 @@ func (s *SemanticStats) Hit() {
 func (s *SemanticStats) Miss() {
 	if s != nil {
 		s.misses.Inc()
+		s.missCount.Add(1)
 	}
+}
+
+// HitCount returns the total number of semantic cache hits since startup.
+// Safe to call on a nil receiver (returns 0).
+func (s *SemanticStats) HitCount() int64 {
+	if s != nil {
+		return s.hitCount.Load()
+	}
+	return 0
+}
+
+// MissCount returns the total number of semantic cache misses since startup.
+// Safe to call on a nil receiver (returns 0).
+func (s *SemanticStats) MissCount() int64 {
+	if s != nil {
+		return s.missCount.Load()
+	}
+	return 0
 }
 
 // DefaultSemanticMaxEntries is the default maximum number of entries in the

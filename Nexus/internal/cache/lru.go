@@ -26,6 +26,7 @@ package cache
 import (
 	"container/list"
 	"sync"
+	"sync/atomic"
 )
 
 // LRU is a generic, thread-safe least-recently-used cache bounded by total
@@ -45,6 +46,10 @@ type LRU[K comparable, V any] struct {
 	usedBytes int64
 	items     map[K]*list.Element
 	evict     *list.List
+
+	// evictions counts the total number of LRU evictions since creation.
+	// Read via Evictions() for the /api/cache admin endpoint.
+	evictions atomic.Int64
 }
 
 // lruEntry is the value stored in each list.Element.
@@ -132,6 +137,11 @@ func (l *LRU[K, V]) BytesUsed() int64 {
 	return l.usedBytes
 }
 
+// Evictions returns the total number of LRU evictions since creation.
+func (l *LRU[K, V]) Evictions() int64 {
+	return l.evictions.Load()
+}
+
 // removeBack removes the least-recently-used (back) entry. Caller must hold mu.
 func (l *LRU[K, V]) removeBack() {
 	back := l.evict.Back()
@@ -142,6 +152,7 @@ func (l *LRU[K, V]) removeBack() {
 	l.evict.Remove(back)
 	delete(l.items, e.key)
 	l.usedBytes -= e.bytes
+	l.evictions.Add(1)
 }
 
 // removeKey removes a specific key. Caller must hold mu.

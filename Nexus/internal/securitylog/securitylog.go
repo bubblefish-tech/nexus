@@ -166,6 +166,63 @@ func (l *Logger) Summarize() Summary {
 	return s
 }
 
+// SourceMetrics holds per-source security metric breakdown.
+type SourceMetrics struct {
+	AuthFailures  int `json:"auth_failures"`
+	PolicyDenials int `json:"policy_denials"`
+	RateLimitHits int `json:"rate_limit_hits"`
+}
+
+// SummarizeDetailed returns aggregated counts with per-source per-event-type
+// breakdown for the dashboard contract /api/security/summary shape.
+func (l *Logger) SummarizeDetailed() (Summary, map[string]SourceMetrics) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	s := Summary{BySource: make(map[string]int)}
+	bySource := make(map[string]SourceMetrics)
+
+	for _, e := range l.ring {
+		switch e.EventType {
+		case "auth_failure":
+			s.AuthFailures++
+			if e.Source != "" {
+				m := bySource[e.Source]
+				m.AuthFailures++
+				bySource[e.Source] = m
+			}
+		case "policy_denied":
+			s.PolicyDenials++
+			if e.Source != "" {
+				m := bySource[e.Source]
+				m.PolicyDenials++
+				bySource[e.Source] = m
+			}
+		case "rate_limit_hit":
+			s.RateLimitHits++
+			if e.Source != "" {
+				m := bySource[e.Source]
+				m.RateLimitHits++
+				bySource[e.Source] = m
+			}
+		case "wal_tamper_detected":
+			s.WALTamperDetected++
+		case "config_signature_invalid":
+			s.ConfigSignatureInvalid++
+		case "admin_access":
+			s.AdminAccess++
+		case "retrieval_firewall_filtered":
+			s.RetrievalFirewallFiltered++
+		case "retrieval_firewall_denied":
+			s.RetrievalFirewallDenied++
+		}
+		if e.Source != "" {
+			s.BySource[e.Source]++
+		}
+	}
+	return s, bySource
+}
+
 // Close flushes and closes the underlying file. Safe to call multiple times.
 func (l *Logger) Close() error {
 	l.mu.Lock()
