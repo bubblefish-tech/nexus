@@ -28,6 +28,12 @@ import (
 // handleToken handles POST /oauth/token.
 // It validates the authorization code, verifies PKCE, and issues a JWT.
 func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
+	setOAuthCORSHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeTokenError(w, http.StatusMethodNotAllowed, "invalid_request", "method not allowed")
 		return

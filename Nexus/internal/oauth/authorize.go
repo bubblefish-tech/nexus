@@ -19,15 +19,98 @@ package oauth
 
 import (
 	"encoding/json"
-	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/BubbleFish-Nexus/internal/version"
 )
+
+// consentPageTemplate is the self-contained HTML/template-escaped consent page.
+// All user-controlled values are HTML-escaped automatically by html/template.
+// No external CSS, JS, or font dependencies. All styles are inline.
+var consentPageTemplate = template.Must(template.New("consent").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize {{.ClientName}} — BubbleFish Nexus</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+background:#f0f4f8;display:flex;justify-content:center;align-items:center;
+min-height:100vh;padding:1rem}
+.card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.1);
+max-width:420px;width:100%;padding:2.5rem 2rem}
+.logo{color:#1F4E79;font-size:1.5rem;font-weight:700;text-align:center;
+margin-bottom:.25rem}
+.tagline{color:#6b7280;font-size:.85rem;text-align:center;margin-bottom:2rem}
+h1{font-size:1.25rem;color:#111827;text-align:center;margin-bottom:1rem}
+.perm{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;
+padding:1rem;margin-bottom:1.5rem;text-align:center;color:#374151;
+font-size:.95rem;line-height:1.5}
+.buttons{display:flex;gap:.75rem}
+.buttons form{flex:1}
+.btn{width:100%;padding:.75rem;border:none;border-radius:8px;font-size:1rem;
+font-weight:600;cursor:pointer;transition:background .15s}
+.btn-allow{background:#1F4E79;color:#fff}
+.btn-allow:hover{background:#163a5c}
+.btn-deny{background:#e5e7eb;color:#374151}
+.btn-deny:hover{background:#d1d5db}
+.footer{margin-top:1.5rem;text-align:center;color:#9ca3af;font-size:.75rem}
+</style>
+</head>
+<body>
+<div class="card">
+<div class="logo">BubbleFish Nexus</div>
+<div class="tagline">AI Memory Gateway</div>
+<h1>Authorize {{.ClientName}}</h1>
+<div class="perm">
+BubbleFish Nexus will allow <strong>{{.ClientName}}</strong> to read and write your AI memories.
+</div>
+<div class="buttons">
+<form method="post" action="/oauth/authorize/allow">
+<input type="hidden" name="client_id" value="{{.ClientID}}">
+<input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+<input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
+<input type="hidden" name="scope" value="{{.Scope}}">
+<input type="hidden" name="state" value="{{.State}}">
+<button type="submit" class="btn btn-allow">Allow</button>
+</form>
+<form method="post" action="/oauth/authorize/deny">
+<input type="hidden" name="client_id" value="{{.ClientID}}">
+<input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+<input type="hidden" name="state" value="{{.State}}">
+<button type="submit" class="btn btn-deny">Deny</button>
+</form>
+</div>
+<div class="footer">BubbleFish Nexus {{.Version}}</div>
+</div>
+</body>
+</html>`))
+
+// consentPageData holds all values rendered into the consent page template.
+// All string fields are HTML-escaped automatically by html/template.
+type consentPageData struct {
+	ClientName    string
+	ClientID      string
+	RedirectURI   string
+	CodeChallenge string
+	Scope         string
+	State         string
+	Version       string
+}
 
 // handleAuthorize handles GET /oauth/authorize.
 // It validates all required parameters and renders the consent page.
 func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
+	setOAuthCORSHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -97,26 +180,34 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		scope = "mcp"
 	}
 
-	// Render consent page.
+	// Render consent page via html/template (auto-escapes all fields).
+	data := consentPageData{
+		ClientName:    client.ClientName,
+		ClientID:      clientID,
+		RedirectURI:   redirectURI,
+		CodeChallenge: codeChallenge,
+		Scope:         scope,
+		State:         state,
+		Version:       version.Version,
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, consentPageHTML,
-		client.ClientName, // title
-		client.ClientName, // heading
-		client.ClientName, // permission text
-		clientID,
-		redirectURI,
-		codeChallenge,
-		scope,
-		state,
-		clientID,
-		redirectURI,
-		state,
-	)
+	if err := consentPageTemplate.Execute(w, data); err != nil {
+		s.logger.Error("oauth: render consent page", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleAllow handles POST /oauth/authorize/allow.
 // It generates an authorization code, stores it, and redirects with code+state.
 func (s *OAuthServer) handleAllow(w http.ResponseWriter, r *http.Request) {
+	setOAuthCORSHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -143,6 +234,18 @@ func (s *OAuthServer) handleAllow(w http.ResponseWriter, r *http.Request) {
 	// Validate redirect_uri.
 	if !clientHasRedirectURI(client, redirectURI) {
 		writeAuthorizeError(w, http.StatusBadRequest, "invalid_request", "redirect_uri mismatch")
+		return
+	}
+
+	// Validate state is present (matches handleAuthorize strictness).
+	if state == "" {
+		writeAuthorizeError(w, http.StatusBadRequest, "invalid_request", "state is required")
+		return
+	}
+
+	// Validate code_challenge is present.
+	if codeChallenge == "" {
+		writeAuthorizeError(w, http.StatusBadRequest, "invalid_request", "code_challenge is required")
 		return
 	}
 
@@ -185,6 +288,12 @@ func (s *OAuthServer) handleAllow(w http.ResponseWriter, r *http.Request) {
 // handleDeny handles POST /oauth/authorize/deny.
 // It redirects with error=access_denied and the original state.
 func (s *OAuthServer) handleDeny(w http.ResponseWriter, r *http.Request) {
+	setOAuthCORSHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -207,6 +316,12 @@ func (s *OAuthServer) handleDeny(w http.ResponseWriter, r *http.Request) {
 	}
 	if !clientHasRedirectURI(client, redirectURI) {
 		writeAuthorizeError(w, http.StatusBadRequest, "invalid_request", "redirect_uri mismatch")
+		return
+	}
+
+	// Validate state is present (matches handleAuthorize strictness).
+	if state == "" {
+		writeAuthorizeError(w, http.StatusBadRequest, "invalid_request", "state is required")
 		return
 	}
 
@@ -253,68 +368,3 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, redirectURI, errC
 
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }
-
-// consentPageHTML is the self-contained consent page rendered at /oauth/authorize.
-// No external CSS, JS, or font dependencies. All styles are inline.
-// Format args: (1) title, (2) heading app name, (3) permission text app name,
-// (4) client_id, (5) redirect_uri, (6) code_challenge, (7) scope, (8) state,
-// (9) deny client_id, (10) deny redirect_uri, (11) deny state.
-const consentPageHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Authorize %s — BubbleFish Nexus</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-background:#f0f4f8;display:flex;justify-content:center;align-items:center;
-min-height:100vh;padding:1rem}
-.card{background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.1);
-max-width:420px;width:100%%;padding:2.5rem 2rem}
-.logo{color:#1F4E79;font-size:1.5rem;font-weight:700;text-align:center;
-margin-bottom:.25rem}
-.tagline{color:#6b7280;font-size:.85rem;text-align:center;margin-bottom:2rem}
-h1{font-size:1.25rem;color:#111827;text-align:center;margin-bottom:1rem}
-.perm{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;
-padding:1rem;margin-bottom:1.5rem;text-align:center;color:#374151;
-font-size:.95rem;line-height:1.5}
-.buttons{display:flex;gap:.75rem}
-.buttons form{flex:1}
-.btn{width:100%%;padding:.75rem;border:none;border-radius:8px;font-size:1rem;
-font-weight:600;cursor:pointer;transition:background .15s}
-.btn-allow{background:#1F4E79;color:#fff}
-.btn-allow:hover{background:#163a5c}
-.btn-deny{background:#e5e7eb;color:#374151}
-.btn-deny:hover{background:#d1d5db}
-.footer{margin-top:1.5rem;text-align:center;color:#9ca3af;font-size:.75rem}
-</style>
-</head>
-<body>
-<div class="card">
-<div class="logo">BubbleFish Nexus</div>
-<div class="tagline">AI Memory Gateway</div>
-<h1>Authorize %s</h1>
-<div class="perm">
-BubbleFish Nexus will allow <strong>%s</strong> to read and write your AI memories.
-</div>
-<div class="buttons">
-<form method="post" action="/oauth/authorize/allow">
-<input type="hidden" name="client_id" value="%s">
-<input type="hidden" name="redirect_uri" value="%s">
-<input type="hidden" name="code_challenge" value="%s">
-<input type="hidden" name="scope" value="%s">
-<input type="hidden" name="state" value="%s">
-<button type="submit" class="btn btn-allow">Allow</button>
-</form>
-<form method="post" action="/oauth/authorize/deny">
-<input type="hidden" name="client_id" value="%s">
-<input type="hidden" name="redirect_uri" value="%s">
-<input type="hidden" name="state" value="%s">
-<button type="submit" class="btn btn-deny">Deny</button>
-</form>
-</div>
-<div class="footer">BubbleFish Nexus v0.1.0</div>
-</div>
-</body>
-</html>`

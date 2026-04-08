@@ -111,6 +111,12 @@ func (s *OAuthServer) RegisterHandlers(mux *http.ServeMux) {
 // handleJWKS serves the JSON Web Key Set containing the server's RSA public key.
 // No auth required.
 func (s *OAuthServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
+	setOAuthCORSHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
