@@ -18,6 +18,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -48,6 +49,35 @@ import (
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
+
+// embedContent computes a vector embedding for the given content string.
+// Returns nil without blocking the write if the embedding client is nil,
+// content is empty/whitespace, or the embed call fails.
+func (d *Daemon) embedContent(ctx context.Context, payloadID, content string) []float32 {
+	if d.embeddingClient == nil {
+		return nil
+	}
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
+	embedCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	vec, err := d.embeddingClient.Embed(embedCtx, content)
+	if err != nil {
+		d.logger.Warn("daemon: embed content failed",
+			"component", "daemon",
+			"payload_id", payloadID,
+			"error", err,
+		)
+		return nil
+	}
+	d.logger.Debug("daemon: embed content success",
+		"component", "daemon",
+		"payload_id", payloadID,
+		"dimensions", len(vec),
+	)
+	return vec
+}
 
 // errorResponse is the canonical error envelope.
 // Reference: Tech Spec Section 7.4, Phase 0C Behavioral Contract item 14.
@@ -518,6 +548,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		SensitivityLabels:  sensitivityLabels,
 		ClassificationTier: classificationTier,
 	}
+	tp.Embedding = d.embedContent(r.Context(), payloadID, tp.Content)
 
 	// Build WAL entry payload.
 	payloadBytes, err := json.Marshal(tp)
@@ -1438,6 +1469,7 @@ func (d *Daemon) handleOpenAIWrite(w http.ResponseWriter, r *http.Request) {
 			TransformVersion: "1.0",
 			ActorType:        src.DefaultActorType,
 		}
+		tp.Embedding = d.embedContent(r.Context(), payloadID, tp.Content)
 
 		payloadBytes, err := json.Marshal(tp)
 		if err != nil {

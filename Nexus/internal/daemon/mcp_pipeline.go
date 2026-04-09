@@ -113,6 +113,7 @@ func (d *Daemon) Write(ctx context.Context, params mcp.WriteParams) (mcp.WriteRe
 		ActorType:        actorType,
 		ActorID:          actorID,
 	}
+	tp.Embedding = d.embedContent(ctx, payloadID, tp.Content)
 
 	payloadBytes, err := json.Marshal(tp)
 	if err != nil {
