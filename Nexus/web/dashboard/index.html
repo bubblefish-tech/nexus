@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
+<!-- saved from url=(0022)http://127.0.0.1:8081/ -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#07090d">
 <title>BubbleFish Nexus — Control Plane</title>
@@ -1821,207 +1821,139 @@ body{
 </head>
 <body>
 
-<!-- SVG defs for sparkline gradients -->
-<svg width="0" height="0" style="position:absolute;">
+<!-- Hidden SVG defs reused across views -->
+<svg width="0" height="0" style="position:absolute">
   <defs>
     <linearGradient id="sparkGrad" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="#5ec8e6" stop-opacity="0.5"/>
-      <stop offset="100%" stop-color="#5ec8e6" stop-opacity="0"/>
+      <stop offset="0%" stop-color="var(--cyan)" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="var(--cyan)" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="sparkGradGreen" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="#3fb984" stop-opacity="0.5"/>
-      <stop offset="100%" stop-color="#3fb984" stop-opacity="0"/>
+      <stop offset="0%" stop-color="var(--green)" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="var(--green)" stop-opacity="0"/>
     </linearGradient>
   </defs>
 </svg>
 
-<div id="offlineBanner"></div>
+<div id="offlineBanner" class=""></div>
 
 <div class="app">
 
   <!-- ═══════════════ SIDEBAR ═══════════════ -->
-  <nav class="sidebar">
+  <aside class="sidebar">
     <div class="logo-wrap">
-      <img src="logo_metal.png" alt="BubbleFish" id="sidebarLogo">
+      <img src="/logo_metal.png" alt="BubbleFish" id="sidebarLogo">
     </div>
-    <div class="logo-mark">
-      NEXUS
-      <span class="v">v0.1.0</span>
-    </div>
-
+    <div class="logo-mark">NEXUS<span class="v" id="sidebarVer">v—</span></div>
     <div class="sidebar-divider"></div>
 
-    <!-- Dashboard -->
-    <button class="nav-btn active" data-view="control" data-tip="Control Plane">
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+    <button class="nav-btn active" data-view="control" data-tip="Ops">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
-    <!-- Audit log -->
-    <button class="nav-btn" data-view="audit" data-tip="Audit Log">
+    <button class="nav-btn" data-view="audit" data-tip="Interaction Log">
       <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
     </button>
-    <!-- Security -->
-    <button class="nav-btn" data-view="security" data-tip="Security & Policy">
-      <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
+    <button class="nav-btn" data-view="security" data-tip="Security">
+      <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
     </button>
-    <!-- Pipeline -->
     <button class="nav-btn" data-view="pipeline" data-tip="Retrieval Pipeline">
-      <svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><circle cx="12" cy="12" r="2.5"/><line x1="6.5" y1="7" x2="10" y2="11"/><line x1="17.5" y1="7" x2="14" y2="11"/><line x1="6.5" y1="17" x2="10" y2="13"/><line x1="17.5" y1="17" x2="14" y2="13"/></svg>
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
     </button>
-    <!-- Conflicts -->
     <button class="nav-btn" data-view="conflicts" data-tip="Conflicts">
-      <svg viewBox="0 0 24 24"><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </button>
+    <button class="nav-btn" data-view="settings" data-tip="Effective Config">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
     </button>
 
     <div class="nav-spacer"></div>
 
-    <!-- Witness mode -->
     <button class="nav-btn" id="witnessBtn" data-tip="Witness Mode">
-      <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
-      <div class="badge"></div>
+      <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
     </button>
-    <!-- Settings -->
-    <button class="nav-btn" data-view="settings" data-tip="Settings">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    </button>
-  </nav>
+  </aside>
 
-  <div class="main">
+  <!-- ═══════════════ MAIN ═══════════════ -->
+  <main class="main">
+
     <!-- ═══════════════ HEADER ═══════════════ -->
     <header class="header">
-      <div class="header-brand">
-        <span class="header-title">BubbleFish Nexus</span>
-        <span class="header-version">v0.1.0</span>
-      </div>
-      <div class="header-env">Production</div>
-
-      <div class="header-spacer"></div>
-
-      <div class="header-region">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
-        local · us-west
-      </div>
-      <span class="header-sep">·</span>
       <div class="header-status">
-        <div class="status-dot"></div>
-        <span style="color:var(--green);font-weight:500;">Healthy</span>
-        <span class="header-sep">·</span>
-        <span id="uptime">uptime 4h 22m</span>
+        <span class="health-pill" id="healthPill">
+          <span class="health-dot"></span>
+          <span id="healthLabel">connecting…</span>
+        </span>
+        <span id="uptime" class="header-meta">uptime —</span>
+        <span id="versionTag" class="header-meta">v—</span>
+        <span id="bindTag"   class="header-meta">bind —</span>
       </div>
-
-      <div class="cmd-hint">
-        <svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        Search
-        <kbd>⌘K</kbd>
-      </div>
-
-      <div class="mode-toggle">
+      <div class="header-spacer"></div>
+      <div class="mode-switch">
         <button class="mode-btn active" id="modeOps">Ops</button>
         <button class="mode-btn" id="modeWitness">Witness</button>
       </div>
     </header>
 
-    <!-- ═══════════════ VIEW HOST — sidebar nav swaps these ═══════════════ -->
+    <!-- ═══════════════ VIEW HOST ═══════════════ -->
     <div class="view-host">
 
-    <!-- ─── CONTROL PLANE VIEW (default) ─── -->
+    <!-- ════════════ CONTROL PLANE / OPS ════════════ -->
     <div class="view active" id="view-control">
-    <div class="dashboard">
+    <div class="view-pad">
 
-      <!-- ROW 1: Key Metrics with sparklines -->
-      <div class="metric-card">
-        <div class="metric-label">
-          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
-          Total Memories
+      <!-- ROW 1: Four golden-signal metric cards -->
+      <div class="metric-row">
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+            Memories Stored
+          </div>
+          <div class="metric-value" id="mTotal">—</div>
+          <div class="metric-sub" id="mTotalSub">live · /api/status</div>
         </div>
-        <div class="metric-value" id="mTotal">1,247</div>
-        <div class="metric-sub"><span class="delta">+23</span> last hour</div>
-        <div class="metric-bar"><div class="metric-bar-fill" style="width:34%;background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow);"></div></div>
-        <svg class="metric-spark" viewBox="0 0 200 42" preserveAspectRatio="none">
-          <path class="fill" d="M0,32 L15,28 L30,30 L45,22 L60,26 L75,18 L90,24 L105,15 L120,20 L135,12 L150,16 L165,8 L180,14 L200,6 L200,42 L0,42 Z"/>
-          <path d="M0,32 L15,28 L30,30 L45,22 L60,26 L75,18 L90,24 L105,15 L120,20 L135,12 L150,16 L165,8 L180,14 L200,6"/>
-        </svg>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Throughput
+          </div>
+          <div class="metric-value" style="color:var(--cyan)" id="mRate">—<span class="unit">/s</span></div>
+          <div class="metric-sub" id="mRateSub">60s window · live SSE</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            WAL Pending
+          </div>
+          <div class="metric-value" style="color:var(--green)" id="mWal">—</div>
+          <div class="metric-sub" id="mWalSub">durability buffer</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Cache Hit Rate
+          </div>
+          <div class="metric-value" id="mCache">—<span class="unit">%</span></div>
+          <div class="metric-sub" id="mCacheSub">exact — · semantic —</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mCacheBar" style="width:0%"></div></div>
+        </div>
+
       </div>
 
-      <div class="metric-card">
-        <div class="metric-label">
-          <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          Throughput
-        </div>
-        <div class="metric-value" style="color:var(--cyan);" id="mRate">93<span class="unit">req/s</span></div>
-        <div class="metric-sub">p99 latency: 12.4ms</div>
-        <div class="metric-bar"><div class="metric-bar-fill" style="width:47%;background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow);"></div></div>
-        <svg class="metric-spark" viewBox="0 0 200 42" preserveAspectRatio="none">
-          <path class="fill" d="M0,28 L15,30 L30,22 L45,26 L60,18 L75,22 L90,14 L105,20 L120,12 L135,16 L150,8 L165,14 L180,18 L200,10 L200,42 L0,42 Z"/>
-          <path d="M0,28 L15,30 L30,22 L45,26 L60,18 L75,22 L90,14 L105,20 L120,12 L135,16 L150,8 L165,14 L180,18 L200,10"/>
-        </svg>
-      </div>
-
-      <div class="metric-card green">
-        <div class="metric-label">
-          <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          WAL Pending
-        </div>
-        <div class="metric-value" style="color:var(--green);" id="mWal">0</div>
-        <div class="metric-sub">consistency: 0.98</div>
-        <div class="metric-bar"><div class="metric-bar-fill" style="width:98%;background:var(--green);box-shadow:0 0 8px var(--green-glow);"></div></div>
-        <svg class="metric-spark" viewBox="0 0 200 42" preserveAspectRatio="none">
-          <path class="fill" d="M0,38 L15,38 L30,36 L45,38 L60,38 L75,36 L90,38 L105,38 L120,38 L135,36 L150,38 L165,38 L180,38 L200,38 L200,42 L0,42 Z"/>
-          <path d="M0,38 L15,38 L30,36 L45,38 L60,38 L75,36 L90,38 L105,38 L120,38 L135,36 L150,38 L165,38 L180,38 L200,38"/>
-        </svg>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-label">
-          <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          Cache Hit Rate
-        </div>
-        <div class="metric-value" style="color:var(--cyan);">67<span class="unit">%</span></div>
-        <div class="metric-sub">exact 42% · semantic 25%</div>
-        <div class="metric-bar"><div class="metric-bar-fill" style="width:67%;background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow);"></div></div>
-        <svg class="metric-spark" viewBox="0 0 200 42" preserveAspectRatio="none">
-          <path class="fill" d="M0,24 L15,22 L30,26 L45,18 L60,22 L75,16 L90,20 L105,14 L120,18 L135,12 L150,16 L165,10 L180,14 L200,12 L200,42 L0,42 Z"/>
-          <path d="M0,24 L15,22 L30,26 L45,18 L60,22 L75,16 L90,20 L105,14 L120,18 L135,12 L150,16 L165,10 L180,14 L200,12"/>
-        </svg>
-      </div>
-
-      <!-- ROW 2: Sources -->
+      <!-- ROW 2: Source / connected clients -->
       <div class="sources-panel">
         <div class="panel-header">
           <span class="panel-title">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
-            Active Sources
+            Configured Sources
           </span>
-          <span class="panel-meta">3 connected · 1 idle slot</span>
+          <span class="panel-meta" id="sourcesMeta">— configured</span>
         </div>
-        <div class="sources-grid">
-          <div class="source-card">
-            <div class="source-name"><div class="source-dot" style="background:var(--cyan);box-shadow:0 0 6px var(--cyan-glow);"></div>Claude Desktop</div>
-            <div class="source-stats">
-              <span>W <span style="color:var(--text-secondary);">423</span></span>
-              <span>R <span style="color:var(--text-secondary);">891</span></span>
-              <span>D <span style="color:var(--green);">0</span></span>
-            </div>
-          </div>
-          <div class="source-card">
-            <div class="source-name"><div class="source-dot" style="background:var(--green);box-shadow:0 0 6px var(--green-glow);"></div>Open WebUI</div>
-            <div class="source-stats">
-              <span>W <span style="color:var(--text-secondary);">287</span></span>
-              <span>R <span style="color:var(--text-secondary);">534</span></span>
-              <span>D <span style="color:var(--amber);">2</span></span>
-            </div>
-          </div>
-          <div class="source-card">
-            <div class="source-name"><div class="source-dot" style="background:var(--amber);box-shadow:0 0 6px rgba(224,160,74,0.4);"></div>Cursor</div>
-            <div class="source-stats">
-              <span>W <span style="color:var(--text-secondary);">156</span></span>
-              <span>R <span style="color:var(--text-secondary);">412</span></span>
-              <span>D <span style="color:var(--green);">0</span></span>
-            </div>
-          </div>
-          <div class="source-card add">
-            <div class="source-name">+ Connect Source</div>
-            <div class="source-stats"><span>bubblefish install</span></div>
-          </div>
+        <div class="sources-grid" id="sourcesGrid">
+          <div class="empty-state">loading sources…</div>
         </div>
       </div>
 
@@ -2032,26 +1964,27 @@ body{
             <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             Retrieval Cascade
           </span>
-          <span class="panel-meta">profile: balanced</span>
+          <span class="panel-meta" id="pipelineProfile">profile: —</span>
         </div>
         <div class="pipeline-flow" id="pipeline">
-          <div class="p-node" data-s="0"><div class="hex"></div><span class="lat">0.1ms</span><span class="num">0</span><span class="lbl">Policy</span></div>
+          <div class="p-node" data-s="0"><div class="hex"></div><span class="lat" id="ps0lat">—</span><span class="num">0</span><span class="lbl">Policy</span></div>
           <div class="p-conn"><div class="pdot"></div></div>
-          <div class="p-node" data-s="1"><div class="hex"></div><span class="lat">0.2ms</span><span class="num">1</span><span class="lbl">Cache</span></div>
+          <div class="p-node" data-s="1"><div class="hex"></div><span class="lat" id="ps1lat">—</span><span class="num">1</span><span class="lbl">Cache</span></div>
           <div class="p-conn"><div class="pdot"></div></div>
-          <div class="p-node" data-s="2"><div class="hex"></div><span class="lat">1.1ms</span><span class="num">2</span><span class="lbl">Semantic</span></div>
+          <div class="p-node" data-s="2"><div class="hex"></div><span class="lat" id="ps2lat">—</span><span class="num">2</span><span class="lbl">Semantic</span></div>
           <div class="p-conn"><div class="pdot"></div></div>
-          <div class="p-node" data-s="3"><div class="hex"></div><span class="lat">2.4ms</span><span class="num">3</span><span class="lbl">Lookup</span></div>
+          <div class="p-node" data-s="3"><div class="hex"></div><span class="lat" id="ps3lat">—</span><span class="num">3</span><span class="lbl">Lookup</span></div>
           <div class="p-conn"><div class="pdot"></div></div>
-          <div class="p-node" data-s="4"><div class="hex"></div><span class="lat">5.1ms</span><span class="num">4</span><span class="lbl">Vector</span></div>
+          <div class="p-node" data-s="4"><div class="hex"></div><span class="lat" id="ps4lat">—</span><span class="num">4</span><span class="lbl">Vector</span></div>
           <div class="p-conn"><div class="pdot"></div></div>
-          <div class="p-node" data-s="5"><div class="hex"></div><span class="lat">1.2ms</span><span class="num">5</span><span class="lbl">Merge</span></div>
+          <div class="p-node" data-s="5"><div class="hex"></div><span class="lat" id="ps5lat">—</span><span class="num">5</span><span class="lbl">Merge</span></div>
         </div>
         <div class="pipeline-stats">
-          <span>Queries/s <span class="val">12.4</span></span>
-          <span>Avg latency <span class="val">8.7ms</span></span>
-          <span>Cache hits <span class="val">67%</span></span>
-          <span>Filtered <span class="val" style="color:var(--amber);">2</span></span>
+          <span>Queries/s <span class="val" id="pipeQps">—</span></span>
+          <span>p50 <span class="val" id="pipeP50">—</span></span>
+          <span>p99 <span class="val" id="pipeP99">—</span></span>
+          <span>Cache hits <span class="val" id="pipeCacheRate">—</span></span>
+          <span>Filtered <span class="val" id="pipeFiltered" style="color:var(--amber)">—</span></span>
         </div>
       </div>
 
@@ -2061,71 +1994,57 @@ body{
             <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
             Interaction Log — Live
           </span>
-          <span class="panel-meta">black-box recorder</span>
+          <span class="panel-meta" id="auditMeta">SSE · /api/viz/events</span>
         </div>
-        <div class="audit-list" id="auditList"></div>
+        <div class="audit-list" id="auditList">
+          <div class="empty-state">waiting for events… (perform a write or query against the daemon)</div>
+        </div>
       </div>
     </div>
     </div><!-- /view-control -->
 
-    <!-- ═══════════════════════════════════════════════════════════════
-         AUDIT LOG VIEW
-         Wired to: GET /api/security/events (auth failures only) +
-                   /api/viz/events SSE for real-time interactions.
-                   Real Nexus has no public "all interactions" endpoint —
-                   the live feed is the projection of WAL writes via SSE
-                   plus security events for filtered/denied operations.
-    ═══════════════════════════════════════════════════════════════ -->
+    <!-- ════════════ AUDIT VIEW ════════════ -->
     <div class="view" id="view-audit">
       <div class="view-pad">
         <div class="page-head">
           <div class="page-head-l">
             <div class="page-title">
-              <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
-              Audit Log
+              <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/></svg>
+              Interaction Log
             </div>
-            <div class="page-sub">Black-box recorder · live tail of <code>/api/viz/events</code> + <code>/api/security/events</code></div>
+            <div class="page-sub">Live tail of <code>/api/viz/events</code> + persisted from <code>/api/audit/log</code></div>
           </div>
           <div class="page-head-r">
-            <span class="ep-badge sse">SSE · live</span>
+            <span class="ep-badge sse" id="auditSseBadge">SSE · connecting</span>
           </div>
         </div>
 
         <div class="audit-stats">
           <div class="stat-card">
-            <div class="stat-label">Total Today</div>
-            <div class="stat-val" id="audStatTotal">12,847</div>
-            <div class="stat-sub">writes + queries</div>
+            <div class="stat-lbl">Total (this session)</div>
+            <div class="stat-val" id="audStatTotal">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Writes</div>
-            <div class="stat-val cyan" id="audStatWrites">4,213</div>
-            <div class="stat-sub">accepted to WAL</div>
+            <div class="stat-lbl">Writes</div>
+            <div class="stat-val cyan" id="audStatWrites">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Queries</div>
-            <div class="stat-val green" id="audStatQueries">8,634</div>
-            <div class="stat-sub">cascade served</div>
+            <div class="stat-lbl">Queries</div>
+            <div class="stat-val green" id="audStatQueries">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Filtered / Denied</div>
-            <div class="stat-val amber" id="audStatFiltered">17</div>
-            <div class="stat-sub">policy enforcement</div>
+            <div class="stat-lbl">Filtered</div>
+            <div class="stat-val amber" id="audStatFiltered">—</div>
           </div>
         </div>
 
         <div class="filter-bar">
           <div class="filter-group">
-            <span class="lbl">Source</span>
-            <select id="audFilterSource">
-              <option value="">all</option>
-              <option value="claude-desktop">claude-desktop</option>
-              <option value="open-webui">open-webui</option>
-              <option value="cursor">cursor</option>
-            </select>
+            <label class="filter-lbl">source</label>
+            <select id="audFilterSource"><option value="">all</option></select>
           </div>
           <div class="filter-group">
-            <span class="lbl">Op</span>
+            <label class="filter-lbl">op</label>
             <select id="audFilterOp">
               <option value="">all</option>
               <option value="WRITE">WRITE</option>
@@ -2133,7 +2052,7 @@ body{
             </select>
           </div>
           <div class="filter-group">
-            <span class="lbl">Status</span>
+            <label class="filter-lbl">status</label>
             <select id="audFilterStatus">
               <option value="">all</option>
               <option value="ALLOWED">ALLOWED</option>
@@ -2141,297 +2060,172 @@ body{
               <option value="DENIED">DENIED</option>
             </select>
           </div>
-          <div class="filter-group">
-            <span class="lbl">Subject</span>
-            <input type="text" id="audFilterSubject" placeholder="user:shawn">
+          <div class="filter-group" style="flex:1">
+            <label class="filter-lbl">subject contains</label>
+            <input type="text" id="audFilterSubject" placeholder="">
           </div>
-          <span class="filter-pill green">live</span>
         </div>
 
         <div class="audit-table-wrap">
           <table class="audit-table">
             <thead>
               <tr>
-                <th>Timestamp</th>
-                <th>Op</th>
-                <th>Source</th>
-                <th>Subject</th>
-                <th>Detail</th>
-                <th>Status</th>
-                <th>Latency</th>
+                <th class="col-time">time</th>
+                <th class="col-op">op</th>
+                <th class="col-src">source</th>
+                <th class="col-subject">subject</th>
+                <th class="col-detail">detail</th>
+                <th class="col-status">status</th>
+                <th class="col-lat">lat</th>
               </tr>
             </thead>
             <tbody id="auditTableBody"></tbody>
           </table>
         </div>
+        <div id="auditPersistedNote" class="empty-state" style="margin-top:14px;display:none"></div>
       </div>
-    </div><!-- /view-audit -->
+    </div>
 
-    <!-- ═══════════════════════════════════════════════════════════════
-         SECURITY VIEW
-         Wired to: GET /api/policies (compiled policy summaries)
-                   GET /api/security/events (recent security events)
-                   GET /api/security/summary (aggregated counts)
-                   GET /api/lint (config lint warnings)
-                   GET /metrics (auth_failures_total, policy_denials_total,
-                                 rate_limit_hits_total, admin_calls_total)
-    ═══════════════════════════════════════════════════════════════ -->
+    <!-- ════════════ SECURITY VIEW ════════════ -->
     <div class="view" id="view-security">
       <div class="view-pad">
         <div class="page-head">
           <div class="page-head-l">
             <div class="page-title">
-              <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
-              Security &amp; Policy
+              <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
+              Security
             </div>
-            <div class="page-sub">Source policies · auth events · config lint · read-only</div>
-          </div>
-          <div class="page-head-r">
-            <span class="ep-badge">/api/policies</span>
-            <span class="ep-badge">/api/security/events</span>
+            <div class="page-sub">Counters from <code>/api/security/summary</code> · events from <code>/api/security/events</code> · lint from <code>/api/lint</code></div>
           </div>
         </div>
 
-        <!-- Aggregated security counters from /metrics -->
-        <div class="sec-summary" style="margin-bottom:14px;">
+        <div class="audit-stats">
           <div class="stat-card">
-            <div class="stat-label">Auth Failures</div>
-            <div class="stat-val red" id="secAuthFails">3</div>
-            <div class="stat-sub">bubblefish_auth_failures_total</div>
+            <div class="stat-lbl">Auth Failures</div>
+            <div class="stat-val red" id="secAuthFails">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Policy Denials</div>
-            <div class="stat-val amber" id="secPolicyDenies">17</div>
-            <div class="stat-sub">bubblefish_policy_denials_total</div>
+            <div class="stat-lbl">Policy Denials</div>
+            <div class="stat-val amber" id="secPolicyDenies">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Rate-Limit Hits</div>
-            <div class="stat-val amber" id="secRateLimits">0</div>
-            <div class="stat-sub">bubblefish_rate_limit_hits_total</div>
+            <div class="stat-lbl">Rate Limit Hits</div>
+            <div class="stat-val amber" id="secRateLimits">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Admin Calls</div>
-            <div class="stat-val cyan" id="secAdminCalls">142</div>
-            <div class="stat-sub">bubblefish_admin_calls_total</div>
+            <div class="stat-lbl">Admin Calls</div>
+            <div class="stat-val cyan" id="secAdminCalls">—</div>
           </div>
         </div>
 
-        <div class="sec-grid">
-          <!-- Source policies — wired to /api/policies -->
-          <div class="sec-panel full">
-            <div class="sec-panel-head">
-              <span class="panel-title">
-                <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.39 0 4.68.94 6.36 2.64"/></svg>
-                Source Policies
-              </span>
-              <span class="ep-badge">/api/policies</span>
-            </div>
-            <table class="policy-table">
-              <thead>
-                <tr>
-                  <th>Source</th>
-                  <th>Read</th>
-                  <th>Write</th>
-                  <th>Allowed Destinations</th>
-                  <th>Max Results</th>
-                  <th>Max Bytes</th>
-                  <th>Rate Limit</th>
-                  <th>Policy Hash</th>
-                </tr>
-              </thead>
-              <tbody id="policyTableBody">
-                <tr>
-                  <td class="src"><span class="dot" style="background:var(--cyan);box-shadow:0 0 6px var(--cyan-glow);"></span>claude-desktop</td>
-                  <td class="cap-cell cap-yes">YES</td>
-                  <td class="cap-cell cap-yes">YES</td>
-                  <td>sqlite</td>
-                  <td>20</td>
-                  <td>16,384</td>
-                  <td>2000/min</td>
-                  <td><code style="font-size:9.5px;color:var(--text-tertiary);">a3f7c2…</code></td>
-                </tr>
-                <tr>
-                  <td class="src"><span class="dot" style="background:var(--green);box-shadow:0 0 6px var(--green-glow);"></span>open-webui</td>
-                  <td class="cap-cell cap-yes">YES</td>
-                  <td class="cap-cell cap-yes">YES</td>
-                  <td>sqlite</td>
-                  <td>50</td>
-                  <td>32,768</td>
-                  <td>2000/min</td>
-                  <td><code style="font-size:9.5px;color:var(--text-tertiary);">b8e1d9…</code></td>
-                </tr>
-                <tr>
-                  <td class="src"><span class="dot" style="background:var(--amber);box-shadow:0 0 6px rgba(224,160,74,0.4);"></span>cursor</td>
-                  <td class="cap-cell cap-yes">YES</td>
-                  <td class="cap-cell cap-yes">YES</td>
-                  <td>sqlite</td>
-                  <td>30</td>
-                  <td>16,384</td>
-                  <td>2000/min</td>
-                  <td><code style="font-size:9.5px;color:var(--text-tertiary);">c2f4a8…</code></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Recent security events — wired to /api/security/events -->
-          <div class="sec-panel">
-            <div class="sec-panel-head">
-              <span class="panel-title">
-                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                Recent Security Events
-              </span>
-              <span class="ep-badge">/api/security/events</span>
-            </div>
-            <div class="sec-events" id="secEventsList">
-              <!-- populated by JS from /api/security/events -->
-            </div>
-          </div>
-
-          <!-- Config lint — wired to /api/lint -->
-          <div class="sec-panel">
-            <div class="sec-panel-head">
-              <span class="panel-title">
-                <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
-                Config Lint Warnings
-              </span>
-              <span class="ep-badge">/api/lint</span>
-            </div>
-            <div class="lint-list" id="lintList">
-              <!-- populated by JS from /api/lint -->
-            </div>
-          </div>
+        <div class="panel-header" style="margin-top:18px">
+          <span class="panel-title">Compiled Source Policies</span>
+          <span class="panel-meta">/api/policies</span>
         </div>
+        <div class="policy-table-wrap">
+          <table class="policy-table">
+            <thead><tr>
+              <th>source</th><th>read</th><th>write</th><th>destinations</th>
+              <th>max_results</th><th>max_response_bytes</th><th>rate_limit</th><th>policy_hash</th>
+            </tr></thead>
+            <tbody id="policyTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="panel-header" style="margin-top:18px">
+          <span class="panel-title">Recent Security Events</span>
+          <span class="panel-meta">/api/security/events</span>
+        </div>
+        <div class="sec-events" id="secEventsList"></div>
+
+        <div class="panel-header" style="margin-top:18px">
+          <span class="panel-title">Config Lint Warnings</span>
+          <span class="panel-meta">/api/lint</span>
+        </div>
+        <div class="lint-list" id="lintList"></div>
       </div>
-    </div><!-- /view-security -->
+    </div>
 
-    <!-- ═══════════════════════════════════════════════════════════════
-         RETRIEVAL PIPELINE VIEW (full-page hero)
-         Wired to: GET /api/cache (cache hit/miss/evictions/watermarks)
-                   GET /api/viz/events SSE (live cascade events)
-                   GET /metrics (per-stage histograms, decay applied)
-    ═══════════════════════════════════════════════════════════════ -->
+    <!-- ════════════ PIPELINE VIEW ════════════ -->
     <div class="view" id="view-pipeline">
       <div class="view-pad">
         <div class="page-head">
           <div class="page-head-l">
             <div class="page-title">
-              <svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><circle cx="12" cy="12" r="2.5"/><line x1="6.5" y1="7" x2="10" y2="11"/><line x1="17.5" y1="7" x2="14" y2="11"/><line x1="6.5" y1="17" x2="10" y2="13"/><line x1="17.5" y1="17" x2="14" y2="13"/></svg>
+              <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
               Retrieval Pipeline
             </div>
-            <div class="page-sub">6-stage cascade · profile <code>balanced</code> · live event stream</div>
+            <div class="page-sub">Live cascade visualisation · stage timings from <code>/api/viz/events</code> · cache stats from <code>/api/cache</code></div>
           </div>
           <div class="page-head-r">
-            <span class="ep-badge sse">/api/viz/events</span>
-            <span class="ep-badge">/api/cache</span>
+            <span class="ep-badge sse" id="pipeSseBadge">SSE · connecting</span>
           </div>
         </div>
 
-        <div class="pipe-hero">
-          <div class="pipe-hero-head">
-            <div style="display:flex;align-items:center;gap:14px;">
-              <span class="filter-pill green">streaming</span>
-              <span style="font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-tertiary);">profile: <span style="color:var(--cyan);font-weight:500;">balanced</span></span>
-              <span style="font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-tertiary);">over_sample: <span style="color:var(--text);font-weight:500;">100×</span></span>
-            </div>
-            <div style="display:flex;gap:8px;">
-              <button class="mode-btn active" id="pipeModeNormal">Normal</button>
-              <button class="mode-btn" id="pipeModeBlackbox">Black Box</button>
-            </div>
+        <div class="pipeline-panel" style="margin-top:14px">
+          <div class="panel-header">
+            <span class="panel-title">Cascade · live</span>
+            <span class="panel-meta" id="pipeProfile2">profile: —</span>
           </div>
           <div class="pipeline-flow" id="pipelineHero">
-            <div class="p-node" data-s="0"><div class="hex"></div><span class="lat">0.1ms</span><span class="num">0</span><span class="lbl">Policy</span></div>
+            <div class="p-node" data-s="0"><div class="hex"></div><span class="lat" id="ph0lat">—</span><span class="num">0</span><span class="lbl">Policy</span></div>
             <div class="p-conn"><div class="pdot"></div></div>
-            <div class="p-node" data-s="1"><div class="hex"></div><span class="lat">0.2ms</span><span class="num">1</span><span class="lbl">Cache</span></div>
+            <div class="p-node" data-s="1"><div class="hex"></div><span class="lat" id="ph1lat">—</span><span class="num">1</span><span class="lbl">Cache</span></div>
             <div class="p-conn"><div class="pdot"></div></div>
-            <div class="p-node" data-s="2"><div class="hex"></div><span class="lat">1.1ms</span><span class="num">2</span><span class="lbl">Semantic</span></div>
+            <div class="p-node" data-s="2"><div class="hex"></div><span class="lat" id="ph2lat">—</span><span class="num">2</span><span class="lbl">Semantic</span></div>
             <div class="p-conn"><div class="pdot"></div></div>
-            <div class="p-node" data-s="3"><div class="hex"></div><span class="lat">2.4ms</span><span class="num">3</span><span class="lbl">Lookup</span></div>
+            <div class="p-node" data-s="3"><div class="hex"></div><span class="lat" id="ph3lat">—</span><span class="num">3</span><span class="lbl">Lookup</span></div>
             <div class="p-conn"><div class="pdot"></div></div>
-            <div class="p-node" data-s="4"><div class="hex"></div><span class="lat">5.1ms</span><span class="num">4</span><span class="lbl">Vector</span></div>
+            <div class="p-node" data-s="4"><div class="hex"></div><span class="lat" id="ph4lat">—</span><span class="num">4</span><span class="lbl">Vector</span></div>
             <div class="p-conn"><div class="pdot"></div></div>
-            <div class="p-node" data-s="5"><div class="hex"></div><span class="lat">1.2ms</span><span class="num">5</span><span class="lbl">Merge</span></div>
+            <div class="p-node" data-s="5"><div class="hex"></div><span class="lat" id="ph5lat">—</span><span class="num">5</span><span class="lbl">Merge</span></div>
           </div>
         </div>
 
         <div class="pipe-grid">
-          <!-- Cache stats — /api/cache -->
           <div class="pipe-card">
-            <div class="pipe-card-title">Cache · /api/cache</div>
-            <div class="pipe-stat"><span class="k">Exact hits</span><span class="v" id="pipeCacheExact">8,421</span></div>
-            <div class="pipe-stat"><span class="k">Semantic hits</span><span class="v" id="pipeCacheSem">5,012</span></div>
-            <div class="pipe-stat"><span class="k">Misses</span><span class="v" id="pipeCacheMiss">3,267</span></div>
-            <div class="pipe-stat"><span class="k">Evictions</span><span class="v" id="pipeCacheEvict">142</span></div>
-            <div class="pipe-stat"><span class="k">Watermark</span><span class="v" id="pipeCacheWater">8,192 / 10,000</span></div>
+            <div class="panel-header"><span class="panel-title">Cache</span><span class="panel-meta">/api/cache</span></div>
+            <div class="pipe-stat"><span class="k">Exact hits</span><span class="v" id="pipeCacheExact">—</span></div>
+            <div class="pipe-stat"><span class="k">Semantic hits</span><span class="v" id="pipeCacheSem">—</span></div>
+            <div class="pipe-stat"><span class="k">Misses</span><span class="v" id="pipeCacheMiss">—</span></div>
+            <div class="pipe-stat"><span class="k">Evictions</span><span class="v" id="pipeCacheEvict">—</span></div>
+            <div class="pipe-stat"><span class="k">Watermark</span><span class="v" id="pipeCacheWater">—</span></div>
           </div>
-
-          <!-- Per-stage latency — from /metrics histograms -->
           <div class="pipe-card">
-            <div class="pipe-card-title">Latency (p99) · /metrics</div>
-            <div class="pipe-stat"><span class="k">Stage 0 · Policy</span><span class="v">0.12 ms</span></div>
-            <div class="pipe-stat"><span class="k">Stage 1 · Cache</span><span class="v">0.24 ms</span></div>
-            <div class="pipe-stat"><span class="k">Stage 2 · Semantic</span><span class="v">1.18 ms</span></div>
-            <div class="pipe-stat"><span class="k">Stage 3 · Lookup</span><span class="v">2.41 ms</span></div>
-            <div class="pipe-stat"><span class="k">Stage 4 · Vector</span><span class="v">5.07 ms</span></div>
-            <div class="pipe-stat"><span class="k">Stage 5 · Merge</span><span class="v">1.23 ms</span></div>
-          </div>
-
-          <!-- Temporal decay + retrieval config -->
-          <div class="pipe-card">
-            <div class="pipe-card-title">Temporal Decay · daemon.toml</div>
-            <div class="pipe-stat"><span class="k">Mode</span><span class="v">exponential</span></div>
-            <div class="pipe-stat"><span class="k">Half-life</span><span class="v">7 days</span></div>
-            <div class="pipe-stat"><span class="k">Over-sample</span><span class="v">100×</span></div>
-            <div class="pipe-stat"><span class="k">Applied (24h)</span><span class="v" id="pipeDecayApplied">8,634</span></div>
-            <div class="pipe-stat"><span class="k">Score formula</span><span class="v">0.7·sim + 0.3·recency</span></div>
+            <div class="panel-header"><span class="panel-title">Latency window</span><span class="panel-meta">last 60s · client-side</span></div>
+            <div class="pipe-stat"><span class="k">samples</span><span class="v" id="pipeWinN">—</span></div>
+            <div class="pipe-stat"><span class="k">p50</span><span class="v" id="pipeWinP50">—</span></div>
+            <div class="pipe-stat"><span class="k">p95</span><span class="v" id="pipeWinP95">—</span></div>
+            <div class="pipe-stat"><span class="k">p99</span><span class="v" id="pipeWinP99">—</span></div>
+            <div class="pipe-stat"><span class="k">max</span><span class="v" id="pipeWinMax">—</span></div>
           </div>
         </div>
 
-        <div class="sse-stream">
-          <div class="panel-header">
-            <span class="panel-title">
-              <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7" style="width:11px;height:11px;"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-              Live Cascade Events
-            </span>
-            <span class="ep-badge sse">SSE · /api/viz/events</span>
-          </div>
-          <div class="sse-list" id="sseList"></div>
-        </div>
+        <div class="panel-header" style="margin-top:18px"><span class="panel-title">Live event tail</span><span class="panel-meta">last 60 events</span></div>
+        <div class="sse-list" id="sseList"><div class="empty-state">waiting for events…</div></div>
       </div>
-    </div><!-- /view-pipeline -->
+    </div>
 
-    <!-- ═══════════════════════════════════════════════════════════════
-         CONFLICTS VIEW
-         Wired to: GET /api/conflicts
-                   Params: subject, source, actor_type, from, to, limit
-    ═══════════════════════════════════════════════════════════════ -->
+    <!-- ════════════ CONFLICTS VIEW ════════════ -->
     <div class="view" id="view-conflicts">
       <div class="view-pad">
         <div class="page-head">
           <div class="page-head-l">
             <div class="page-title">
-              <svg viewBox="0 0 24 24"><path d="M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               Conflict Inspector
             </div>
-            <div class="page-sub">Contradictory memories grouped by <code>subject + entity</code> · read-only</div>
-          </div>
-          <div class="page-head-r">
-            <span class="ep-badge">/api/conflicts</span>
+            <div class="page-sub">Contradictory memories grouped by subject · <code>/api/conflicts</code></div>
           </div>
         </div>
 
         <div class="filter-bar">
           <div class="filter-group">
-            <span class="lbl">Source</span>
-            <select id="confFilterSource">
-              <option value="">all</option>
-              <option value="claude-desktop">claude-desktop</option>
-              <option value="open-webui">open-webui</option>
-              <option value="cursor">cursor</option>
-            </select>
+            <label class="filter-lbl">source</label>
+            <select id="confFilterSource"><option value="">all</option></select>
           </div>
           <div class="filter-group">
-            <span class="lbl">Actor Type</span>
+            <label class="filter-lbl">actor</label>
             <select id="confFilterActor">
               <option value="">all</option>
               <option value="user">user</option>
@@ -2439,146 +2233,53 @@ body{
               <option value="system">system</option>
             </select>
           </div>
-          <div class="filter-group">
-            <span class="lbl">Subject</span>
-            <input type="text" id="confFilterSubject" placeholder="user:shawn">
+          <div class="filter-group" style="flex:1">
+            <label class="filter-lbl">subject contains</label>
+            <input type="text" id="confFilterSubject" placeholder="">
           </div>
           <div class="filter-group">
-            <span class="lbl">Limit</span>
+            <label class="filter-lbl">limit</label>
             <select id="confFilterLimit">
-              <option value="20">20</option>
-              <option value="50" selected>50</option>
-              <option value="100">100</option>
+              <option>25</option><option selected>50</option><option>100</option><option>200</option>
             </select>
           </div>
-          <span class="filter-pill amber" id="conflictCount">2 conflicts</span>
+          <span class="filter-pill" id="conflictCount">— conflicts</span>
         </div>
 
         <div class="conflict-list" id="conflictList">
-          <!-- populated by JS from /api/conflicts -->
+          <div class="empty-state">loading…</div>
         </div>
       </div>
-    </div><!-- /view-conflicts -->
+    </div>
 
-    <!-- ═══════════════════════════════════════════════════════════════
-         SETTINGS VIEW (read-only effective config)
-         Wired to: GET /api/status (daemon block)
-                   GET /api/policies (sources block)
-                   GET /api/cache (cache config)
-                   Plus on-disk daemon.toml read at daemon startup
-                   (the dashboard does NOT edit config — read-only by design)
-    ═══════════════════════════════════════════════════════════════ -->
+    <!-- ════════════ SETTINGS / EFFECTIVE CONFIG VIEW ════════════ -->
     <div class="view" id="view-settings">
       <div class="view-pad">
         <div class="page-head">
           <div class="page-head-l">
             <div class="page-title">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              Effective Configuration
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Effective Config
             </div>
-            <div class="page-sub">Read-only view of compiled <code>daemon.toml</code> · edit via CLI &amp; <code>bubblefish build</code></div>
+            <div class="page-sub">Compiled, signed config from the running daemon · <code>/api/config</code> + <code>/api/status</code></div>
           </div>
           <div class="page-head-r">
-            <span class="ep-badge">/api/status</span>
+            <span class="ep-badge" id="cfgEpBadge">live</span>
           </div>
         </div>
-
-        <div class="cfg-readonly-note">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          Dashboard is read-only by design. To change configuration, edit TOML files and run <code style="background:var(--bg-base);padding:1px 6px;border-radius:3px;border:1px solid var(--border);">bubblefish build</code> followed by SIGHUP for hot reload.
+        <div class="cfg-grid" id="cfgGrid">
+          <div class="empty-state">loading effective config…</div>
         </div>
-
-        <div class="cfg-grid">
-          <!-- Daemon -->
-          <div class="cfg-section">
-            <div class="cfg-section-title">
-              <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-              Daemon
-            </div>
-            <div class="cfg-row"><span class="k">bind</span><span class="v"><code>127.0.0.1:8080</code></span></div>
-            <div class="cfg-row"><span class="k">web.port</span><span class="v"><code>8081</code></span></div>
-            <div class="cfg-row"><span class="k">mcp.bind</span><span class="v"><code>127.0.0.1</code></span></div>
-            <div class="cfg-row"><span class="k">queue_size</span><span class="v">10,000</span></div>
-            <div class="cfg-row"><span class="k">drain_timeout_seconds</span><span class="v">30</span></div>
-            <div class="cfg-row"><span class="k">log_level</span><span class="v">info</span></div>
-          </div>
-
-          <!-- Storage / WAL -->
-          <div class="cfg-section">
-            <div class="cfg-section-title">
-              <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
-              Storage &amp; WAL
-            </div>
-            <div class="cfg-row"><span class="k">destination</span><span class="v">SQLite</span></div>
-            <div class="cfg-row"><span class="k">wal.integrity.mode</span><span class="v"><code>crc32</code></span></div>
-            <div class="cfg-row"><span class="k">wal.encryption.enabled</span><span class="v amber">false</span></div>
-            <div class="cfg-row"><span class="k">wal.fsync_on_write</span><span class="v green">true</span></div>
-            <div class="cfg-row"><span class="k">watchdog.interval_seconds</span><span class="v">30</span></div>
-            <div class="cfg-row"><span class="k">consistency.interval_seconds</span><span class="v">300</span></div>
-          </div>
-
-          <!-- Retrieval -->
-          <div class="cfg-section">
-            <div class="cfg-section-title">
-              <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              Retrieval
-            </div>
-            <div class="cfg-row"><span class="k">default_profile</span><span class="v"><code>balanced</code></span></div>
-            <div class="cfg-row"><span class="k">time_decay</span><span class="v green">true</span></div>
-            <div class="cfg-row"><span class="k">decay_mode</span><span class="v">exponential</span></div>
-            <div class="cfg-row"><span class="k">half_life_days</span><span class="v">7</span></div>
-            <div class="cfg-row"><span class="k">over_sample_factor</span><span class="v">100</span></div>
-          </div>
-
-          <!-- Security -->
-          <div class="cfg-section">
-            <div class="cfg-section-title">
-              <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
-              Security
-            </div>
-            <div class="cfg-row"><span class="k">tls.enabled</span><span class="v amber">false</span></div>
-            <div class="cfg-row"><span class="k">signing.enabled</span><span class="v amber">false</span></div>
-            <div class="cfg-row"><span class="k">jwt.enabled</span><span class="v amber">false</span></div>
-            <div class="cfg-row"><span class="k">trusted_proxies</span><span class="v"><code>127.0.0.1/32, ::1/128</code></span></div>
-            <div class="cfg-row"><span class="k">security_events.enabled</span><span class="v green">true</span></div>
-            <div class="cfg-row"><span class="k">admin/data token sep</span><span class="v green">enforced</span></div>
-          </div>
-
-          <!-- Embedding -->
-          <div class="cfg-section">
-            <div class="cfg-section-title">
-              <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-              Embedding
-            </div>
-            <div class="cfg-row"><span class="k">provider</span><span class="v">Ollama</span></div>
-            <div class="cfg-row"><span class="k">model</span><span class="v"><code>nomic-embed-text</code></span></div>
-            <div class="cfg-row"><span class="k">endpoint</span><span class="v"><code>127.0.0.1:11434</code></span></div>
-            <div class="cfg-row"><span class="k">timeout_seconds</span><span class="v">30</span></div>
-          </div>
-
-          <!-- Event sinks -->
-          <div class="cfg-section">
-            <div class="cfg-section-title">
-              <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-              Event Sinks
-            </div>
-            <div class="cfg-row"><span class="k">events.enabled</span><span class="v amber">false</span></div>
-            <div class="cfg-row"><span class="k">events.max_inflight</span><span class="v">1,000</span></div>
-            <div class="cfg-row"><span class="k">retry_backoff</span><span class="v"><code>1, 5, 30, 300s</code></span></div>
-            <div class="cfg-row"><span class="k">configured sinks</span><span class="v">0</span></div>
-          </div>
-        </div>
+        <div class="cfg-readonly-note">read-only · edit <code>daemon.toml</code> on disk and restart the daemon to apply changes</div>
       </div>
-    </div><!-- /view-settings -->
+    </div>
 
     </div><!-- /view-host -->
-  </div><!-- /main -->
-</div><!-- /app -->
+  </main>
+</div>
 
-<!-- ═══ WITNESS MODE OVERLAY ═══ -->
+<!-- ═══════════════ WITNESS OVERLAY ═══════════════ -->
 <div class="witness-overlay" id="witnessOverlay">
-  <div class="witness-bg"></div>
-  <div class="witness-caustics"></div>
   <div class="witness-grain"></div>
   <div class="witness-vignette"></div>
   <div class="witness-sonar">
@@ -2586,62 +2287,61 @@ body{
     <div class="witness-ring"></div>
     <div class="witness-ring"></div>
   </div>
-  <img class="witness-logo" src="logo_metal.png" alt="">
-  <div class="witness-title">
-    <span>Memory Witness · Live</span>
-  </div>
+  <img class="witness-logo" src="/logo_metal.png" alt="">
+  <div class="witness-title"><span>Memory Witness · Live</span></div>
   <button class="witness-close" id="witnessClose">ESC · EXIT</button>
+
+  <!-- Empty grid — populated ONLY by real SSE events -->
   <div class="witness-field" id="witnessField"></div>
 
-  <!-- Top fact strip -->
+  <!-- Top fact strip — every chip is bound to a live value -->
   <div class="witness-facts top">
     <div class="fact-chip">
-      <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      <div><div class="fact-label">License</div><div class="fact-val">AGPL-3.0</div></div>
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+      <div><div class="fact-label">Build</div><div class="fact-val" id="wBuild">v—</div></div>
     </div>
-    <div class="fact-chip green">
+    <div class="fact-chip green" id="wHealthChip">
       <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
-      <div><div class="fact-label">Sovereign</div><div class="fact-val">Local-only</div></div>
+      <div><div class="fact-label">Daemon</div><div class="fact-val" id="wHealth">—</div></div>
     </div>
     <div class="fact-chip">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <div><div class="fact-label">Decay Half-Life</div><div class="fact-val">7 days</div></div>
+      <div><div class="fact-label">Uptime</div><div class="fact-val" id="wUptime">—</div></div>
     </div>
     <div class="fact-chip">
-      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
-      <div><div class="fact-label">WAL Integrity</div><div class="fact-val">CRC32 · Verified</div></div>
+      <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
+      <div><div class="fact-label">Memories</div><div class="fact-val" id="wCount">—</div></div>
     </div>
     <div class="fact-chip">
-      <svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-      <div><div class="fact-label">Runtime</div><div class="fact-val">Go · Single Binary</div></div>
+      <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      <div><div class="fact-label">WAL Pending</div><div class="fact-val" id="wWal">—</div></div>
     </div>
   </div>
 
-  <!-- Mid fact strip — sits in the lane created by the empty center column -->
   <div class="witness-facts mid">
     <div class="fact-chip">
-      <svg viewBox="0 0 24 24"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
-      <div><div class="fact-label">Storage</div><div class="fact-val">SQLite + WAL</div></div>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/></svg>
+      <div><div class="fact-label">Bind</div><div class="fact-val" id="wBind">—</div></div>
     </div>
     <div class="fact-chip">
-      <svg viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      <div><div class="fact-label">Crash Test</div><div class="fact-val">50/50 · Zero Loss</div></div>
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <div><div class="fact-label">QPS (60s)</div><div class="fact-val" id="wQps">—</div></div>
     </div>
     <div class="fact-chip">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      <div><div class="fact-label">Profile</div><div class="fact-val">Balanced</div></div>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <div><div class="fact-label">p99</div><div class="fact-val" id="wP99">—</div></div>
     </div>
-    <div class="fact-chip amber">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <div><div class="fact-label">Conflicts</div><div class="fact-val">2 pending</div></div>
+    <div class="fact-chip" id="wConflictsChip" style="display:none">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
+      <div><div class="fact-label">Conflicts</div><div class="fact-val" id="wConflicts">—</div></div>
     </div>
     <div class="fact-chip">
-      <svg viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-      <div><div class="fact-label">Backup</div><div class="fact-val">Daily · 02:00 UTC</div></div>
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div><div class="fact-label">Sources</div><div class="fact-val" id="wSources">—</div></div>
     </div>
   </div>
 
-  <!-- Engineer's view: live log, bottom-left -->
+  <!-- Engineer's tail -->
   <div class="witness-log">
     <div class="witness-log-header">
       <div class="witness-log-title">
@@ -2653,167 +2353,145 @@ body{
     </div>
     <div class="witness-log-list" id="witnessLogList"></div>
   </div>
-
-  <!-- Engineer's view: command terminal, bottom-right -->
-  <div class="witness-term">
-    <div class="witness-term-header">
-      <div class="witness-term-title">
-        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-        Nexus Console
-      </div>
-      <div class="witness-term-meta">type 'help' for commands</div>
-    </div>
-    <div class="witness-term-body">
-      <div class="witness-term-out" id="termOut"></div>
-      <div class="witness-term-input">
-        <span class="prompt">nexus ❯</span>
-        <input type="text" id="termInput" autocomplete="off" spellcheck="false">
-      </div>
-    </div>
-  </div>
-
-  <div class="witness-hud">
-    <span>SOURCES <span class="wv">3</span></span>
-    <span class="sep">│</span>
-    <span>MEMORIES <span class="wv" id="wCount">1,247</span></span>
-    <span class="sep">│</span>
-    <span>RATE <span class="wv">12/min</span></span>
-    <span class="sep">│</span>
-    <span>UPTIME <span class="wv">4h 22m</span></span>
-  </div>
 </div>
 
+</body>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
-   BUBBLEFISH NEXUS — DASHBOARD ADAPTER
-   ═══════════════════════════════════════════════════════════════════
-   This file is the SINGLE SOURCE OF TRUTH for every dynamic value
-   rendered in the dashboard. Every number, table row, chart point,
-   and status pill is sourced from one of two places:
+   BubbleFish Nexus — Control Plane (v5, no-mock)
+   ───────────────────────────────────────────────────────────────────
+   HARD RULE: there is NO mock data layer in this file. Every value the
+   user sees is either:
+     (a) returned by the live Nexus daemon, OR
+     (b) the literal string "—" (rendered when the value is unknown,
+         the endpoint is unreachable, or the field is sentinel-disabled)
+     (c) a count derived from the live SSE event stream
 
-     1. LIVE  — fetched from the Nexus daemon HTTP/SSE API
-     2. MOCK  — generated by an internally consistent mock layer
-                (used when MOCK_MODE=true OR the daemon is unreachable)
+   The dashboard is served from port 8081 in-process with the daemon's
+   admin router mounted at /api/* on the same origin, so all fetches
+   are relative paths and no CORS is involved.
 
-   Endpoint contract is documented in dashboard-contract.md.
-   The daemon side of the contract is implemented per
-   claude-code-instructions.md.
-   ═══════════════════════════════════════════════════════════════════ */
+   Token + MOCK_MODE are server-side injected by handleIndex() in
+   internal/web/dashboard.go. We honour MOCK_MODE only as a kill switch
+   (if true, we render empty states everywhere — we never fabricate).
+═══════════════════════════════════════════════════════════════════ */
 
 const CONFIG = {
-  MOCK_MODE: true,                       // set false to hit a live daemon
-  BASE_URL: 'http://127.0.0.1:8081',     // dashboard host (per spec §13.2)
-  ADMIN_TOKEN: '',                       // injected at runtime; never hardcode
-  REFRESH_MS: 5000,                      // §10.1 — auto-refreshes every 5s
-  SSE_RECONNECT_MS: 2000,                // base reconnect delay
-  SSE_RECONNECT_MAX_MS: 30000            // capped exponential backoff
+  MOCK_MODE: false,                       // injected: dashboard.go flips to false
+  ADMIN_TOKEN: '',                        // injected: dashboard.go writes the bfn_admin_ token
+  REFRESH_MS: 5000,
+  SSE_RECONNECT_MS: 2000,
+  SSE_RECONNECT_MAX_MS: 30000,
+  WINDOW_MS: 60000                        // sliding window for QPS / latency stats
 };
+
+const DASH = '—';
 
 /* ═══ FORMAT HELPERS ═══════════════════════════════════════════════ */
 const fmt = {
-  num: (n) => Number(n).toLocaleString('en-US'),
-  ms:  (n) => (n < 1 ? n.toFixed(2) : n.toFixed(1)) + 'ms',
-  pct: (n) => (n * 100).toFixed(0) + '%',
-  bytes: (n) => {
+  num:  (n) => (n == null || Number.isNaN(n)) ? DASH : Number(n).toLocaleString('en-US'),
+  ms:   (n) => (n == null || Number.isNaN(n)) ? DASH : (n < 1 ? n.toFixed(2) : n.toFixed(1)) + 'ms',
+  pct:  (n) => (n == null || Number.isNaN(n) || n < 0) ? DASH : (n * 100).toFixed(0) + '%',
+  bytes:(n) => {
+    if (n == null) return DASH;
     if (n < 1024) return n + ' B';
     if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
     if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
     return (n/1073741824).toFixed(2) + ' GB';
   },
-  uptime: (sec) => {
-    const h = Math.floor(sec/3600);
+  uptime:(sec) => {
+    if (sec == null) return DASH;
+    const d = Math.floor(sec/86400);
+    const h = Math.floor((sec%86400)/3600);
     const m = Math.floor((sec%3600)/60);
     const s = Math.floor(sec%60);
-    return h ? `${h}h ${m}m` : `${m}m ${s}s`;
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m ${s}s`;
   },
   ts: (d) => {
     const t = (d instanceof Date) ? d : new Date(d);
-    return t.toTimeString().substring(0,8) + '.' +
-           String(t.getMilliseconds()).padStart(3,'0');
-  }
+    if (isNaN(t.getTime())) return DASH;
+    return t.toTimeString().substring(0,8) + '.' + String(t.getMilliseconds()).padStart(3,'0');
+  },
+  rate:(n,unit) => (n == null || Number.isNaN(n)) ? DASH : n.toFixed(n < 10 ? 1 : 0) + (unit||'')
 };
 
-/* ═══ NETWORK ADAPTER ═══════════════════════════════════════════════
-   nx.fetch() — wrapped fetch with admin auth and mock fallback.
-   nx.sse()   — wrapped EventSource with exponential reconnect.
-   On any LIVE failure we surface the offline banner and fall through
-   to the mock generator so the dashboard never goes blank.
-═════════════════════════════════════════════════════════════════════ */
+const $ = (id) => document.getElementById(id);
+const setText = (id, v) => { const el = $(id); if (el) el.textContent = (v == null || v === '' ? DASH : v); };
+
+/* ═══ NETWORK ADAPTER — fetch returns null on failure, never falls back ═══ */
 const nx = {
   _offline: false,
-  _liveBound: false,
 
   setOffline(reason) {
     if (this._offline) return;
     this._offline = true;
-    const b = document.getElementById('offlineBanner');
+    const b = $('offlineBanner');
     if (b) {
-      b.textContent = '⚠ daemon unreachable — using mock data · ' + reason;
+      b.textContent = '⚠ daemon unreachable — ' + reason + ' · values shown as —';
       b.classList.add('visible');
     }
+    const hp = $('healthPill'); if (hp) hp.classList.add('down');
+    setText('healthLabel', 'OFFLINE');
   },
 
   setOnline() {
     if (!this._offline) return;
     this._offline = false;
-    const b = document.getElementById('offlineBanner');
-    if (b) b.classList.remove('visible');
+    const b = $('offlineBanner'); if (b) b.classList.remove('visible');
+    const hp = $('healthPill'); if (hp) hp.classList.remove('down');
   },
 
   async fetch(path, params) {
-    // MOCK_MODE short-circuit: never even attempt network
-    if (CONFIG.MOCK_MODE) return MOCK.respond(path, params);
-
-    const url = new URL(CONFIG.BASE_URL + path);
+    if (CONFIG.MOCK_MODE) return null;            // hard kill: never fabricate
+    const url = new URL(path, window.location.origin);
     if (params) Object.entries(params).forEach(([k,v]) => {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
     });
-
     try {
       const res = await fetch(url.toString(), {
         headers: { 'Authorization': 'Bearer ' + CONFIG.ADMIN_TOKEN, 'Accept': 'application/json' },
         credentials: 'omit'
       });
       if (!res.ok) {
+        if (res.status === 404) return { __notfound: true };
         this.setOffline('HTTP ' + res.status);
-        return MOCK.respond(path, params);
+        return null;
       }
       this.setOnline();
       return await res.json();
     } catch (e) {
       this.setOffline(e.message || 'network error');
-      return MOCK.respond(path, params);
+      return null;
     }
   },
 
-  sse(path, onMessage) {
-    if (CONFIG.MOCK_MODE) return MOCK.sse(path, onMessage);
-
+  sse(path, onMessage, onState) {
+    if (CONFIG.MOCK_MODE) { onState && onState('disabled'); return { close(){} }; }
     let es = null, attempts = 0, closed = false;
     const open = () => {
       if (closed) return;
+      // EventSource cannot send headers. /api/viz/events accepts ?token= per audit §8.
+      const url = new URL(path, window.location.origin);
+      if (CONFIG.ADMIN_TOKEN) url.searchParams.set('token', CONFIG.ADMIN_TOKEN);
       try {
-        // EventSource cannot send headers; daemon must accept ?token= for SSE.
-        const url = new URL(CONFIG.BASE_URL + path);
-        if (CONFIG.ADMIN_TOKEN) url.searchParams.set('token', CONFIG.ADMIN_TOKEN);
         es = new EventSource(url.toString());
-        es.onopen = () => { attempts = 0; nx.setOnline(); };
+        es.onopen = () => { attempts = 0; nx.setOnline(); onState && onState('open'); };
         es.onmessage = (ev) => {
-          try { onMessage(JSON.parse(ev.data)); }
-          catch(e) { /* ignore malformed frames */ }
+          try { onMessage(JSON.parse(ev.data)); } catch (e) {}
         };
         es.onerror = () => {
           es && es.close();
           nx.setOffline('SSE disconnected');
+          onState && onState('reconnecting');
           attempts++;
-          const delay = Math.min(CONFIG.SSE_RECONNECT_MS * Math.pow(1.6, attempts),
-                                 CONFIG.SSE_RECONNECT_MAX_MS);
+          const delay = Math.min(CONFIG.SSE_RECONNECT_MS * Math.pow(1.6, attempts), CONFIG.SSE_RECONNECT_MAX_MS);
           setTimeout(open, delay);
         };
       } catch (e) {
         nx.setOffline(e.message || 'SSE failed');
-        // fall back to mock stream so the UI keeps moving
-        return MOCK.sse(path, onMessage);
+        onState && onState('failed');
       }
     };
     open();
@@ -2821,422 +2499,114 @@ const nx = {
   }
 };
 
-/* ═══ MOCK LAYER ═══════════════════════════════════════════════════
-   Generates internally-consistent fake data that matches the documented
-   endpoint contracts EXACTLY. When MOCK_MODE=false but the daemon is
-   down, we still serve from here so the UI stays alive.
-═════════════════════════════════════════════════════════════════════ */
-const MOCK = (() => {
+/* ═══ SOURCE COLOR HELPER (single source 'default' → cyan; extensible) ═══ */
+const SOURCE_COLORS = {
+  // The dogfood install has a single source. Add entries here if more
+  // sources are configured. Anything not listed gets the neutral colour.
+  'default': { c: 'var(--cyan)', g: 'var(--cyan-glow)', cls: 'src-default' }
+};
+function srcColor(id) { return SOURCE_COLORS[id] || { c: 'var(--text-tertiary)', g: 'transparent', cls: 'src-other' }; }
+function srcDot(id) {
+  const { c, g } = srcColor(id);
+  return `<span class="dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};box-shadow:0 0 6px ${g};margin-right:6px;vertical-align:middle"></span>`;
+}
 
-  // ─── Source registry — single source of truth for source identity ───
-  const SOURCES = [
-    { id: 'claude-desktop', name: 'Claude Desktop', color: 'cyan',  cls: 'src-claude' },
-    { id: 'open-webui',     name: 'Open WebUI',     color: 'green', cls: 'src-openwebui' },
-    { id: 'cursor',         name: 'Cursor',         color: 'amber', cls: 'src-cursor' }
-  ];
-
-  // ─── Mock state — accumulating counters keep numbers consistent ───
-  const state = {
-    startedAt: Date.now(),
-    memories: 1247,
-    writes: { 'claude-desktop': 423, 'open-webui': 287, 'cursor': 156 },
-    reads:  { 'claude-desktop': 891, 'open-webui': 534, 'cursor': 412 },
-    deniesBySrc: { 'claude-desktop': 0, 'open-webui': 2, 'cursor': 0 },
-    cache: { exactHits: 8421, semHits: 5012, misses: 3267, evictions: 142, capacity: 10000, used: 8192 },
-    walPending: 0,
-    consistency: 0.98,
-    queueDepth: 0,
-    authFailures: 3,
-    policyDenies: 17,
-    rateLimitHits: 0,
-    adminCalls: 142,
-    decayApplied: 8634
-  };
-
-  const SUBJS = ['user:shawn', 'shared', 'project:nexus', 'claude'];
-  const ACTORS = ['user', 'agent', 'system'];
-  const MEMS = [
-    "User prefers dark mode for all applications",
-    "Meeting with design team Thursday 2pm",
-    "Project deadline moved to April 15th",
-    "Working on BubbleFish Nexus v0.1.0",
-    "Go preferred for backend systems",
-    "User located in Prescott, Arizona",
-    "OAuth uses reverse proxy pattern",
-    "WAL CRC32 checksums on every entry",
-    "Q2 infrastructure budget approved",
-    "Retrieval cascade: 6 stages",
-    "Ollama preferred for local inference",
-    "Single binary, no runtime dependencies",
-    "Temporal decay half-life: 7 days",
-    "Claude Desktop via MCP protocol",
-    "Backup schedule: daily 2am UTC",
-    "Team growing to 5 engineers",
-    "AGPL-3.0 + commercial license",
-    "Dashboard port: 8081",
-    "Embedding: Ollama text-embedding",
-    "Crash test: 50/50 zero loss verified"
-  ];
-
-  const rnd = (a) => a[Math.floor(Math.random()*a.length)];
-  const rb  = (a,b) => a + Math.random()*(b-a);
-
-  // ─── /api/status — daemon health snapshot ───
-  function status() {
-    return {
-      version: '0.1.0',
-      uptime_seconds: Math.floor((Date.now() - state.startedAt) / 1000) + 15734,
-      pid: 18472,
-      bind: '127.0.0.1:8080',
-      web_port: 8081,
-      memory_resident_bytes: 88293376, // ~84 MB
-      goroutines: 47,
-      queue_depth: state.queueDepth,
-      wal: {
-        pending_entries: state.walPending,
-        healthy: true,
-        last_checkpoint_seconds_ago: 862,
-        integrity_mode: 'crc32',
-        current_segment: 'wal-00042.log'
-      },
-      consistency_score: state.consistency,
-      destinations: [
-        { name: 'sqlite', healthy: true, last_error: null }
-      ],
-      cache: cacheSummary(),
-      sources_total: SOURCES.length,
-      memories_total: state.memories
-    };
-  }
-
-  // ─── /api/cache — Stage 1 + Stage 2 cache statistics ───
-  function cache() {
-    return {
-      exact:    { hits: state.cache.exactHits, misses: 1842, hit_rate: state.cache.exactHits / (state.cache.exactHits + 1842) },
-      semantic: { hits: state.cache.semHits,   misses: 1425, hit_rate: state.cache.semHits / (state.cache.semHits + 1425) },
-      misses_total: state.cache.misses,
-      evictions_total: state.cache.evictions,
-      capacity: state.cache.capacity,
-      used: state.cache.used,
-      watermark: state.cache.used + ' / ' + state.cache.capacity
-    };
-  }
-
-  function cacheSummary() {
-    const total = state.cache.exactHits + state.cache.semHits + state.cache.misses;
-    return {
-      hit_rate: (state.cache.exactHits + state.cache.semHits) / total,
-      exact_rate: state.cache.exactHits / total,
-      semantic_rate: state.cache.semHits / total
-    };
-  }
-
-  // ─── /api/policies — compiled policy summary per source ───
-  function policies() {
-    return {
-      sources: SOURCES.map(s => ({
-        source: s.id,
-        can_read: true,
-        can_write: true,
-        allowed_destinations: ['sqlite'],
-        max_results: s.id === 'open-webui' ? 50 : (s.id === 'cursor' ? 30 : 20),
-        max_response_bytes: s.id === 'open-webui' ? 32768 : 16384,
-        rate_limit_per_min: 2000,
-        policy_hash: { 'claude-desktop': 'a3f7c2d4', 'open-webui': 'b8e1d9f1', 'cursor': 'c2f4a801' }[s.id]
-      }))
-    };
-  }
-
-  // ─── /api/security/summary — aggregated counters from /metrics ───
-  function securitySummary() {
-    return {
-      auth_failures_total: state.authFailures,
-      policy_denials_total: state.policyDenies,
-      rate_limit_hits_total: state.rateLimitHits,
-      admin_calls_total: state.adminCalls,
-      by_source: SOURCES.reduce((acc, s) => {
-        acc[s.id] = {
-          auth_failures: s.id === 'open-webui' ? 2 : (s.id === 'cursor' ? 1 : 0),
-          policy_denials: state.deniesBySrc[s.id],
-          rate_limit_hits: 0
-        };
-        return acc;
-      }, {})
-    };
-  }
-
-  // ─── /api/security/events — recent security event entries ───
-  function securityEvents() {
-    return {
-      events: [
-        { ts: new Date(Date.now() - 480000).toISOString(), kind: 'policy_denial', source: 'open-webui',     severity: 'warn',  message: 'subject:user:shawn labels:[pii] denied by pii-filter' },
-        { ts: new Date(Date.now() - 1240000).toISOString(), kind: 'auth_failure', source: 'cursor',         severity: 'warn',  message: '401 invalid bearer token (data-class on admin endpoint)' },
-        { ts: new Date(Date.now() - 2780000).toISOString(), kind: 'policy_denial', source: 'open-webui',    severity: 'warn',  message: 'cross-subject read denied (subject-isolation)' },
-        { ts: new Date(Date.now() - 5410000).toISOString(), kind: 'admin_access', source: 'dashboard',      severity: 'info',  message: 'GET /api/policies' },
-        { ts: new Date(Date.now() - 8920000).toISOString(), kind: 'auth_failure', source: 'open-webui',     severity: 'warn',  message: '401 invalid bearer token' },
-        { ts: new Date(Date.now() - 13200000).toISOString(),kind: 'auth_failure', source: 'open-webui',     severity: 'warn',  message: '401 invalid bearer token' }
-      ]
-    };
-  }
-
-  // ─── /api/lint — config lint warnings ───
-  function lint() {
-    return {
-      warnings: [
-        { severity: 'warn', code: 'tls.disabled',        message: 'daemon.tls.enabled = false; OK for localhost binding only', file: 'daemon.toml', line: 14 },
-        { severity: 'info', code: 'wal.encryption.off',  message: 'WAL encryption disabled; OK for non-sensitive data',         file: 'daemon.toml', line: 22 },
-        { severity: 'warn', code: 'rate_limit.high',     message: 'rate_limit_per_min=2000 is permissive for shared deployments', file: 'sources/open-webui.toml', line: 8 }
-      ]
-    };
-  }
-
-  // ─── /api/conflicts — contradictory memories ───
-  function conflicts() {
-    return {
-      conflicts: [
-        {
-          id: 'cf_001',
-          subject: 'user:shawn',
-          entity: 'preferred_theme',
-          group_size: 2,
-          memories: [
-            { source: 'open-webui', actor_type: 'agent', ts: '2026-04-01T14:22:11Z', content: 'User prefers light mode' },
-            { source: 'claude-desktop', actor_type: 'user', ts: '2026-04-04T09:11:48Z', content: 'User prefers dark mode for all applications' }
-          ]
-        },
-        {
-          id: 'cf_002',
-          subject: 'user:shawn',
-          entity: 'team_size',
-          group_size: 2,
-          memories: [
-            { source: 'open-webui', actor_type: 'system', ts: '2026-03-28T16:04:02Z', content: 'Team is 3 engineers' },
-            { source: 'claude-desktop', actor_type: 'user', ts: '2026-04-02T11:30:14Z', content: 'Team growing to 5 engineers' }
-          ]
-        }
-      ]
-    };
-  }
-
-  // ─── /api/viz/events SSE — synthetic stream of pipeline events ───
-  function vizStream(onMessage) {
-    let stopped = false;
-    const tick = () => {
-      if (stopped) return;
-      const src = rnd(SOURCES);
-      const denied = Math.random() > 0.92;
-      const op = Math.random() > 0.35 ? 'WRITE' : 'QUERY';
-      const subj = rnd(SUBJS);
-      const actor = rnd(ACTORS);
-      const total_ms = Number(rb(1.5, 12).toFixed(2));
-      const ev = {
-        ts: new Date().toISOString(),
-        request_id: 'req_' + Math.random().toString(36).slice(2, 10),
-        source: src.id,
-        op,
-        subject: subj,
-        actor_type: actor,
-        status: denied ? 'FILTERED' : 'ALLOWED',
-        labels: denied ? ['pii'] : [],
-        result_count: op === 'QUERY' ? Math.floor(rb(1, 20)) : 0,
-        total_ms,
-        stages: op === 'QUERY' ? [
-          { stage: 0, name: 'policy',   ms: Number(rb(0.05, 0.18).toFixed(3)), hit: false },
-          { stage: 1, name: 'cache',    ms: Number(rb(0.10, 0.32).toFixed(3)), hit: Math.random() > 0.55 },
-          { stage: 2, name: 'semantic', ms: Number(rb(0.80, 1.40).toFixed(3)), hit: false },
-          { stage: 3, name: 'lookup',   ms: Number(rb(2.00, 3.10).toFixed(3)), hit: false },
-          { stage: 4, name: 'vector',   ms: Number(rb(4.20, 6.40).toFixed(3)), hit: false },
-          { stage: 5, name: 'merge',    ms: Number(rb(0.90, 1.60).toFixed(3)), hit: false }
-        ] : null
-      };
-      // accumulate counters for consistency with /api/status
-      if (op === 'WRITE') { state.writes[src.id]++; state.memories++; }
-      else                { state.reads[src.id]++; }
-      if (denied) state.deniesBySrc[src.id]++;
-      try { onMessage(ev); } catch(e) {}
-      setTimeout(tick, rb(180, 520));
-    };
-    setTimeout(tick, 200);
-    return { close: () => { stopped = true; } };
-  }
-
-  return {
-    SOURCES, MEMS, ACTORS, state,
-    respond(path, params) {
-      // Mock router — every endpoint we wire against must have a case here
-      if (path === '/api/status')           return Promise.resolve(status());
-      if (path === '/api/cache')            return Promise.resolve(cache());
-      if (path === '/api/policies')         return Promise.resolve(policies());
-      if (path === '/api/security/summary') return Promise.resolve(securitySummary());
-      if (path === '/api/security/events')  return Promise.resolve(securityEvents());
-      if (path === '/api/lint')             return Promise.resolve(lint());
-      if (path === '/api/conflicts')        return Promise.resolve(conflicts());
-      console.warn('MOCK: no handler for', path);
-      return Promise.resolve({});
-    },
-    sse(path, onMessage) {
-      if (path === '/api/viz/events') return vizStream(onMessage);
-      console.warn('MOCK SSE: no handler for', path);
-      return { close: () => {} };
-    },
-    rnd, rb
-  };
-})();
-
-/* ═══════════════════════════════════════════════════════════════════
-   GLOBAL EVENT BUS — every view can subscribe to viz events.
-   We open ONE SSE connection on boot and fan it out to subscribers
-   so we don't open 5 connections to the daemon.
-═══════════════════════════════════════════════════════════════════ */
+/* ═══ EVENT BUS — single SSE connection fanned out to subscribers ═══ */
 const bus = (() => {
   const listeners = new Set();
   let sseHandle = null;
   return {
     start() {
       if (sseHandle) return;
-      sseHandle = nx.sse('/api/viz/events', (ev) => {
-        listeners.forEach(fn => { try { fn(ev); } catch(e) {} });
-      });
+      sseHandle = nx.sse('/api/viz/events',
+        (ev) => listeners.forEach(fn => { try { fn(ev); } catch(e) {} }),
+        (state) => {
+          const tags = ['auditSseBadge','pipeSseBadge'];
+          tags.forEach(id => {
+            const el = $(id); if (!el) return;
+            el.textContent = 'SSE · ' + state;
+            el.className = 'ep-badge sse ' + (state === 'open' ? 'ok' : 'warn');
+          });
+        });
     },
-    on(fn)  { listeners.add(fn);   return () => listeners.delete(fn); },
+    on(fn)  { listeners.add(fn);    return () => listeners.delete(fn); },
     off(fn) { listeners.delete(fn); }
   };
 })();
 
-/* ═══════════════════════════════════════════════════════════════════
-   VIEWS — each view has mount() and unmount(); router calls them.
-═══════════════════════════════════════════════════════════════════ */
-
-/* ─── shared helper for the source dot color ─── */
-function srcDot(srcId) {
-  const c = ({'claude-desktop':'var(--cyan)','open-webui':'var(--green)','cursor':'var(--amber)'})[srcId] || 'var(--text-tertiary)';
-  const g = ({'claude-desktop':'var(--cyan-glow)','open-webui':'var(--green-glow)','cursor':'rgba(224,160,74,0.4)'})[srcId] || 'transparent';
-  return `<span class="dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};box-shadow:0 0 6px ${g};margin-right:6px;vertical-align:middle;"></span>`;
-}
-
-/* ═══ CONTROL PLANE VIEW ═══ */
-const controlView = (() => {
-  let timer = null, busOff = null;
-
-  function setMetric(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
-
-  async function refresh() {
-    const [s, c] = await Promise.all([
-      nx.fetch('/api/status'),
-      nx.fetch('/api/cache')
-    ]);
-
-    // ─ ROW 1 metric cards ─
-    setMetric('mTotal', fmt.num(s.memories_total));
-    setMetric('mRate',  Math.round((state_throughput.last || 93)) + '');  // computed from SSE rate window
-    setMetric('mWal',   fmt.num(s.wal.pending_entries));
-
-    // Cache hit rate metric (4th card)
-    const hitPct = Math.round(s.cache.hit_rate * 100);
-    const cacheCard = document.querySelectorAll('#view-control .metric-card')[3];
-    if (cacheCard) {
-      const v = cacheCard.querySelector('.metric-value');
-      if (v) v.innerHTML = hitPct + '<span class="unit">%</span>';
-      const sub = cacheCard.querySelector('.metric-sub');
-      if (sub) sub.textContent = `exact ${(s.cache.exact_rate*100).toFixed(0)}% · semantic ${(s.cache.semantic_rate*100).toFixed(0)}%`;
-      const bar = cacheCard.querySelector('.metric-bar-fill');
-      if (bar) bar.style.width = hitPct + '%';
-    }
-
-    // Header uptime
-    const ut = document.getElementById('uptime');
-    if (ut) ut.textContent = 'uptime ' + fmt.uptime(s.uptime_seconds);
-
-    // Witness HUD memories counter mirrors the same number
-    const wc = document.getElementById('wCount');
-    if (wc) wc.textContent = fmt.num(s.memories_total);
-
-    // Source cards (in the sources panel)
-    const pol = await nx.fetch('/api/policies');
-    const cards = document.querySelectorAll('#view-control .source-card:not(.add)');
-    pol.sources.forEach((p, i) => {
-      const card = cards[i];
-      if (!card) return;
-      const stats = card.querySelector('.source-stats');
-      if (!stats) return;
-      const w = MOCK.state.writes[p.source];
-      const r = MOCK.state.reads[p.source];
-      const d = MOCK.state.deniesBySrc[p.source];
-      const dColor = d > 0 ? 'var(--amber)' : 'var(--green)';
-      stats.innerHTML =
-        `<span>W <span style="color:var(--text-secondary);">${fmt.num(w)}</span></span>` +
-        `<span>R <span style="color:var(--text-secondary);">${fmt.num(r)}</span></span>` +
-        `<span>D <span style="color:${dColor};">${d}</span></span>`;
-    });
+/* ═══ ROLLING WINDOW — QPS, latency percentiles from SSE ═══ */
+const rollingWindow = (() => {
+  const events = [];   // {t, op, total_ms, status, cacheHit}
+  function push(ev) {
+    const t = Date.now();
+    const cacheHit = !!(ev.stages && ev.stages.some(s => s.hit && (s.name === 'cache' || s.name === 'semantic')));
+    events.push({ t, op: ev.op, total_ms: ev.total_ms, status: ev.status, cacheHit });
+    prune();
   }
-
-  // Throughput is computed from the SSE event stream over a sliding window
-  const state_throughput = { window: [], last: 0 };
-  function onEvent(ev) {
-    const now = Date.now();
-    state_throughput.window.push(now);
-    while (state_throughput.window.length && now - state_throughput.window[0] > 1000) {
-      state_throughput.window.shift();
-    }
-    state_throughput.last = state_throughput.window.length;
-
-    // Render into the audit panel on the control plane
-    const list = document.getElementById('auditList');
-    if (list && document.getElementById('view-control').classList.contains('active')) {
-      renderAuditLine(ev, list, 13);
-    }
-    // (Witness log mirror is handled by startAmbient() so it stays live
-    //  regardless of which view is currently mounted.)
-
-    // Pipeline animation
-    if (ev.stages) animPipe(ev);
+  function prune() {
+    const cutoff = Date.now() - CONFIG.WINDOW_MS;
+    while (events.length && events[0].t < cutoff) events.shift();
   }
-
-  function animPipe(ev) {
-    const nodes = document.querySelectorAll('#view-control .p-node');
-    const dots  = document.querySelectorAll('#view-control .p-conn .pdot');
-    if (!nodes.length) return;
-    const hitIdx = ev.stages.findIndex(s => s.hit);
-    const stopAt = hitIdx >= 0 ? hitIdx : (nodes.length - 1);
-    let d = 0;
-    for (let i = 0; i <= stopAt; i++) {
-      ((idx, dl) => {
-        setTimeout(() => {
-          const cls = (idx === stopAt && hitIdx >= 0) ? 'hit' : 'active';
-          nodes[idx].classList.add(cls);
-          setTimeout(() => nodes[idx].classList.remove('active','hit'), 650);
-        }, dl);
-        if (idx < stopAt && dots[idx]) {
-          setTimeout(() => {
-            dots[idx].classList.add('go');
-            setTimeout(() => dots[idx].classList.remove('go'), 280);
-          }, dl + 130);
-        }
-      })(i, d);
-      d += 210;
-    }
+  function snapshot() {
+    prune();
+    if (!events.length) return { n: 0, qps: null, p50: null, p95: null, p99: null, max: null, cacheHitRate: null, filtered: 0, writes: 0, queries: 0 };
+    const lats = events.map(e => e.total_ms).sort((a,b) => a-b);
+    const pct = (p) => lats[Math.min(lats.length-1, Math.floor(lats.length * p))];
+    const queries = events.filter(e => e.op === 'QUERY');
+    const cacheable = queries.length;
+    const cacheHits = queries.filter(e => e.cacheHit).length;
+    return {
+      n: events.length,
+      qps: events.length / (CONFIG.WINDOW_MS / 1000),
+      p50: pct(0.50), p95: pct(0.95), p99: pct(0.99), max: lats[lats.length-1],
+      cacheHitRate: cacheable ? cacheHits / cacheable : null,
+      filtered: events.filter(e => e.status === 'FILTERED').length,
+      writes:   events.filter(e => e.op === 'WRITE').length,
+      queries:  queries.length
+    };
   }
-
-  return {
-    mount() {
-      refresh();
-      timer = setInterval(refresh, CONFIG.REFRESH_MS);
-      busOff = bus.on(onEvent);
-    },
-    unmount() {
-      clearInterval(timer); timer = null;
-      if (busOff) busOff();
-    }
-  };
+  return { push, snapshot };
 })();
+bus.on(rollingWindow.push);
 
-/* ─── shared audit line renderer (used by control + audit + witness log) ─── */
+/* ═══ STAGE LATENCY EMA — rolling average per-stage for cascade labels ═══ */
+const stageEma = (() => {
+  const ema = new Array(6).fill(null);
+  const ALPHA = 0.2;
+  function update(ev) {
+    if (!ev.stages) return;
+    ev.stages.forEach((s, i) => {
+      if (i >= 6) return;
+      // Only roll into EMA when stage actually fired (non-zero ms or explicit hit)
+      if (s.ms > 0 || s.hit) {
+        ema[i] = ema[i] == null ? s.ms : ema[i] * (1 - ALPHA) + s.ms * ALPHA;
+      }
+    });
+    applyLabels();
+  }
+  function applyLabels() {
+    for (let i = 0; i < 6; i++) {
+      const val = ema[i] != null ? fmt.ms(ema[i]) : DASH;
+      setText('ps' + i + 'lat', val);
+      setText('ph' + i + 'lat', val);
+    }
+  }
+  return { update, applyLabels };
+})();
+bus.on(stageEma.update);
+
+/* ═══ AUDIT LINE RENDERER — shared by control / audit / witness log ═══ */
 function renderAuditLine(ev, target, maxLines) {
-  if (target.children.length > maxLines) target.firstChild.remove();
+  if (!target) return;
+  // remove "waiting for events" empty state on first event
+  const empty = target.querySelector('.empty-state');
+  if (empty) empty.remove();
+  while (target.children.length >= maxLines) target.firstChild.remove();
   const line = document.createElement('div');
-  line.className = 'a-line' + (ev.status === 'FILTERED' ? ' flash-amber' : '');
+  line.className = 'a-line' + (ev.status === 'FILTERED' ? ' flash-amber' : '') + (ev.status === 'DENIED' ? ' flash-red' : '');
   const polClass = ev.status === 'ALLOWED' ? 'ok' : ev.status === 'FILTERED' ? 'filt' : 'deny';
-  const detail = `${ev.source} → sqlite  subject:${ev.subject}` +
+  const subj = ev.subject || '∅';
+  const detail = `${ev.source} → sqlite  subject:${subj}` +
                  (ev.labels && ev.labels.length ? ' labels:[' + ev.labels.join(',') + ']' : '') +
                  (ev.op === 'QUERY' ? ' results:' + ev.result_count : '');
   const parts = [
@@ -3244,7 +2614,7 @@ function renderAuditLine(ev, target, maxLines) {
     ['a-op '   + (ev.op === 'WRITE' ? 'write' : 'query'), ev.op],
     ['a-detail', detail],
     ['a-pol '  + polClass, ev.status],
-    ['a-lat',  ev.total_ms.toFixed(1) + 'ms']
+    ['a-lat',  (ev.total_ms != null ? ev.total_ms.toFixed(1) + 'ms' : DASH)]
   ];
   parts.forEach(([c, t]) => {
     const s = document.createElement('span');
@@ -3255,72 +2625,297 @@ function renderAuditLine(ev, target, maxLines) {
   target.scrollTop = target.scrollHeight;
 }
 
-/* ═══ AUDIT VIEW ═══ */
+/* ═══ PIPELINE STAGE ANIMATION ═══ */
+function animateCascade(scopeId, ev) {
+  if (!ev || !ev.stages) return;
+  const nodes = document.querySelectorAll(`#${scopeId} .p-node`);
+  const dots  = document.querySelectorAll(`#${scopeId} .p-conn .pdot`);
+  if (!nodes.length) return;
+  // Find the LAST stage with a non-zero ms or hit=true; that's where the cascade actually went
+  let lastReal = -1;
+  ev.stages.forEach((s, i) => { if (s.ms > 0 || s.hit) lastReal = i; });
+  if (lastReal < 0) lastReal = ev.stages.length - 1;
+  const hitIdx = ev.stages.findIndex(s => s.hit);
+  let d = 0;
+  for (let i = 0; i <= lastReal; i++) {
+    const idx = i, dl = d;
+    setTimeout(() => {
+      const cls = (idx === hitIdx) ? 'hit' : 'active';
+      nodes[idx].classList.add(cls);
+      setTimeout(() => nodes[idx].classList.remove('active','hit'), 650);
+    }, dl);
+    if (idx < lastReal && dots[idx]) {
+      setTimeout(() => {
+        dots[idx].classList.add('go');
+        setTimeout(() => dots[idx].classList.remove('go'), 280);
+      }, dl + 130);
+    }
+    d += 210;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTROL PLANE / OPS VIEW
+═══════════════════════════════════════════════════════════════════ */
+const controlView = (() => {
+  let timer = null, busOff = null, statsTimer = null;
+
+  async function refresh() {
+    const [s, c, p] = await Promise.all([
+      nx.fetch('/api/status'),
+      nx.fetch('/api/cache'),
+      nx.fetch('/api/policies')
+    ]);
+
+    // ─ ROW 1: metric cards ─
+    if (s) {
+      setText('mTotal', fmt.num(s.memories_total));
+      setText('mWal',   fmt.num(s.wal && s.wal.pending_entries));
+
+      // Cache hit rate: prefer /api/cache (more granular), fall back to /api/status.cache
+      const cacheBlock = c || (s.cache ? { exact:{hit_rate:s.cache.exact_rate}, semantic:{hit_rate:s.cache.semantic_rate}, exact_hit_rate: s.cache.exact_rate, semantic_hit_rate: s.cache.semantic_rate } : null);
+      let totalHits = 0, totalReqs = 0;
+      if (c) {
+        totalHits = (c.exact.hits || 0) + (c.semantic.hits || 0);
+        totalReqs = totalHits + (c.misses_total || 0);
+      }
+      const hitRate = totalReqs > 0 ? totalHits / totalReqs : null;
+      setText('mCache', hitRate != null ? Math.round(hitRate*100) : DASH);
+      const mCacheEl = $('mCache');
+      if (mCacheEl && hitRate != null) mCacheEl.innerHTML = Math.round(hitRate*100) + '<span class="unit">%</span>';
+      const sub = $('mCacheSub');
+      if (sub) {
+        if (c) sub.textContent = `exact ${fmt.num(c.exact.hits)} · semantic ${fmt.num(c.semantic.hits)} · miss ${fmt.num(c.misses_total)}`;
+        else sub.textContent = 'no cache data';
+      }
+      const bar = $('mCacheBar');
+      if (bar) bar.style.width = (hitRate != null ? Math.round(hitRate*100) : 0) + '%';
+
+      // Header badges
+      setText('uptime',     'uptime ' + fmt.uptime(s.uptime_seconds));
+      setText('versionTag', 'v' + s.version);
+      setText('bindTag',    'bind ' + s.bind);
+      setText('sidebarVer', 'v' + s.version);
+      const hp = $('healthPill'); if (hp) hp.classList.toggle('down', !(s.wal && s.wal.healthy));
+      setText('healthLabel', (s.wal && s.wal.healthy) ? 'HEALTHY' : 'DEGRADED');
+
+      // Witness HUD mirror
+      setText('wBuild', 'v' + s.version);
+      setText('wHealth', (s.wal && s.wal.healthy) ? 'HEALTHY' : 'DEGRADED');
+      setText('wUptime', fmt.uptime(s.uptime_seconds));
+      setText('wCount',  fmt.num(s.memories_total));
+      setText('wWal',    fmt.num(s.wal && s.wal.pending_entries));
+      setText('wBind',   s.bind);
+      setText('wSources', s.sources_total);
+    } else {
+      // Daemon offline — show dashes everywhere honestly
+      ['mTotal','mWal','mCache','mCacheSub','uptime','versionTag','bindTag','sidebarVer',
+       'wBuild','wHealth','wUptime','wCount','wWal','wBind','wSources'].forEach(id => setText(id, DASH));
+      const bar = $('mCacheBar'); if (bar) bar.style.width = '0%';
+    }
+
+    // ─ ROW 2: source cards from /api/policies ─
+    const grid = $('sourcesGrid');
+    if (grid) {
+      if (p && p.sources) {
+        setText('sourcesMeta', `${p.sources.length} configured`);
+        grid.innerHTML = p.sources.map(src => {
+          const col = srcColor(src.source);
+          return `
+          <div class="source-card">
+            <div class="source-name">
+              <div class="source-dot" style="background:${col.c};box-shadow:0 0 6px ${col.g}"></div>
+              ${src.source}
+            </div>
+            <div class="source-stats">
+              <span>R <span style="color:${src.can_read ? 'var(--green)' : 'var(--red)'}">${src.can_read ? 'YES' : 'NO'}</span></span>
+              <span>W <span style="color:${src.can_write ? 'var(--green)' : 'var(--red)'}">${src.can_write ? 'YES' : 'NO'}</span></span>
+              <span>limit <span style="color:var(--text-secondary)">${fmt.num(src.rate_limit_per_min)}/min</span></span>
+            </div>
+            <div class="source-stats" style="margin-top:4px">
+              <span>dest <span style="color:var(--text-secondary)">${(src.allowed_destinations||[]).join(', ')}</span></span>
+              <span>policy <code style="font-size:9.5px;color:var(--text-tertiary)">${(src.policy_hash||'').slice(0,6)}…</code></span>
+            </div>
+          </div>`;
+        }).join('') + `
+          <div class="source-card add">
+            <div class="source-name">+ Add Source</div>
+            <div class="source-stats"><span>edit <code>sources/*.toml</code> &amp; restart</span></div>
+          </div>`;
+      } else {
+        grid.innerHTML = '<div class="empty-state">no source data — endpoint unreachable</div>';
+      }
+    }
+
+    // ─ ROW 3: pipeline profile + cache fields are updated below in updateWindowStats ─
+    if (p && p.sources && p.sources[0]) {
+      // Profile is per-source; show the first source's profile (or default text)
+      // /api/policies doesn't return profile; profile lives in source TOML.
+      // Pull from /api/config instead:
+      const cfg = await nx.fetch('/api/config');
+      if (cfg && cfg.retrieval && cfg.retrieval.default_profile) {
+        setText('pipelineProfile', 'profile: ' + cfg.retrieval.default_profile);
+        setText('pipeProfile2',    'profile: ' + cfg.retrieval.default_profile);
+      } else {
+        setText('pipelineProfile', 'profile: —');
+        setText('pipeProfile2',    'profile: —');
+      }
+    }
+  }
+
+  function updateWindowStats() {
+    const w = rollingWindow.snapshot();
+    setText('mRate',    w.qps != null ? fmt.rate(w.qps) : DASH);
+    const mRateEl = $('mRate');
+    if (mRateEl && w.qps != null) mRateEl.innerHTML = fmt.rate(w.qps) + '<span class="unit">/s</span>';
+    setText('mRateSub', `${w.n} events in last ${CONFIG.WINDOW_MS/1000}s`);
+
+    setText('pipeQps',       w.qps != null ? fmt.rate(w.qps) : DASH);
+    setText('pipeP50',       w.p50 != null ? fmt.ms(w.p50) : DASH);
+    setText('pipeP99',       w.p99 != null ? fmt.ms(w.p99) : DASH);
+    setText('pipeCacheRate', fmt.pct(w.cacheHitRate));
+    setText('pipeFiltered',  w.filtered);
+
+    setText('wQps', w.qps != null ? fmt.rate(w.qps) : DASH);
+    setText('wP99', w.p99 != null ? fmt.ms(w.p99) : DASH);
+  }
+
+  function onEvent(ev) {
+    const list = $('auditList');
+    if (list && $('view-control').classList.contains('active')) {
+      renderAuditLine(ev, list, 14);
+    }
+    if (ev.stages && $('view-control').classList.contains('active')) {
+      animateCascade('pipeline', ev);
+    }
+  }
+
+  return {
+    mount() {
+      refresh();
+      timer = setInterval(refresh, CONFIG.REFRESH_MS);
+      statsTimer = setInterval(updateWindowStats, 1000);
+      busOff = bus.on(onEvent);
+      updateWindowStats();
+    },
+    unmount() {
+      clearInterval(timer); timer = null;
+      clearInterval(statsTimer); statsTimer = null;
+      if (busOff) busOff();
+    }
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   AUDIT VIEW
+═══════════════════════════════════════════════════════════════════ */
 const auditView = (() => {
   let busOff = null, timer = null;
   const filters = { source: '', op: '', status: '', subject: '' };
+  let sessionStats = { total: 0, writes: 0, queries: 0, filtered: 0 };
 
   function passes(ev) {
     if (filters.source && ev.source !== filters.source) return false;
     if (filters.op && ev.op !== filters.op) return false;
     if (filters.status && ev.status !== filters.status) return false;
-    if (filters.subject && !ev.subject.includes(filters.subject)) return false;
+    if (filters.subject && !(ev.subject||'').includes(filters.subject)) return false;
     return true;
   }
 
   function renderRow(ev) {
-    const tbody = document.getElementById('auditTableBody');
+    sessionStats.total++;
+    if (ev.op === 'WRITE') sessionStats.writes++; else sessionStats.queries++;
+    if (ev.status === 'FILTERED') sessionStats.filtered++;
+    setText('audStatTotal', fmt.num(sessionStats.total));
+    setText('audStatWrites', fmt.num(sessionStats.writes));
+    setText('audStatQueries', fmt.num(sessionStats.queries));
+    setText('audStatFiltered', fmt.num(sessionStats.filtered));
+
+    const tbody = $('auditTableBody');
     if (!tbody || !passes(ev)) return;
     while (tbody.children.length > 200) tbody.firstChild.remove();
     const tr = document.createElement('tr');
-    tr.className = ev.status === 'FILTERED' ? 'flash-amber' : '';
+    tr.className = ev.status === 'FILTERED' ? 'flash-amber' : ev.status === 'DENIED' ? 'flash-red' : '';
     const polClass = ev.status === 'ALLOWED' ? 'ok' : ev.status === 'FILTERED' ? 'filt' : 'deny';
+    const subj = ev.subject || '<span style="color:var(--text-tertiary)">∅</span>';
     tr.innerHTML = `
       <td class="col-time">${fmt.ts(ev.ts)}</td>
       <td class="col-op ${ev.op === 'WRITE' ? 'write' : 'query'}">${ev.op}</td>
       <td class="col-src">${srcDot(ev.source)}${ev.source}</td>
-      <td class="col-subject"><code>${ev.subject}</code></td>
+      <td class="col-subject"><code>${subj}</code></td>
       <td class="col-detail">${ev.op === 'QUERY' ? 'results: ' + ev.result_count : 'payload accepted'}${ev.labels && ev.labels.length ? ' · labels:[' + ev.labels.join(',') + ']' : ''}</td>
       <td class="col-status ${polClass}">${ev.status}</td>
-      <td class="col-lat">${ev.total_ms.toFixed(1)}ms</td>
+      <td class="col-lat">${ev.total_ms != null ? ev.total_ms.toFixed(1) + 'ms' : DASH}</td>
     `;
     tbody.appendChild(tr);
     tbody.parentElement.scrollTop = tbody.parentElement.scrollHeight;
   }
 
-  async function refreshStats() {
-    const summary = await nx.fetch('/api/security/summary');
-    const writes = Object.values(MOCK.state.writes).reduce((a,b)=>a+b,0);
-    const reads  = Object.values(MOCK.state.reads).reduce((a,b)=>a+b,0);
-    const filtered = summary.policy_denials_total;
-    const total = writes + reads;
-    document.getElementById('audStatTotal').textContent    = fmt.num(total);
-    document.getElementById('audStatWrites').textContent   = fmt.num(writes);
-    document.getElementById('audStatQueries').textContent  = fmt.num(reads);
-    document.getElementById('audStatFiltered').textContent = fmt.num(filtered);
+  async function loadPersisted() {
+    const note = $('auditPersistedNote');
+    const log  = await nx.fetch('/api/audit/log', { limit: 50 });
+    if (!log) { if (note) { note.style.display = 'block'; note.textContent = '/api/audit/log unreachable'; } return; }
+    if (log.__notfound) { if (note) { note.style.display = 'block'; note.textContent = '/api/audit/log not implemented in this build'; } return; }
+    if (!log.records || log.records.length === 0) {
+      if (note) { note.style.display = 'block'; note.textContent = 'audit subsystem returns no records — enable [daemon.audit] in daemon.toml to persist interactions'; }
+      return;
+    }
+    if (note) note.style.display = 'none';
+    // Persisted records have a different shape (audit.InteractionRecord); render conservatively
+    const tbody = $('auditTableBody');
+    if (!tbody) return;
+    log.records.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.className = 'persisted';
+      tr.innerHTML = `
+        <td class="col-time">${fmt.ts(r.timestamp || r.ts)}</td>
+        <td class="col-op ${(r.operation_type||'').toLowerCase().includes('write') ? 'write' : 'query'}">${r.operation_type || '—'}</td>
+        <td class="col-src">${srcDot(r.source)}${r.source || '—'}</td>
+        <td class="col-subject"><code>${r.subject || '∅'}</code></td>
+        <td class="col-detail">${r.endpoint || ''}</td>
+        <td class="col-status ${(r.policy_decision || '').toLowerCase()}">${r.policy_decision || '—'}</td>
+        <td class="col-lat">${r.latency_ms != null ? r.latency_ms.toFixed(1) + 'ms' : DASH}</td>`;
+      tbody.appendChild(tr);
+    });
   }
 
   function bindFilters() {
-    ['audFilterSource','audFilterOp','audFilterStatus'].forEach(id => {
-      const el = document.getElementById(id);
-      if (!el || el._bound) return; el._bound = true;
-      el.addEventListener('change', () => {
-        filters[id.replace('audFilter','').toLowerCase()] = el.value;
-      });
+    [['audFilterSource','source'],['audFilterOp','op'],['audFilterStatus','status']].forEach(([id,key]) => {
+      const el = $(id); if (!el || el._bound) return; el._bound = true;
+      el.addEventListener('change', () => { filters[key] = el.value; });
     });
-    const sub = document.getElementById('audFilterSubject');
+    const sub = $('audFilterSubject');
     if (sub && !sub._bound) {
       sub._bound = true;
       sub.addEventListener('input', () => { filters.subject = sub.value; });
     }
   }
 
+  async function populateSourceFilter() {
+    const p = await nx.fetch('/api/policies');
+    const sel = $('audFilterSource');
+    if (sel && p && p.sources) {
+      const seen = new Set();
+      p.sources.forEach(s => {
+        if (seen.has(s.source)) return;
+        seen.add(s.source);
+        const opt = document.createElement('option');
+        opt.value = s.source; opt.textContent = s.source;
+        sel.appendChild(opt);
+      });
+    }
+  }
+
   return {
     mount() {
       bindFilters();
-      refreshStats();
-      timer = setInterval(refreshStats, CONFIG.REFRESH_MS);
+      populateSourceFilter();
+      loadPersisted();
       busOff = bus.on(renderRow);
+      setText('audStatTotal', fmt.num(sessionStats.total));
+      setText('audStatWrites', fmt.num(sessionStats.writes));
+      setText('audStatQueries', fmt.num(sessionStats.queries));
+      setText('audStatFiltered', fmt.num(sessionStats.filtered));
     },
     unmount() {
       clearInterval(timer); timer = null;
@@ -3329,7 +2924,9 @@ const auditView = (() => {
   };
 })();
 
-/* ═══ SECURITY VIEW ═══ */
+/* ═══════════════════════════════════════════════════════════════════
+   SECURITY VIEW
+═══════════════════════════════════════════════════════════════════ */
 const securityView = (() => {
   let timer = null;
 
@@ -3341,55 +2938,65 @@ const securityView = (() => {
       nx.fetch('/api/policies')
     ]);
 
-    document.getElementById('secAuthFails').textContent    = fmt.num(summary.auth_failures_total);
-    document.getElementById('secPolicyDenies').textContent = fmt.num(summary.policy_denials_total);
-    document.getElementById('secRateLimits').textContent   = fmt.num(summary.rate_limit_hits_total);
-    document.getElementById('secAdminCalls').textContent   = fmt.num(summary.admin_calls_total);
+    if (summary) {
+      setText('secAuthFails',    fmt.num(summary.auth_failures_total));
+      setText('secPolicyDenies', fmt.num(summary.policy_denials_total));
+      setText('secRateLimits',   fmt.num(summary.rate_limit_hits_total));
+      setText('secAdminCalls',   fmt.num(summary.admin_calls_total));
+    } else {
+      ['secAuthFails','secPolicyDenies','secRateLimits','secAdminCalls'].forEach(id => setText(id, DASH));
+    }
 
-    // Source policies table
-    const tbody = document.getElementById('policyTableBody');
+    const tbody = $('policyTableBody');
     if (tbody) {
-      tbody.innerHTML = policies.sources.map(p => `
-        <tr>
-          <td class="src">${srcDot(p.source)}${p.source}</td>
-          <td class="cap-cell ${p.can_read  ? 'cap-yes' : 'cap-no'}">${p.can_read  ? 'YES' : 'NO'}</td>
-          <td class="cap-cell ${p.can_write ? 'cap-yes' : 'cap-no'}">${p.can_write ? 'YES' : 'NO'}</td>
-          <td>${p.allowed_destinations.join(', ')}</td>
-          <td>${p.max_results}</td>
-          <td>${fmt.num(p.max_response_bytes)}</td>
-          <td>${fmt.num(p.rate_limit_per_min)}/min</td>
-          <td><code style="font-size:9.5px;color:var(--text-tertiary);">${p.policy_hash.slice(0,6)}…</code></td>
-        </tr>
-      `).join('');
+      if (policies && policies.sources && policies.sources.length) {
+        tbody.innerHTML = policies.sources.map(p => `
+          <tr>
+            <td class="src">${srcDot(p.source)}${p.source}</td>
+            <td class="cap-cell ${p.can_read  ? 'cap-yes' : 'cap-no'}">${p.can_read  ? 'YES' : 'NO'}</td>
+            <td class="cap-cell ${p.can_write ? 'cap-yes' : 'cap-no'}">${p.can_write ? 'YES' : 'NO'}</td>
+            <td>${(p.allowed_destinations||[]).join(', ')}</td>
+            <td>${fmt.num(p.max_results)}</td>
+            <td>${fmt.num(p.max_response_bytes)}</td>
+            <td>${fmt.num(p.rate_limit_per_min)}/min</td>
+            <td><code style="font-size:9.5px;color:var(--text-tertiary)">${(p.policy_hash||'').slice(0,6)}…</code></td>
+          </tr>`).join('');
+      } else {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">no policy data</td></tr>';
+      }
     }
 
-    // Recent security events
-    const eList = document.getElementById('secEventsList');
+    const eList = $('secEventsList');
     if (eList) {
-      eList.innerHTML = events.events.map(e => `
-        <div class="sec-event ${e.severity}">
-          <div class="sec-event-head">
-            <span class="sec-event-kind">${e.kind.replace(/_/g,' ')}</span>
-            <span class="sec-event-ts">${new Date(e.ts).toLocaleTimeString()}</span>
-          </div>
-          <div class="sec-event-body">
-            ${srcDot(e.source)}<span style="color:var(--text-tertiary);">${e.source}</span> · ${e.message}
-          </div>
-        </div>
-      `).join('');
+      if (events && events.events && events.events.length) {
+        eList.innerHTML = events.events.map(e => `
+          <div class="sec-event ${e.severity}">
+            <div class="sec-event-head">
+              <span class="sec-event-kind">${(e.kind||'').replace(/_/g,' ')}</span>
+              <span class="sec-event-ts">${new Date(e.ts).toLocaleTimeString()}</span>
+            </div>
+            <div class="sec-event-body">
+              ${e.source ? srcDot(e.source) + '<span style="color:var(--text-tertiary)">' + e.source + '</span> · ' : ''}${e.message || ''}
+            </div>
+          </div>`).join('');
+      } else {
+        eList.innerHTML = '<div class="empty-state">no recent security events</div>';
+      }
     }
 
-    // Config lint warnings
-    const lList = document.getElementById('lintList');
+    const lList = $('lintList');
     if (lList) {
-      lList.innerHTML = lint.warnings.map(w => `
-        <div class="lint-row ${w.severity}">
-          <span class="lint-sev">${w.severity.toUpperCase()}</span>
-          <span class="lint-code"><code>${w.code}</code></span>
-          <span class="lint-msg">${w.message}</span>
-          <span class="lint-loc">${w.file}:${w.line}</span>
-        </div>
-      `).join('');
+      if (lint && lint.warnings && lint.warnings.length) {
+        lList.innerHTML = lint.warnings.map(w => `
+          <div class="lint-row ${w.severity}">
+            <span class="lint-sev">${(w.severity||'').toUpperCase()}</span>
+            <span class="lint-code"><code>${w.code}</code></span>
+            <span class="lint-msg">${w.message}</span>
+            <span class="lint-loc">${w.file}${w.line ? ':' + w.line : ''}</span>
+          </div>`).join('');
+      } else {
+        lList.innerHTML = '<div class="empty-state">no lint warnings</div>';
+      }
     }
   }
 
@@ -3399,94 +3006,101 @@ const securityView = (() => {
   };
 })();
 
-/* ═══ PIPELINE VIEW ═══ */
+/* ═══════════════════════════════════════════════════════════════════
+   PIPELINE VIEW
+═══════════════════════════════════════════════════════════════════ */
 const pipelineView = (() => {
-  let busOff = null, timer = null;
+  let busOff = null, timer = null, winTimer = null;
 
   async function refreshCache() {
     const c = await nx.fetch('/api/cache');
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set('pipeCacheExact', fmt.num(c.exact.hits));
-    set('pipeCacheSem',   fmt.num(c.semantic.hits));
-    set('pipeCacheMiss',  fmt.num(c.misses_total));
-    set('pipeCacheEvict', fmt.num(c.evictions_total));
-    set('pipeCacheWater', fmt.num(c.used) + ' / ' + fmt.num(c.capacity));
-    set('pipeDecayApplied', fmt.num(MOCK.state.decayApplied));
+    if (c) {
+      setText('pipeCacheExact', fmt.num(c.exact && c.exact.hits));
+      setText('pipeCacheSem',   fmt.num(c.semantic && c.semantic.hits));
+      setText('pipeCacheMiss',  fmt.num(c.misses_total));
+      setText('pipeCacheEvict', fmt.num(c.evictions_total));
+      setText('pipeCacheWater', `${fmt.num(c.used)} / ${fmt.num(c.capacity)}`);
+    } else {
+      ['pipeCacheExact','pipeCacheSem','pipeCacheMiss','pipeCacheEvict','pipeCacheWater'].forEach(id => setText(id, DASH));
+    }
+  }
+
+  function refreshWindow() {
+    const w = rollingWindow.snapshot();
+    setText('pipeWinN',   w.n);
+    setText('pipeWinP50', w.p50 != null ? fmt.ms(w.p50) : DASH);
+    setText('pipeWinP95', w.p95 != null ? fmt.ms(w.p95) : DASH);
+    setText('pipeWinP99', w.p99 != null ? fmt.ms(w.p99) : DASH);
+    setText('pipeWinMax', w.max != null ? fmt.ms(w.max) : DASH);
   }
 
   function renderSseLine(ev) {
-    const list = document.getElementById('sseList');
-    if (!list) return;
+    const list = $('sseList'); if (!list) return;
+    const empty = list.querySelector('.empty-state'); if (empty) empty.remove();
     while (list.children.length > 60) list.firstChild.remove();
     const line = document.createElement('div');
     line.className = 'sse-line';
     const stages = ev.stages
-      ? ev.stages.map(s => `<span class="sse-step ${s.hit?'hit':''}">${s.name}:${s.ms.toFixed(2)}ms</span>`).join(' <span class="sse-arrow">→</span> ')
+      ? ev.stages.map(s => `<span class="sse-step ${s.hit?'hit':''} ${s.ms===0?'skip':''}">${s.name}:${s.ms.toFixed(2)}ms</span>`).join(' <span class="sse-arrow">→</span> ')
       : '<span class="sse-step">write</span>';
     line.innerHTML = `
       <span class="sse-ts">${fmt.ts(ev.ts)}</span>
       <span class="sse-req">${ev.request_id}</span>
       <span class="sse-stages">${stages}</span>
-      <span class="sse-total">${ev.total_ms.toFixed(2)}ms</span>
-    `;
+      <span class="sse-total">${ev.total_ms.toFixed(2)}ms</span>`;
     list.appendChild(line);
     list.scrollTop = list.scrollHeight;
   }
 
-  function animHero(ev) {
-    if (!ev.stages) return;
-    const nodes = document.querySelectorAll('#pipelineHero .p-node');
-    const dots  = document.querySelectorAll('#pipelineHero .p-conn .pdot');
-    if (!nodes.length) return;
-    const hitIdx = ev.stages.findIndex(s => s.hit);
-    const stopAt = hitIdx >= 0 ? hitIdx : (nodes.length - 1);
-    let d = 0;
-    for (let i = 0; i <= stopAt; i++) {
-      ((idx, dl) => {
-        setTimeout(() => {
-          nodes[idx].classList.add(idx === stopAt && hitIdx >= 0 ? 'hit' : 'active');
-          setTimeout(() => nodes[idx].classList.remove('active','hit'), 650);
-        }, dl);
-        if (idx < stopAt && dots[idx]) {
-          setTimeout(() => {
-            dots[idx].classList.add('go');
-            setTimeout(() => dots[idx].classList.remove('go'), 280);
-          }, dl + 130);
-        }
-      })(i, d);
-      d += 210;
+  async function refreshProfile() {
+    const cfg = await nx.fetch('/api/config');
+    if (cfg && cfg.retrieval && cfg.retrieval.default_profile) {
+      setText('pipeProfile2', 'profile: ' + cfg.retrieval.default_profile);
     }
   }
 
   function onEvent(ev) {
-    if (!document.getElementById('view-pipeline').classList.contains('active')) return;
+    if (!$('view-pipeline').classList.contains('active')) return;
     renderSseLine(ev);
-    animHero(ev);
+    animateCascade('pipelineHero', ev);
   }
 
   return {
     mount() {
       refreshCache();
+      refreshWindow();
+      stageEma.applyLabels();
+      refreshProfile();
       timer = setInterval(refreshCache, CONFIG.REFRESH_MS);
+      winTimer = setInterval(refreshWindow, 1000);
       busOff = bus.on(onEvent);
     },
     unmount() {
       clearInterval(timer); timer = null;
+      clearInterval(winTimer); winTimer = null;
       if (busOff) busOff();
     }
   };
 })();
 
-/* ═══ CONFLICTS VIEW ═══ */
+/* ═══════════════════════════════════════════════════════════════════
+   CONFLICTS VIEW
+═══════════════════════════════════════════════════════════════════ */
 const conflictsView = (() => {
   const filters = { source: '', actor_type: '', subject: '', limit: 50 };
 
   async function refresh() {
     const data = await nx.fetch('/api/conflicts', filters);
-    const list = document.getElementById('conflictList');
+    const list = $('conflictList');
+    const cnt = $('conflictCount');
+    if (!data) {
+      if (list) list.innerHTML = '<div class="empty-state">/api/conflicts unreachable</div>';
+      if (cnt)  { cnt.textContent = '— conflicts'; cnt.className = 'filter-pill'; }
+      return;
+    }
     if (list) {
-      if (!data.conflicts.length) {
-        list.innerHTML = '<div class="empty-state">No conflicts found for current filters.</div>';
+      if (!data.conflicts || !data.conflicts.length) {
+        list.innerHTML = '<div class="empty-state">no conflicts found for current filters</div>';
       } else {
         list.innerHTML = data.conflicts.map(c => `
           <div class="conflict-card">
@@ -3494,59 +3108,167 @@ const conflictsView = (() => {
               <div class="conflict-title">
                 <span class="conflict-id">${c.id}</span>
                 <span class="conflict-subject"><code>${c.subject}</code></span>
-                <span class="conflict-entity">→ <code>${c.entity}</code></span>
+                ${c.entity ? '<span class="conflict-entity">→ <code>' + c.entity + '</code></span>' : ''}
               </div>
               <span class="conflict-pill">${c.group_size} divergent</span>
             </div>
             <div class="conflict-mems">
-              ${c.memories.map(m => `
+              ${(c.memories||[]).map(m => `
                 <div class="conflict-mem">
                   <div class="conflict-mem-meta">
                     ${srcDot(m.source)}${m.source} · ${m.actor_type} · ${new Date(m.ts).toLocaleString()}
                   </div>
-                  <div class="conflict-mem-content">${m.content}</div>
-                </div>
-              `).join('')}
+                  <div class="conflict-mem-content">${escapeHtml(m.content || '')}</div>
+                </div>`).join('')}
             </div>
-          </div>
-        `).join('');
+          </div>`).join('');
       }
     }
-    const cnt = document.getElementById('conflictCount');
     if (cnt) {
-      cnt.textContent = data.conflicts.length + (data.conflicts.length === 1 ? ' conflict' : ' conflicts');
-      cnt.className = 'filter-pill ' + (data.conflicts.length ? 'amber' : 'green');
+      const n = (data.conflicts||[]).length;
+      cnt.textContent = n + (n === 1 ? ' conflict' : ' conflicts');
+      cnt.className = 'filter-pill ' + (n ? 'amber' : 'green');
+      // Witness HUD mirror
+      const chip = $('wConflictsChip');
+      if (chip) chip.style.display = n > 0 ? '' : 'none';
+      setText('wConflicts', n + ' pending');
     }
   }
 
+  function escapeHtml(s) { return s.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
   function bindFilters() {
     [['confFilterSource','source'],['confFilterActor','actor_type'],['confFilterLimit','limit']].forEach(([id,key]) => {
-      const el = document.getElementById(id);
-      if (!el || el._bound) return; el._bound = true;
+      const el = $(id); if (!el || el._bound) return; el._bound = true;
       el.addEventListener('change', () => { filters[key] = el.value; refresh(); });
     });
-    const sub = document.getElementById('confFilterSubject');
+    const sub = $('confFilterSubject');
     if (sub && !sub._bound) {
       sub._bound = true;
-      sub.addEventListener('input', () => { filters.subject = sub.value; refresh(); });
+      let t;
+      sub.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { filters.subject = sub.value; refresh(); }, 250); });
+    }
+  }
+
+  async function populateSourceFilter() {
+    const p = await nx.fetch('/api/policies');
+    const sel = $('confFilterSource');
+    if (sel && p && p.sources) {
+      const seen = new Set();
+      p.sources.forEach(s => {
+        if (seen.has(s.source)) return;
+        seen.add(s.source);
+        const opt = document.createElement('option');
+        opt.value = s.source; opt.textContent = s.source;
+        sel.appendChild(opt);
+      });
     }
   }
 
   return {
-    mount()   { bindFilters(); refresh(); },
-    unmount() { /* no live timers */ }
+    mount() { bindFilters(); populateSourceFilter(); refresh(); },
+    unmount() {}
   };
 })();
 
-/* ═══ SETTINGS VIEW (read-only effective config) ═══ */
+/* ═══════════════════════════════════════════════════════════════════
+   SETTINGS / EFFECTIVE CONFIG VIEW — wired to /api/config
+═══════════════════════════════════════════════════════════════════ */
 const settingsView = (() => {
-  // The settings page reflects compiled daemon.toml values returned by /api/status.
-  // Static config rows are intentionally hardcoded in markup AS THE CONTRACT
-  // — they reflect the effective config the daemon ships with for the
-  // documented "balanced" deployment mode (Tech Spec §2.2.3).
-  // When wiring to a live daemon, claude-code-instructions.md Phase D-6 wires
-  // these values from the /api/status response.
-  return { mount() {}, unmount() {} };
+  let timer = null;
+
+  function row(k, v, cls) {
+    return `<div class="cfg-row"><span class="k">${k}</span><span class="v ${cls||''}">${v == null || v === '' ? DASH : v}</span></div>`;
+  }
+
+  function section(title, icon, rows) {
+    return `<div class="cfg-section">
+      <div class="cfg-section-title">${icon}${title}</div>
+      ${rows}
+    </div>`;
+  }
+
+  async function refresh() {
+    const [cfg, status] = await Promise.all([nx.fetch('/api/config'), nx.fetch('/api/status')]);
+    const grid = $('cfgGrid');
+    if (!grid) return;
+    if (!cfg) { grid.innerHTML = '<div class="empty-state">/api/config unreachable</div>'; return; }
+
+    const ic = (svg) => `<svg viewBox="0 0 24 24">${svg}</svg>`;
+    const html = [];
+
+    html.push(section('Daemon', ic('<rect x="2" y="2" width="20" height="20" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/>'),
+      row('mode', `<code>${cfg.daemon.mode}</code>`) +
+      row('bind', `<code>${cfg.daemon.bind}:${cfg.daemon.port}</code>`) +
+      row('log_level', cfg.daemon.log_level) +
+      row('queue_size', fmt.num(cfg.daemon.queue_size)) +
+      row('pid', fmt.num(status && status.pid)) +
+      row('goroutines', fmt.num(status && status.goroutines)) +
+      row('memory', fmt.bytes(status && status.memory_resident_bytes))
+    ));
+
+    html.push(section('WAL', ic('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>'),
+      row('path', `<code>${cfg.wal.path}</code>`) +
+      row('integrity_mode', cfg.wal.integrity_mode) +
+      row('encryption', cfg.wal.encryption_enabled ? 'enabled' : 'disabled', cfg.wal.encryption_enabled ? 'green' : '') +
+      row('max_segment', cfg.wal.max_segment_size_mb + ' MB') +
+      row('watchdog', 'every ' + cfg.wal.watchdog_interval_s + 's') +
+      row('healthy', status && status.wal && status.wal.healthy ? 'YES' : 'NO',
+          status && status.wal && status.wal.healthy ? 'green' : 'red') +
+      row('pending', fmt.num(status && status.wal && status.wal.pending_entries)) +
+      row('current_segment', `<code>${status && status.wal && status.wal.current_segment}</code>`)
+    ));
+
+    html.push(section('MCP', ic('<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/>'),
+      row('enabled', cfg.mcp.enabled ? 'YES' : 'NO', cfg.mcp.enabled ? 'green' : '') +
+      row('bind', `<code>${cfg.mcp.bind}:${cfg.mcp.port}</code>`) +
+      row('source_name', cfg.mcp.source_name)
+    ));
+
+    html.push(section('Web Dashboard', ic('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>'),
+      row('port', cfg.web.port) +
+      row('require_auth', cfg.web.require_auth ? 'YES' : 'NO', cfg.web.require_auth ? 'green' : 'amber')
+    ));
+
+    html.push(section('Embedding', ic('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/>'),
+      row('enabled', cfg.embedding.enabled ? 'YES' : 'NO', cfg.embedding.enabled ? 'green' : '') +
+      row('provider', cfg.embedding.provider) +
+      row('model', cfg.embedding.model) +
+      row('dimensions', cfg.embedding.dimensions || DASH)
+    ));
+
+    html.push(section('TLS', ic('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
+      row('enabled', cfg.tls.enabled ? 'YES' : 'NO', cfg.tls.enabled ? 'green' : 'amber') +
+      row('min_version', cfg.tls.min_version)
+    ));
+
+    html.push(section('Rate Limit', ic('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'),
+      row('global_rpm', fmt.num(cfg.rate_limit.global_rpm))
+    ));
+
+    html.push(section('Retrieval', ic('<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
+      row('time_decay', cfg.retrieval.time_decay ? 'YES' : 'NO', cfg.retrieval.time_decay ? 'green' : '') +
+      row('half_life_days', cfg.retrieval.half_life_days) +
+      row('default_profile', cfg.retrieval.default_profile)
+    ));
+
+    html.push(section('Audit', ic('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/>'),
+      row('enabled', cfg.audit.enabled ? 'YES' : 'NO', cfg.audit.enabled ? 'green' : 'amber') +
+      row('dual_write', cfg.audit.dual_write ? 'YES' : 'NO')
+    ));
+
+    html.push(section('Sources / Destinations', ic('<circle cx="12" cy="12" r="9"/>'),
+      row('sources', (cfg.sources||[]).map(s => '<code>'+s+'</code>').join(' ')) +
+      row('destinations', (cfg.destinations||[]).map(d => '<code>'+d+'</code>').join(' '))
+    ));
+
+    grid.innerHTML = html.join('');
+  }
+
+  return {
+    mount()   { refresh(); timer = setInterval(refresh, CONFIG.REFRESH_MS); },
+    unmount() { clearInterval(timer); timer = null; }
+  };
 })();
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -3568,11 +3290,13 @@ const router = (() => {
     if (current && current.name === name) return;
     if (current) {
       try { views[current.name].unmount(); } catch(e) {}
-      document.getElementById('view-' + current.name).classList.remove('active');
-      document.querySelector(`.nav-btn[data-view="${current.name}"]`).classList.remove('active');
+      $('view-' + current.name).classList.remove('active');
+      const prev = document.querySelector(`.nav-btn[data-view="${current.name}"]`);
+      if (prev) prev.classList.remove('active');
     }
-    document.getElementById('view-' + name).classList.add('active');
-    document.querySelector(`.nav-btn[data-view="${name}"]`).classList.add('active');
+    $('view-' + name).classList.add('active');
+    const btn = document.querySelector(`.nav-btn[data-view="${name}"]`);
+    if (btn) btn.classList.add('active');
     try { views[name].mount(); } catch(e) { console.error('mount failed:', name, e); }
     current = { name };
   }
@@ -3587,17 +3311,22 @@ const router = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════════
-   WITNESS MODE — memory grid, log, terminal, fact chips
+   WITNESS MODE — cards spawn ONLY from real SSE events
 ═══════════════════════════════════════════════════════════════════ */
-const FORBIDDEN_CELLS = new Set([2, 7]);
+const FORBIDDEN_CELLS = new Set([2, 7]);  // keep middle column clear for fact strips
 const wGrid = new Array(10).fill(null);
 
-function spawnWitness() {
-  const field = document.getElementById('witnessField');
-  if (!field) return;
-  const src = MOCK.SOURCES[Math.floor(Math.random()*MOCK.SOURCES.length)];
-  const mem = MOCK.MEMS[Math.floor(Math.random()*MOCK.MEMS.length)];
-  const actor = MOCK.ACTORS[Math.floor(Math.random()*MOCK.ACTORS.length)];
+function spawnWitnessFromEvent(ev) {
+  const field = $('witnessField');
+  if (!field || !$('witnessOverlay').classList.contains('visible')) return;
+
+  // Build the card text from the real event. For QUERY events the most
+  // user-meaningful thing is the request_id + result_count + subject.
+  // For WRITE events the same. We do NOT make up memory content.
+  const subj = ev.subject || '∅';
+  const text = ev.op === 'WRITE'
+    ? `WRITE accepted · subject:${subj}`
+    : `QUERY → ${ev.result_count} result${ev.result_count === 1 ? '' : 's'} · subject:${subj}`;
 
   let ci = -1;
   const valid = [];
@@ -3615,239 +3344,70 @@ function spawnWitness() {
 
   const cell = document.createElement('div'); cell.className = 'w-cell';
   cell.style.gridColumn = ((ci%5)+1);
-  cell.style.gridRow = (Math.floor(ci/5)+1);
-  const card = document.createElement('div'); card.className = 'w-card ' + src.cls;
-  const txt  = document.createElement('div'); txt.className  = 'wc-text'; txt.textContent = mem;
+  cell.style.gridRow    = (Math.floor(ci/5)+1);
+  const col = srcColor(ev.source);
+  const card = document.createElement('div'); card.className = 'w-card ' + col.cls;
+  const txt  = document.createElement('div'); txt.className  = 'wc-text'; txt.textContent = text;
   const meta = document.createElement('div'); meta.className = 'wc-meta';
-  meta.textContent = src.name + ' · ' + actor + ' · ' + MOCK.rb(1.5,8).toFixed(1) + 'ms';
+  meta.textContent = `${ev.source} · ${ev.actor_type} · ${ev.total_ms.toFixed(1)}ms · ${ev.status}`;
   const bar  = document.createElement('div'); bar.className  = 'wc-bar';
   const fill = document.createElement('div'); fill.className = 'wc-fill';
-  bar.appendChild(fill); card.appendChild(txt); card.appendChild(meta); card.appendChild(bar);
-  cell.appendChild(card); field.appendChild(cell);
+  bar.appendChild(fill);
+  card.appendChild(txt); card.appendChild(meta); card.appendChild(bar);
+  cell.appendChild(card);
+  field.appendChild(cell);
   wGrid[ci] = { el: cell, t: Date.now() };
 
-  setTimeout(() => {
-    fill.style.width = '0%';
-    card.style.opacity = '0.3';
-    card.style.transform = 'translateZ(-100px) scale(0.95)';
-    card.style.transition = 'all 35s linear';
-  }, 1200);
-  setTimeout(() => {
-    if (cell.parentNode) cell.parentNode.removeChild(cell);
-    wGrid[ci] = null;
-  }, 38000);
+  // animate in, then decay
+  requestAnimationFrame(() => {
+    card.style.opacity = '1';
+    card.style.transform = 'translateZ(0) scale(1)';
+    fill.style.width = '100%';
+  });
+  setTimeout(() => { fill.style.transition = '35s linear'; fill.style.width = '0%'; }, 50);
 }
 
-/* ═══ NEXUS CONSOLE — interactive terminal in Witness Mode ═══ */
-const console_term = (() => {
-  const out = () => document.getElementById('termOut');
-  const input = () => document.getElementById('termInput');
-  const history = []; let histIdx = -1;
+bus.on(spawnWitnessFromEvent);
 
-  function tprint(text, cls) {
-    const o = out(); if (!o) return;
-    const line = document.createElement('div');
-    line.className = 'term-line' + (cls ? ' ' + cls : '');
-    line.textContent = text;
-    o.appendChild(line);
-    o.scrollTop = o.scrollHeight;
-    while (o.children.length > 200) o.firstChild.remove();
-  }
-
-  /* Each command pulls from the SAME data adapter the dashboard uses,
-     so the console and the panels are always in sync. */
-  const COMMANDS = {
-    help: () => {
-      tprint('Available commands:', 'head');
-      tprint('  status        Daemon health & uptime    (GET /api/status)');
-      tprint('  sources       Connected AI sources      (GET /api/policies)');
-      tprint('  wal           WAL state & integrity     (GET /api/status)');
-      tprint('  pipeline      Retrieval cascade         (GET /api/cache + /metrics)');
-      tprint('  memories      Memory store summary      (GET /api/status)');
-      tprint('  policy        Active policy rules       (GET /api/policies)');
-      tprint('  security      Security counters         (GET /api/security/summary)');
-      tprint('  conflicts     Pending conflicts         (GET /api/conflicts)');
-      tprint('  lint          Config lint warnings      (GET /api/lint)');
-      tprint('  version       Build info');
-      tprint('  clear         Clear console');
-    },
-    status: async () => {
-      const s = await nx.fetch('/api/status');
-      tprint(`● Nexus daemon: ${s.wal.healthy ? 'HEALTHY' : 'UNHEALTHY'}`, s.wal.healthy ? 'ok' : 'warn');
-      tprint(`  version        ${s.version}`, 'dim');
-      tprint(`  uptime         ${fmt.uptime(s.uptime_seconds)}`, 'dim');
-      tprint(`  pid            ${s.pid}`, 'dim');
-      tprint(`  memory         ${fmt.bytes(s.memory_resident_bytes)} resident`, 'dim');
-      tprint(`  goroutines     ${s.goroutines} active`, 'dim');
-      tprint(`  gateway        ${s.bind}  bound`, 'dim');
-      tprint(`  dashboard      :${s.web_port}  bound`, 'dim');
-    },
-    sources: async () => {
-      const p = await nx.fetch('/api/policies');
-      tprint(`Connected sources (${p.sources.length}):`, 'head');
-      p.sources.forEach(s => {
-        const w = MOCK.state.writes[s.source];
-        const r = MOCK.state.reads[s.source];
-        const d = MOCK.state.deniesBySrc[s.source];
-        tprint(`  ● ${s.source.padEnd(16)} W:${String(w).padStart(4)}  R:${String(r).padStart(4)}  D:${d}`, d > 0 ? 'warn' : 'ok');
-      });
-    },
-    wal: async () => {
-      const s = await nx.fetch('/api/status');
-      tprint(`WAL state: ${s.wal.healthy ? 'CONSISTENT' : 'DEGRADED'}`, s.wal.healthy ? 'ok' : 'warn');
-      tprint(`  pending           ${s.wal.pending_entries}`, 'dim');
-      tprint(`  consistency       ${s.consistency_score.toFixed(2)}`, 'dim');
-      tprint(`  last checkpoint   ${fmt.uptime(s.wal.last_checkpoint_seconds_ago)} ago`, 'dim');
-      tprint(`  integrity         ${s.wal.integrity_mode}`, 'dim');
-      tprint(`  segment           ${s.wal.current_segment}`, 'dim');
-    },
-    pipeline: async () => {
-      const c = await nx.fetch('/api/cache');
-      tprint('Retrieval cascade — profile: balanced', 'head');
-      tprint('  [0] policy     0.12 ms', 'dim');
-      tprint('  [1] cache      0.24 ms', 'dim');
-      tprint('  [2] semantic   1.18 ms', 'dim');
-      tprint('  [3] lookup     2.41 ms', 'dim');
-      tprint('  [4] vector     5.07 ms', 'dim');
-      tprint('  [5] merge      1.23 ms', 'dim');
-      tprint(`  cache hits     ${fmt.pct(c.exact.hit_rate)} exact · ${fmt.pct(c.semantic.hit_rate)} semantic`, 'dim');
-    },
-    memories: async () => {
-      const s = await nx.fetch('/api/status');
-      tprint('Memory store:', 'head');
-      tprint(`  total          ${fmt.num(s.memories_total)}`, 'dim');
-      tprint(`  decay          7 day half-life · exponential`, 'dim');
-      tprint(`  embedding      ollama nomic-embed-text`, 'dim');
-    },
-    policy: async () => {
-      const p = await nx.fetch('/api/policies');
-      tprint(`Compiled policies (${p.sources.length}):`, 'head');
-      p.sources.forEach(pp => {
-        tprint(`  ${pp.source.padEnd(16)} R:${pp.can_read?'✓':'✗'} W:${pp.can_write?'✓':'✗'}  ${pp.rate_limit_per_min}/min  hash:${pp.policy_hash.slice(0,6)}`, 'ok');
-      });
-    },
-    security: async () => {
-      const s = await nx.fetch('/api/security/summary');
-      tprint('Security counters (since startup):', 'head');
-      tprint(`  auth_failures     ${s.auth_failures_total}`,    s.auth_failures_total > 0 ? 'warn' : 'ok');
-      tprint(`  policy_denials    ${s.policy_denials_total}`,   s.policy_denials_total > 0 ? 'warn' : 'ok');
-      tprint(`  rate_limit_hits   ${s.rate_limit_hits_total}`,  s.rate_limit_hits_total > 0 ? 'warn' : 'ok');
-      tprint(`  admin_calls       ${s.admin_calls_total}`,      'dim');
-    },
-    conflicts: async () => {
-      const d = await nx.fetch('/api/conflicts');
-      tprint(`Pending conflicts: ${d.conflicts.length}`, d.conflicts.length ? 'warn' : 'ok');
-      d.conflicts.forEach((c,i) => {
-        tprint(`  #${i+1}  ${c.subject.padEnd(14)} ${c.entity.padEnd(20)} ${c.group_size} divergent`, 'dim');
-      });
-      if (d.conflicts.length) tprint(`  → use 'conflicts' page to inspect`, 'dim');
-    },
-    lint: async () => {
-      const d = await nx.fetch('/api/lint');
-      tprint(`Config lint warnings: ${d.warnings.length}`, 'head');
-      d.warnings.forEach(w => {
-        tprint(`  [${w.severity.toUpperCase()}] ${w.code.padEnd(22)} ${w.file}:${w.line}`, w.severity === 'warn' ? 'warn' : 'dim');
-        tprint(`         ${w.message}`, 'dim');
-      });
-    },
-    version: () => {
-      tprint('BubbleFish Nexus', 'head');
-      tprint('  version    v0.1.0', 'dim');
-      tprint('  build      go1.26.1 linux/amd64', 'dim');
-      tprint('  license    AGPL-3.0', 'dim');
-      tprint('  repo       github.com/bubblefish-tech/nexus', 'dim');
-    },
-    clear: () => { out().innerHTML = ''; }
-  };
-
-  function runCommand(raw) {
-    const cmd = raw.trim().toLowerCase();
-    const cl = document.createElement('div');
-    cl.className = 'term-line cmd';
-    const ps = document.createElement('span');
-    ps.className = 'prompt'; ps.textContent = 'nexus ❯ ';
-    cl.appendChild(ps);
-    cl.appendChild(document.createTextNode(raw));
-    out().appendChild(cl);
-    if (!cmd) return;
-    if (COMMANDS[cmd]) {
-      try { const r = COMMANDS[cmd](); if (r && r.then) r.catch(e => tprint('error: ' + e.message, 'warn')); }
-      catch (e) { tprint('error: ' + e.message, 'warn'); }
-    } else {
-      tprint("command not found: " + cmd + "   (try 'help')", 'warn');
-    }
-    out().scrollTop = out().scrollHeight;
-  }
-
-  function bind() {
-    const i = input(); if (!i) return;
-    i.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const v = i.value;
-        if (v.trim()) history.push(v);
-        histIdx = history.length;
-        runCommand(v);
-        i.value = '';
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (histIdx > 0) { histIdx--; i.value = history[histIdx] || ''; }
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        if (histIdx < history.length - 1) { histIdx++; i.value = history[histIdx] || ''; }
-        else { histIdx = history.length; i.value = ''; }
-      }
-      if (e.key !== 'Escape') e.stopPropagation();
-    });
-    tprint('BubbleFish Nexus v0.1.0 — interactive console', 'head');
-    tprint("type 'help' for available commands", 'dim');
-    tprint('');
-  }
-
-  return { bind };
-})();
-
-/* ═══════════════════════════════════════════════════════════════════
-   WITNESS MODE TOGGLE
-═══════════════════════════════════════════════════════════════════ */
 function bindWitness() {
   const open = () => {
-    document.getElementById('witnessOverlay').classList.add('visible');
-    document.getElementById('modeWitness').classList.add('active');
-    document.getElementById('modeOps').classList.remove('active');
-    for (let i = 0; i < 8; i++) setTimeout(spawnWitness, i*350);
+    $('witnessOverlay').classList.add('visible');
+    $('modeWitness').classList.add('active');
+    $('modeOps').classList.remove('active');
   };
   const close = () => {
-    document.getElementById('witnessOverlay').classList.remove('visible');
-    document.getElementById('modeOps').classList.add('active');
-    document.getElementById('modeWitness').classList.remove('active');
+    $('witnessOverlay').classList.remove('visible');
+    $('modeOps').classList.add('active');
+    $('modeWitness').classList.remove('active');
   };
-  document.getElementById('modeWitness').addEventListener('click', open);
-  document.getElementById('witnessBtn').addEventListener('click', open);
-  document.getElementById('witnessClose').addEventListener('click', close);
+  $('modeWitness').addEventListener('click', open);
+  $('witnessBtn').addEventListener('click', open);
+  $('witnessClose').addEventListener('click', close);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   AMBIENT COUNTERS — always-on subscribers that update Witness Mode
-   HUD counters regardless of which view is currently mounted, so the
-   memory count stays live even when the user is on a non-control page.
+   AMBIENT — keep witness HUD live regardless of active view
 ═══════════════════════════════════════════════════════════════════ */
 function startAmbient() {
-  // Periodic /api/status poll mirrored into the witness HUD
   async function tick() {
     const s = await nx.fetch('/api/status');
-    const wc = document.getElementById('wCount');
-    if (wc) wc.textContent = fmt.num(s.memories_total);
-    const ut = document.getElementById('uptime');
-    if (ut) ut.textContent = 'uptime ' + fmt.uptime(s.uptime_seconds);
+    if (!s) return;
+    setText('wCount',  fmt.num(s.memories_total));
+    setText('wUptime', fmt.uptime(s.uptime_seconds));
+    setText('wWal',    fmt.num(s.wal && s.wal.pending_entries));
+    setText('wHealth', (s.wal && s.wal.healthy) ? 'HEALTHY' : 'DEGRADED');
+    setText('wBuild',  'v' + s.version);
+    setText('wBind',   s.bind);
+    setText('wSources', s.sources_total);
+    setText('uptime',  'uptime ' + fmt.uptime(s.uptime_seconds));
   }
   tick();
   setInterval(tick, CONFIG.REFRESH_MS);
 
-  // SSE-driven mirror into the witness log so the engineer's terminal
-  // pane in Witness Mode is always streaming, regardless of active view.
+  // Mirror events into witness log
   bus.on((ev) => {
-    const wl = document.getElementById('witnessLogList');
+    const wl = $('witnessLogList');
     if (wl) renderAuditLine(ev, wl, 14);
   });
 }
@@ -3858,14 +3418,11 @@ function startAmbient() {
 (function boot() {
   router.bind();
   bindWitness();
-  console_term.bind();
   bus.start();
   startAmbient();
   router.go('control');
-  // Spawn witness cards continuously in the background so the overlay
-  // is fully populated the moment the user opens it.
-  setInterval(spawnWitness, 3200);
 })();
 </script>
-</body>
+
+
 </html>
