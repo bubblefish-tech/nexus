@@ -1,4 +1,5 @@
 # BubbleFish Nexus
+[![CI](https://github.com/bubblefish-tech/Nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/bubblefish-tech/Nexus/actions/workflows/ci.yml)
 
 **THE Underlying AI Memory Infrastructure. Connects the memory of your AI apps and agents. Survives `kill -9`.**
 
