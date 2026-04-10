@@ -1,0 +1,3428 @@
+<!DOCTYPE html>
+<!-- saved from url=(0022)http://127.0.0.1:8081/ -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#07090d">
+<title>BubbleFish Nexus — Control Plane</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+*{margin:0;padding:0;box-sizing:border-box;}
+
+:root{
+  /* Surfaces — slightly cooler, more neutral, more steel */
+  --bg-base:#07090d;
+  --bg-app:#0a0d13;
+  --bg-card:#0f131c;
+  --bg-card-2:#131825;
+  --bg-card-hover:#171d2c;
+  --bg-input:#0c1019;
+
+  /* Borders — hairline steel */
+  --border:#1a1f2e;
+  --border-bright:#262d40;
+  --border-accent:rgba(80,180,220,0.22);
+
+  /* Brand cyan — pulled from the logo's blue-teal facets */
+  --cyan:#5ec8e6;
+  --cyan-bright:#7dd8f0;
+  --cyan-deep:#3a9fc4;
+  --cyan-dim:rgba(94,200,230,0.10);
+  --cyan-glow:rgba(94,200,230,0.30);
+  --cyan-line:rgba(94,200,230,0.45);
+
+  /* State colors — desaturated, enterprise */
+  --green:#3fb984;
+  --green-dim:rgba(63,185,132,0.10);
+  --green-glow:rgba(63,185,132,0.35);
+  --amber:#e0a04a;
+  --amber-dim:rgba(224,160,74,0.10);
+  --red:#e05c5c;
+  --red-dim:rgba(224,92,92,0.10);
+
+  /* Text scale */
+  --text:#e6ebf2;
+  --text-secondary:#9aa4b8;
+  --text-tertiary:#5e6878;
+  --text-dim:#3a4253;
+
+  --radius:6px;
+  --radius-sm:4px;
+}
+
+html{color-scheme:dark;}
+
+body{
+  background:var(--bg-base);
+  color:var(--text);
+  font-family:'Geist',-apple-system,system-ui,sans-serif;
+  font-size:13px;
+  line-height:1.5;
+  height:100vh;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  font-feature-settings:'cv11','ss01','ss03';
+}
+
+/* Tabular numerics everywhere they appear */
+.num,.metric-value,.metric-sub,.a-line,.source-stats,.pipeline-stats,
+.header-status,.lat,.wc-meta,.witness-hud,.unit{
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:'tnum','zero';
+}
+
+/* ═══ LAYOUT ═══ */
+.app{display:flex;height:100vh;}
+
+/* ═══ SIDEBAR — hero the logo ═══ */
+.sidebar{
+  width:72px;
+  background:linear-gradient(180deg,#070a10 0%,#080b12 100%);
+  border-right:1px solid var(--border);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:18px 0 14px;
+  flex-shrink:0;
+  position:relative;
+}
+.sidebar::after{
+  content:'';position:absolute;top:0;right:0;width:1px;height:120px;
+  background:linear-gradient(180deg,transparent,var(--cyan-line),transparent);
+  opacity:0.35;
+}
+
+/* Logo — featured prominently */
+.logo-wrap{
+  position:relative;
+  width:54px;height:54px;
+  margin-bottom:6px;
+  display:flex;align-items:center;justify-content:center;
+}
+.logo-wrap::before{
+  content:'';position:absolute;inset:-4px;
+  border-radius:14px;
+  background:radial-gradient(circle at 50% 35%,rgba(94,200,230,0.18),transparent 65%);
+  filter:blur(8px);
+  animation:logo-breathe 6s ease-in-out infinite;
+}
+@keyframes logo-breathe{
+  0%,100%{opacity:0.6;}
+  50%{opacity:1;}
+}
+.logo-wrap img{
+  width:54px;height:54px;
+  position:relative;z-index:2;
+  filter:drop-shadow(0 2px 8px rgba(0,0,0,0.6));
+  cursor:pointer;
+  transition:transform 0.4s cubic-bezier(0.2,0.9,0.3,1.2);
+}
+.logo-wrap img:hover{transform:scale(1.06);}
+
+.logo-mark{
+  font-family:'Geist Mono',monospace;
+  font-size:8px;
+  font-weight:600;
+  letter-spacing:0.18em;
+  color:var(--text-tertiary);
+  margin-top:2px;
+  text-align:center;
+  line-height:1;
+}
+.logo-mark .v{
+  display:block;
+  color:var(--cyan-deep);
+  font-size:7px;
+  margin-top:2px;
+  letter-spacing:0.15em;
+  opacity:0.75;
+}
+
+.sidebar-divider{
+  width:32px;height:1px;
+  background:var(--border);
+  margin:14px 0 8px;
+}
+
+.nav-btn{
+  width:44px;height:44px;
+  border-radius:var(--radius);
+  border:1px solid transparent;
+  background:transparent;
+  color:var(--text-tertiary);
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.18s cubic-bezier(0.2,0.9,0.3,1);
+  position:relative;
+  margin-bottom:2px;
+}
+.nav-btn svg{
+  width:18px;height:18px;
+  stroke:currentColor;
+  fill:none;
+  stroke-width:1.5;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  transition:all 0.18s;
+}
+.nav-btn:hover{
+  background:var(--bg-card);
+  color:var(--text-secondary);
+  border-color:var(--border);
+}
+.nav-btn.active{
+  background:var(--cyan-dim);
+  color:var(--cyan);
+  border-color:var(--border-accent);
+}
+.nav-btn.active::before{
+  content:'';position:absolute;left:-13px;top:11px;bottom:11px;
+  width:2px;background:var(--cyan);border-radius:0 1px 1px 0;
+  box-shadow:0 0 8px var(--cyan-glow);
+}
+.nav-spacer{flex:1;}
+.nav-btn .badge{
+  position:absolute;top:7px;right:7px;
+  width:6px;height:6px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 6px var(--green-glow);
+}
+
+/* Tooltip */
+.nav-btn::after{
+  content:attr(data-tip);
+  position:absolute;left:calc(100% + 14px);top:50%;
+  transform:translateY(-50%) translateX(-4px);
+  background:var(--bg-card-2);
+  border:1px solid var(--border-bright);
+  color:var(--text);
+  font-size:11px;font-weight:500;
+  padding:5px 10px;border-radius:5px;
+  white-space:nowrap;pointer-events:none;
+  opacity:0;transition:all 0.15s;
+  z-index:50;
+  box-shadow:0 4px 16px rgba(0,0,0,0.5);
+}
+.nav-btn:hover::after{opacity:1;transform:translateY(-50%) translateX(0);}
+
+/* ═══ MAIN CONTENT ═══ */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg-app);}
+
+/* ═══ HEADER BAR ═══ */
+.header{
+  height:54px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;
+  padding:0 22px;
+  gap:14px;
+  flex-shrink:0;
+  background:linear-gradient(180deg,#0b0e16 0%,#090c13 100%);
+  position:relative;
+}
+.header::after{
+  content:'';position:absolute;left:0;right:0;bottom:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--border-bright) 30%,var(--border-bright) 70%,transparent);
+  opacity:0.6;
+}
+.header-brand{
+  display:flex;align-items:baseline;gap:10px;
+}
+.header-title{
+  font-weight:600;font-size:14.5px;
+  color:var(--text);letter-spacing:-0.01em;
+}
+.header-version{
+  font-family:'Geist Mono',monospace;
+  font-size:10.5px;color:var(--text-tertiary);
+  padding:2px 6px;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:3px;
+}
+.header-env{
+  display:flex;align-items:center;gap:6px;
+  font-family:'Geist Mono',monospace;
+  font-size:10px;font-weight:600;
+  letter-spacing:0.08em;
+  color:var(--green);
+  padding:3px 8px;
+  background:var(--green-dim);
+  border:1px solid rgba(63,185,132,0.25);
+  border-radius:3px;
+  text-transform:uppercase;
+}
+.header-env::before{
+  content:'';width:5px;height:5px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 6px var(--green-glow);
+}
+.header-spacer{flex:1;}
+.header-status{
+  display:flex;align-items:center;gap:8px;
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  color:var(--text-secondary);
+}
+.status-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 8px var(--green-glow);
+  animation:pulse-dot 2.4s ease-in-out infinite;
+}
+@keyframes pulse-dot{
+  0%,100%{box-shadow:0 0 5px rgba(63,185,132,0.4);}
+  50%{box-shadow:0 0 12px rgba(63,185,132,0.7);}
+}
+.header-sep{color:var(--text-dim);}
+.header-region{
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  color:var(--text-tertiary);
+  display:flex;align-items:center;gap:6px;
+}
+.header-region svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.5;}
+
+.cmd-hint{
+  display:flex;align-items:center;gap:8px;
+  padding:5px 10px;
+  background:var(--bg-input);
+  border:1px solid var(--border);
+  border-radius:5px;
+  color:var(--text-tertiary);
+  font-size:11px;
+  cursor:pointer;
+  transition:all 0.15s;
+}
+.cmd-hint:hover{border-color:var(--border-bright);color:var(--text-secondary);}
+.cmd-hint svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.7;}
+.cmd-hint kbd{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;font-weight:600;
+  padding:1px 5px;
+  background:var(--bg-card-2);
+  border:1px solid var(--border-bright);
+  border-radius:3px;
+  color:var(--text-secondary);
+}
+
+.mode-toggle{
+  display:flex;gap:2px;
+  background:var(--bg-input);
+  border-radius:5px;padding:2px;
+  border:1px solid var(--border);
+}
+.mode-btn{
+  padding:5px 12px;border-radius:3px;border:none;
+  background:transparent;color:var(--text-tertiary);
+  font-family:'Geist Mono',monospace;font-size:10px;font-weight:600;
+  letter-spacing:0.06em;text-transform:uppercase;
+  cursor:pointer;transition:all 0.15s;
+}
+.mode-btn.active{
+  background:var(--cyan-dim);
+  color:var(--cyan);
+  box-shadow:inset 0 0 0 1px var(--border-accent);
+}
+.mode-btn:hover:not(.active){color:var(--text-secondary);}
+
+/* ═══ DASHBOARD GRID ═══ */
+.dashboard{
+  flex:1;overflow-y:auto;
+  padding:18px;
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr 1fr;
+  grid-template-rows:auto auto 1fr;
+  gap:14px;
+}
+.dashboard::-webkit-scrollbar{width:8px;}
+.dashboard::-webkit-scrollbar-track{background:transparent;}
+.dashboard::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+.dashboard::-webkit-scrollbar-thumb:hover{background:var(--border-bright);}
+
+/* ═══ METRIC CARDS — Datadog signature ═══ */
+.metric-card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  position:relative;
+  overflow:hidden;
+  transition:all 0.2s;
+}
+.metric-card::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+.metric-card:hover{border-color:var(--border-bright);background:var(--bg-card-hover);}
+.metric-spark{
+  position:absolute;
+  bottom:0;left:0;right:0;height:42px;
+  opacity:0.18;
+  pointer-events:none;
+}
+.metric-spark path{
+  fill:none;
+  stroke:var(--cyan);
+  stroke-width:1.5;
+}
+.metric-spark .fill{
+  fill:url(#sparkGrad);
+  stroke:none;
+}
+.metric-card.green .metric-spark path{stroke:var(--green);}
+.metric-card.green .metric-spark .fill{fill:url(#sparkGradGreen);}
+.metric-label{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;letter-spacing:0.10em;
+  font-weight:600;
+  text-transform:uppercase;color:var(--text-tertiary);
+  margin-bottom:8px;
+  display:flex;align-items:center;gap:6px;
+  position:relative;z-index:2;
+}
+.metric-label svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.7;}
+.metric-value{
+  font-weight:300;font-size:32px;
+  letter-spacing:-0.025em;
+  line-height:1.05;
+  position:relative;z-index:2;
+}
+.metric-value .unit{
+  font-size:13px;color:var(--text-tertiary);
+  margin-left:3px;font-weight:400;
+}
+.metric-sub{
+  font-family:'Geist Mono',monospace;
+  font-size:10px;color:var(--text-tertiary);
+  margin-top:6px;
+  position:relative;z-index:2;
+}
+.metric-sub .delta{color:var(--green);}
+.metric-bar{
+  height:2px;background:var(--border);
+  border-radius:1px;margin-top:10px;overflow:hidden;
+  position:relative;z-index:2;
+}
+.metric-bar-fill{height:100%;border-radius:1px;transition:width 1s ease;position:relative;}
+.metric-bar-fill::after{
+  content:'';position:absolute;right:0;top:-1px;bottom:-1px;width:6px;
+  background:inherit;filter:blur(3px);opacity:0.6;
+}
+
+/* ═══ SOURCE CARDS ═══ */
+.sources-panel{
+  grid-column:1/-1;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  position:relative;
+}
+.sources-panel::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.05),transparent);
+}
+.panel-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:12px;
+}
+.panel-title{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;letter-spacing:0.10em;
+  font-weight:600;
+  text-transform:uppercase;color:var(--text-tertiary);
+  display:flex;align-items:center;gap:7px;
+}
+.panel-title svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.7;}
+.panel-meta{
+  font-family:'Geist Mono',monospace;font-size:10px;color:var(--text-tertiary);
+}
+.sources-grid{display:flex;gap:11px;overflow-x:auto;}
+.source-card{
+  flex:0 0 200px;
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-radius:5px;
+  padding:11px 13px;
+  display:flex;flex-direction:column;gap:6px;
+  transition:all 0.18s;
+  position:relative;
+}
+.source-card:hover{border-color:var(--border-bright);}
+.source-name{
+  display:flex;align-items:center;gap:8px;
+  font-size:12px;font-weight:500;
+  color:var(--text);
+}
+.source-dot{
+  width:7px;height:7px;border-radius:50%;
+  flex-shrink:0;
+}
+.source-stats{
+  font-family:'Geist Mono',monospace;
+  font-size:10px;color:var(--text-tertiary);
+  display:flex;gap:12px;
+}
+.source-stats span{display:flex;align-items:center;gap:4px;}
+.source-card.add{
+  border-style:dashed;
+  opacity:0.6;
+  cursor:pointer;
+}
+.source-card.add:hover{opacity:1;border-color:var(--cyan-line);}
+.source-card.add .source-name{color:var(--text-tertiary);}
+
+/* ═══ PIPELINE — hexagonal nodes ═══ */
+.pipeline-panel{
+  grid-column:1/3;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px 14px;
+  display:flex;flex-direction:column;
+  position:relative;
+}
+.pipeline-panel::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.05),transparent);
+}
+.pipeline-flow{
+  flex:1;display:flex;align-items:center;
+  justify-content:center;gap:0;
+  padding:24px 0 26px;
+}
+.p-node{
+  width:58px;height:66px;
+  position:relative;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  transition:all 0.3s;
+  flex-shrink:0;
+}
+/* Hexagonal shape via clip-path */
+.p-node .hex{
+  position:absolute;inset:0;
+  background:var(--bg-card-2);
+  clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+  transition:all 0.3s;
+}
+.p-node .hex::before{
+  content:'';position:absolute;inset:1.5px;
+  background:var(--bg-card);
+  clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+  transition:all 0.3s;
+}
+.p-node.active .hex{background:var(--cyan);box-shadow:0 0 18px var(--cyan-glow);}
+.p-node.hit .hex{background:var(--green);box-shadow:0 0 18px var(--green-glow);}
+.p-node .num{
+  font-family:'Geist Mono',monospace;
+  font-size:16px;font-weight:600;
+  color:var(--text-tertiary);
+  position:relative;z-index:2;
+  transition:color 0.3s;
+}
+.p-node.active .num{color:var(--cyan);}
+.p-node.hit .num{color:var(--green);}
+.p-node .lbl{
+  font-family:'Geist Mono',monospace;
+  font-size:8px;letter-spacing:0.08em;font-weight:600;
+  text-transform:uppercase;color:var(--text-tertiary);
+  position:absolute;bottom:-18px;white-space:nowrap;
+}
+.p-node .lat{
+  font-family:'Geist Mono',monospace;
+  font-size:9px;color:var(--cyan);
+  position:absolute;top:-16px;
+  opacity:0;transition:opacity 0.3s;
+  font-weight:500;
+}
+.p-node.active .lat,.p-node.hit .lat{opacity:1;}
+
+.p-conn{
+  width:22px;height:1px;
+  position:relative;
+  background:repeating-linear-gradient(90deg,var(--border) 0,var(--border) 3px,transparent 3px,transparent 6px);
+  margin:0 -1px;
+}
+.p-conn .pdot{
+  position:absolute;width:5px;height:5px;
+  border-radius:50%;background:var(--cyan);
+  box-shadow:0 0 6px var(--cyan-glow);
+  top:-2px;left:-5px;opacity:0;
+}
+.p-conn .pdot.go{animation:pdot-go 0.25s ease-out forwards;}
+@keyframes pdot-go{0%{left:-5px;opacity:1;}100%{left:22px;opacity:0.4;}}
+
+.pipeline-stats{
+  display:flex;gap:18px;
+  font-family:'Geist Mono',monospace;
+  font-size:10px;color:var(--text-tertiary);
+  border-top:1px solid var(--border);
+  padding-top:10px;margin-top:6px;
+}
+.pipeline-stats .val{color:var(--text-secondary);font-weight:500;}
+
+/* ═══ AUDIT LOG ═══ */
+.audit-panel{
+  grid-column:3/5;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px 12px;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  position:relative;
+}
+.audit-panel::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.05),transparent);
+}
+.audit-list{
+  flex:1;overflow-y:auto;
+  display:flex;flex-direction:column;
+  gap:1px;
+}
+.audit-list::-webkit-scrollbar{width:6px;}
+.audit-list::-webkit-scrollbar-track{background:transparent;}
+.audit-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+.a-line{
+  font-family:'Geist Mono',monospace;
+  font-size:10.5px;
+  padding:4px 0;
+  display:flex;gap:10px;
+  animation:a-in 0.3s ease-out;
+  border-bottom:1px solid transparent;
+}
+@keyframes a-in{from{opacity:0;transform:translateY(-3px);}to{opacity:1;transform:translateY(0);}}
+.a-line .a-time{color:var(--text-dim);min-width:88px;}
+.a-line .a-op{font-weight:600;min-width:46px;}
+.a-line .a-op.write{color:var(--cyan);}
+.a-line .a-op.query{color:var(--green);}
+.a-line .a-detail{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.a-line .a-pol{font-weight:600;min-width:62px;text-align:right;font-size:9.5px;letter-spacing:0.04em;}
+.a-line .a-pol.ok{color:var(--green);}
+.a-line .a-pol.filt{color:var(--amber);}
+.a-line .a-pol.deny{color:var(--red);}
+.a-line .a-lat{color:var(--text-dim);min-width:48px;text-align:right;}
+
+.a-line.flash-amber{animation:af-amber 0.5s ease-out;}
+@keyframes af-amber{0%{background:var(--amber-dim);}100%{background:transparent;}}
+
+/* ═══ WITNESS MODE OVERLAY ═══ */
+.witness-overlay{
+  display:none;
+  position:fixed;inset:0;z-index:100;
+  background:var(--bg-base);
+}
+.witness-overlay.visible{display:block;}
+
+.witness-bg{
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 38%,#0d1a32 0%,#070e1f 35%,#040810 65%,#020407 100%);
+}
+.witness-vignette{
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 50%,transparent 40%,rgba(0,0,0,0.5) 90%);
+  pointer-events:none;
+}
+.witness-grain{
+  position:absolute;inset:0;
+  opacity:0.04;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events:none;
+}
+.witness-caustics{
+  position:absolute;inset:0;
+  background:repeating-conic-gradient(rgba(94,200,230,0.012) 0deg,transparent 1.5deg,transparent 4deg);
+  animation:caus-rot 40s linear infinite;
+}
+@keyframes caus-rot{from{transform:rotate(0) scale(1.8);}to{transform:rotate(360deg) scale(1.8);}}
+
+.witness-sonar{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+}
+.witness-ring{
+  position:absolute;width:50px;height:50px;
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  border-radius:50%;border:1px solid rgba(94,200,230,0.12);
+  animation:sr-exp 5s ease-out infinite;
+}
+.witness-ring:nth-child(2){animation-delay:1.6s;}
+.witness-ring:nth-child(3){animation-delay:3.2s;}
+@keyframes sr-exp{0%{width:50px;height:50px;opacity:0.3;}100%{width:680px;height:680px;opacity:0;}}
+
+.witness-logo{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:220px;height:220px;
+  z-index:3;
+  animation:w-glow 5s ease-in-out infinite;
+  filter:drop-shadow(0 4px 16px rgba(0,0,0,0.6));
+}
+@keyframes w-glow{
+  0%,100%{filter:drop-shadow(0 0 12px rgba(94,200,230,0.25)) drop-shadow(0 4px 16px rgba(0,0,0,0.6));opacity:0.65;}
+  50%{filter:drop-shadow(0 0 28px rgba(94,200,230,0.5)) drop-shadow(0 4px 16px rgba(0,0,0,0.6));opacity:0.9;}
+}
+
+.witness-field{
+  position:absolute;inset:130px 50px 320px 50px;
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  grid-template-rows:repeat(2,1fr);
+  gap:80px 16px;
+  perspective:900px;
+}
+.w-cell{display:flex;align-items:center;justify-content:center;}
+.w-card{
+  width:100%;max-width:230px;
+  padding:11px 14px;border-radius:5px;
+  background:rgba(8,13,26,0.85);
+  backdrop-filter:blur(8px);
+  border-left:2px solid var(--cyan);
+  border-top:1px solid rgba(255,255,255,0.04);
+  box-shadow:0 4px 20px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.03);
+  animation:w-appear 1s cubic-bezier(0.23,1,0.32,1) forwards;
+  font-family:'Geist Mono',monospace;
+}
+.w-card.src-openwebui{border-left-color:var(--green);}
+.w-card.src-cursor{border-left-color:var(--amber);}
+.w-card .wc-text{font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.w-card .wc-meta{font-size:8.5px;color:var(--text-dim);margin-top:5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:500;}
+.w-card.src-claude .wc-meta{color:rgba(94,200,230,0.65);}
+.w-card.src-openwebui .wc-meta{color:rgba(63,185,132,0.65);}
+.w-card.src-cursor .wc-meta{color:rgba(224,160,74,0.65);}
+.w-card .wc-bar{height:2px;background:rgba(255,255,255,0.06);border-radius:1px;margin-top:7px;overflow:hidden;}
+.w-card .wc-fill{height:100%;width:100%;border-radius:1px;transition:width 35s linear;}
+.w-card.src-claude .wc-fill{background:var(--cyan);}
+.w-card.src-openwebui .wc-fill{background:var(--green);}
+.w-card.src-cursor .wc-fill{background:var(--amber);}
+@keyframes w-appear{0%{transform:translateZ(-200px) scale(0.9);opacity:0;filter:blur(2px);}100%{transform:translateZ(0) scale(1);opacity:1;filter:blur(0);}}
+
+.witness-hud{
+  position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+  font-family:'Geist Mono',monospace;font-size:10px;
+  letter-spacing:0.12em;color:var(--text-dim);
+  display:flex;gap:18px;align-items:center;
+}
+.witness-hud .wv{color:var(--text-secondary);font-weight:500;}
+.witness-hud .sep{color:var(--border-bright);}
+
+/* ═══ WITNESS LOG PANEL — bottom-left, terminal-style ═══ */
+.witness-log{
+  position:absolute;
+  bottom:48px;
+  left:32px;
+  width:620px;
+  height:280px;
+  background:rgba(8,12,22,0.78);
+  backdrop-filter:blur(10px) saturate(120%);
+  -webkit-backdrop-filter:blur(10px) saturate(120%);
+  border:1px solid rgba(94,200,230,0.18);
+  border-radius:6px;
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.6),
+    0 0 24px rgba(94,200,230,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  z-index:5;
+}
+.witness-log::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(94,200,230,0.35),transparent);
+}
+.witness-log-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 14px 8px;
+  border-bottom:1px solid rgba(94,200,230,0.10);
+  flex-shrink:0;
+}
+.witness-log-title{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;font-weight:600;
+  letter-spacing:0.10em;
+  text-transform:uppercase;
+  color:rgba(94,200,230,0.7);
+  display:flex;align-items:center;gap:8px;
+}
+.witness-log-title svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.witness-log-title .pulse{
+  display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 6px var(--green-glow);
+  animation:pulse-dot 2.4s ease-in-out infinite;
+}
+.witness-log-meta{
+  font-family:'Geist Mono',monospace;
+  font-size:9px;
+  color:var(--text-dim);
+  letter-spacing:0.04em;
+}
+.witness-log-list{
+  flex:1;overflow-y:auto;
+  padding:6px 14px 10px;
+  display:flex;flex-direction:column;
+  gap:1px;
+}
+.witness-log-list::-webkit-scrollbar{width:4px;}
+.witness-log-list::-webkit-scrollbar-track{background:transparent;}
+.witness-log-list::-webkit-scrollbar-thumb{background:rgba(94,200,230,0.15);border-radius:2px;}
+.witness-log-list .a-line{
+  font-size:9.5px;
+  padding:2.5px 0;
+  gap:7px;
+}
+.witness-log-list .a-line .a-time{min-width:72px;color:var(--text-dim);}
+.witness-log-list .a-line .a-op{min-width:38px;font-size:9px;}
+.witness-log-list .a-line .a-detail{color:rgba(154,164,184,0.85);font-size:9.5px;}
+.witness-log-list .a-line .a-pol{min-width:50px;font-size:8.5px;}
+.witness-log-list .a-line .a-lat{min-width:40px;font-size:9px;}
+
+/* ═══ WITNESS TERMINAL — bottom-right, interactive ═══ */
+.witness-term{
+  position:absolute;
+  bottom:48px;
+  right:32px;
+  width:620px;
+  height:280px;
+  background:rgba(8,12,22,0.82);
+  backdrop-filter:blur(10px) saturate(120%);
+  -webkit-backdrop-filter:blur(10px) saturate(120%);
+  border:1px solid rgba(94,200,230,0.18);
+  border-radius:6px;
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.6),
+    0 0 24px rgba(94,200,230,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  z-index:5;
+}
+.witness-term::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(94,200,230,0.35),transparent);
+}
+.witness-term-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 14px 8px;
+  border-bottom:1px solid rgba(94,200,230,0.10);
+  flex-shrink:0;
+}
+.witness-term-title{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;font-weight:600;
+  letter-spacing:0.10em;
+  text-transform:uppercase;
+  color:rgba(94,200,230,0.7);
+  display:flex;align-items:center;gap:8px;
+}
+.witness-term-title svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.witness-term-meta{
+  font-family:'Geist Mono',monospace;
+  font-size:9px;color:var(--text-dim);
+  letter-spacing:0.04em;
+}
+.witness-term-body{
+  flex:1;
+  display:flex;flex-direction:column;
+  padding:8px 14px 0;
+  overflow:hidden;
+  font-family:'Geist Mono',monospace;
+  font-size:10.5px;
+  line-height:1.55;
+}
+.witness-term-out{
+  flex:1;
+  overflow-y:auto;
+  display:flex;flex-direction:column;
+  padding-bottom:4px;
+}
+.witness-term-out::-webkit-scrollbar{width:4px;}
+.witness-term-out::-webkit-scrollbar-track{background:transparent;}
+.witness-term-out::-webkit-scrollbar-thumb{background:rgba(94,200,230,0.15);border-radius:2px;}
+.term-line{
+  white-space:pre;
+  color:var(--text-secondary);
+  animation:a-in 0.2s ease-out;
+}
+.term-line.cmd{color:var(--text);}
+.term-line.cmd .prompt{color:var(--cyan);font-weight:600;}
+.term-line.ok{color:var(--green);}
+.term-line.warn{color:var(--amber);}
+.term-line.dim{color:var(--text-tertiary);}
+.term-line.head{color:var(--cyan-bright);font-weight:600;}
+.witness-term-input{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 0 10px;
+  border-top:1px solid rgba(94,200,230,0.08);
+  margin-top:4px;
+  flex-shrink:0;
+}
+.witness-term-input .prompt{
+  color:var(--cyan);font-weight:600;
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  text-shadow:0 0 6px var(--cyan-glow);
+}
+.witness-term-input input{
+  flex:1;
+  background:transparent;
+  border:none;outline:none;
+  color:var(--text);
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  caret-color:var(--cyan);
+}
+.witness-term-input .caret{
+  display:inline-block;
+  width:7px;height:13px;
+  background:var(--cyan);
+  box-shadow:0 0 6px var(--cyan-glow);
+  animation:caret-blink 1.1s step-end infinite;
+  margin-left:-4px;
+  vertical-align:middle;
+}
+@keyframes caret-blink{50%{opacity:0;}}
+
+/* ═══ WITNESS FACT CHIPS — fill the bands above/below grid ═══ */
+.witness-facts{
+  position:absolute;
+  left:0;right:0;
+  display:flex;
+  justify-content:center;
+  gap:14px;
+  padding:0 70px;
+  pointer-events:none;
+  z-index:4;
+}
+.witness-facts.top{top:64px;}
+.witness-facts.mid{top:50%;transform:translateY(calc(-50% - 130px));}
+.fact-chip{
+  background:rgba(8,12,22,0.65);
+  backdrop-filter:blur(8px) saturate(120%);
+  -webkit-backdrop-filter:blur(8px) saturate(120%);
+  border:1px solid rgba(94,200,230,0.14);
+  border-radius:5px;
+  padding:7px 13px;
+  display:flex;align-items:center;gap:10px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.03);
+  pointer-events:auto;
+  min-width:0;
+  animation:fact-in 0.6s cubic-bezier(0.2,0.9,0.3,1) backwards;
+}
+@keyframes fact-in{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+.fact-chip svg{
+  width:13px;height:13px;
+  stroke:var(--cyan);fill:none;
+  stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;
+  flex-shrink:0;
+  filter:drop-shadow(0 0 4px var(--cyan-glow));
+}
+.fact-chip .fact-label{
+  font-family:'Geist Mono',monospace;
+  font-size:8.5px;font-weight:600;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  color:var(--text-tertiary);
+}
+.fact-chip .fact-val{
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  color:var(--text);
+  font-weight:500;
+}
+.fact-chip.green svg{stroke:var(--green);filter:drop-shadow(0 0 4px var(--green-glow));}
+.fact-chip.amber svg{stroke:var(--amber);filter:drop-shadow(0 0 4px rgba(224,160,74,0.4));}
+.fact-chip:nth-child(1){animation-delay:0.1s;}
+.fact-chip:nth-child(2){animation-delay:0.2s;}
+.fact-chip:nth-child(3){animation-delay:0.3s;}
+.fact-chip:nth-child(4){animation-delay:0.4s;}
+.fact-chip:nth-child(5){animation-delay:0.5s;}
+
+.witness-title{
+  position:absolute;top:28px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:12px;
+  z-index:4;
+}
+.witness-title span{
+  font-family:'Geist',sans-serif;font-weight:300;
+  font-size:13px;letter-spacing:0.32em;
+  text-transform:uppercase;color:rgba(94,200,230,0.5);
+}
+
+.witness-close{
+  position:absolute;top:24px;right:28px;
+  background:rgba(15,19,28,0.6);
+  backdrop-filter:blur(6px);
+  border:1px solid var(--border);
+  color:var(--text-tertiary);font-family:'Geist Mono',monospace;
+  font-size:10px;font-weight:600;letter-spacing:0.06em;
+  padding:6px 12px;border-radius:4px;cursor:pointer;
+  z-index:101;transition:all 0.18s;
+}
+/* ═══════════════════════════════════════════════════════════════
+   VIEW ROUTING — sidebar nav controls which view is visible
+   Each view lives in the .main > .view-host container
+═══════════════════════════════════════════════════════════════ */
+.view-host{
+  flex:1;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+.view{
+  display:none;
+  flex:1;
+  overflow:hidden;
+  flex-direction:column;
+}
+.view.active{display:flex;}
+
+/* The original .dashboard rule already styles the control plane view.
+   Other views use .view-pad for consistent padding + scroll. */
+.view-pad{
+  flex:1;
+  overflow-y:auto;
+  padding:18px 22px 22px;
+}
+.view-pad::-webkit-scrollbar{width:8px;}
+.view-pad::-webkit-scrollbar-track{background:transparent;}
+.view-pad::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+.view-pad::-webkit-scrollbar-thumb:hover{background:var(--border-bright);}
+
+/* ─── Page header (shared across views) ─── */
+.page-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  margin-bottom:18px;
+  padding-bottom:14px;
+  border-bottom:1px solid var(--border);
+}
+.page-head-l{display:flex;flex-direction:column;gap:4px;}
+.page-title{
+  font-size:18px;
+  font-weight:500;
+  letter-spacing:-0.015em;
+  color:var(--text);
+  display:flex;align-items:center;gap:10px;
+}
+.page-title svg{
+  width:18px;height:18px;
+  stroke:var(--cyan);fill:none;
+  stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;
+  filter:drop-shadow(0 0 6px var(--cyan-glow));
+}
+.page-sub{
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  color:var(--text-tertiary);
+  letter-spacing:0.02em;
+}
+.page-sub code{
+  color:var(--cyan-deep);
+  background:var(--bg-card);
+  padding:1px 6px;
+  border-radius:3px;
+  border:1px solid var(--border);
+}
+.page-head-r{
+  display:flex;align-items:center;gap:10px;
+}
+
+/* ─── Filter bar (shared) ─── */
+.filter-bar{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-bottom:14px;
+}
+.filter-group{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:5px;
+  padding:5px 10px;
+  font-family:'Geist Mono',monospace;
+  font-size:10.5px;
+  color:var(--text-secondary);
+  transition:all 0.15s;
+}
+.filter-group:hover{border-color:var(--border-bright);}
+.filter-group .lbl{
+  color:var(--text-tertiary);
+  font-size:9.5px;
+  font-weight:600;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+}
+.filter-group select,
+.filter-group input{
+  background:transparent;
+  border:none;
+  outline:none;
+  color:var(--text);
+  font-family:inherit;
+  font-size:inherit;
+  cursor:pointer;
+}
+.filter-group input{cursor:text;}
+.filter-group select option{background:var(--bg-card);}
+.filter-pill{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:4px 10px;
+  background:var(--cyan-dim);
+  border:1px solid var(--border-accent);
+  border-radius:12px;
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;font-weight:600;
+  letter-spacing:0.04em;
+  color:var(--cyan);
+  text-transform:uppercase;
+}
+.filter-pill.green{background:var(--green-dim);border-color:rgba(63,185,132,0.25);color:var(--green);}
+.filter-pill.amber{background:var(--amber-dim);border-color:rgba(224,160,74,0.25);color:var(--amber);}
+
+/* ═══════════════════════════════════════════════════════════════
+   AUDIT LOG VIEW
+═══════════════════════════════════════════════════════════════ */
+.audit-stats{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:12px;
+  margin-bottom:14px;
+}
+.stat-card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:12px 14px;
+  position:relative;
+  overflow:hidden;
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+.stat-card .stat-label{
+  font-family:'Geist Mono',monospace;
+  font-size:9px;letter-spacing:0.10em;font-weight:600;
+  text-transform:uppercase;color:var(--text-tertiary);
+  margin-bottom:6px;
+}
+.stat-card .stat-val{
+  font-size:22px;
+  font-weight:300;
+  color:var(--text);
+  letter-spacing:-0.02em;
+  font-variant-numeric:tabular-nums;
+}
+.stat-card .stat-val.green{color:var(--green);}
+.stat-card .stat-val.cyan{color:var(--cyan);}
+.stat-card .stat-val.amber{color:var(--amber);}
+.stat-card .stat-sub{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;color:var(--text-tertiary);
+  margin-top:3px;
+}
+
+.audit-table-wrap{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  overflow:hidden;
+  position:relative;
+}
+.audit-table-wrap::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+.audit-table{
+  width:100%;
+  border-collapse:collapse;
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+}
+.audit-table thead{
+  background:var(--bg-card-2);
+  position:sticky;top:0;
+}
+.audit-table th{
+  text-align:left;
+  padding:10px 14px;
+  font-size:9px;letter-spacing:0.10em;font-weight:600;
+  text-transform:uppercase;
+  color:var(--text-tertiary);
+  border-bottom:1px solid var(--border);
+}
+.audit-table td{
+  padding:8px 14px;
+  border-bottom:1px solid rgba(26,31,46,0.5);
+  color:var(--text-secondary);
+  font-variant-numeric:tabular-nums;
+}
+.audit-table tbody tr{
+  cursor:pointer;
+  transition:background 0.1s;
+}
+.audit-table tbody tr:hover{background:var(--bg-card-hover);}
+.audit-table tbody tr.expanded{background:var(--bg-card-hover);}
+.audit-table .col-time{color:var(--text-dim);width:120px;}
+.audit-table .col-op{width:70px;font-weight:600;}
+.audit-table .col-op.write{color:var(--cyan);}
+.audit-table .col-op.query{color:var(--green);}
+.audit-table .col-src{width:130px;color:var(--text);}
+.audit-table .col-subject{width:160px;}
+.audit-table .col-status{width:90px;font-weight:600;font-size:10px;letter-spacing:0.04em;text-align:center;}
+.audit-table .col-status.ok{color:var(--green);}
+.audit-table .col-status.filt{color:var(--amber);}
+.audit-table .col-status.deny{color:var(--red);}
+.audit-table .col-lat{width:70px;text-align:right;color:var(--text-tertiary);}
+.audit-table .col-detail{color:var(--text-secondary);font-size:10.5px;}
+.audit-expanded-row td{
+  padding:0 14px 12px;
+  background:var(--bg-card-hover);
+  border-bottom:1px solid var(--border);
+}
+.audit-expanded-row pre{
+  background:var(--bg-base);
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:10px 14px;
+  font-family:'Geist Mono',monospace;
+  font-size:10.5px;
+  color:var(--text-secondary);
+  overflow-x:auto;
+  margin-top:4px;
+}
+.audit-expanded-row .field-grid{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:10px;
+  margin-bottom:8px;
+}
+.audit-expanded-row .field{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.audit-expanded-row .field .k{
+  font-size:9px;letter-spacing:0.08em;font-weight:600;
+  text-transform:uppercase;color:var(--text-tertiary);
+}
+.audit-expanded-row .field .v{
+  font-size:11px;color:var(--text);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SECURITY VIEW
+═══════════════════════════════════════════════════════════════ */
+.sec-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+}
+.sec-panel{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  position:relative;
+}
+.sec-panel::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+.sec-panel.full{grid-column:1/-1;}
+.sec-panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:12px;
+}
+
+/* Policy table */
+.policy-table{
+  width:100%;
+  border-collapse:collapse;
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+}
+.policy-table th{
+  text-align:left;
+  padding:8px 10px;
+  font-size:9px;letter-spacing:0.10em;font-weight:600;
+  text-transform:uppercase;
+  color:var(--text-tertiary);
+  border-bottom:1px solid var(--border);
+}
+.policy-table td{
+  padding:9px 10px;
+  border-bottom:1px solid rgba(26,31,46,0.6);
+  color:var(--text-secondary);
+}
+.policy-table tr:last-child td{border-bottom:none;}
+.policy-table .src{color:var(--text);font-weight:500;display:flex;align-items:center;gap:8px;}
+.policy-table .src .dot{width:7px;height:7px;border-radius:50%;}
+.cap-yes{color:var(--green);}
+.cap-no{color:var(--red);}
+.cap-cell{
+  font-size:10px;font-weight:600;
+  letter-spacing:0.04em;
+}
+
+/* Security event row */
+.sec-events{
+  display:flex;flex-direction:column;
+  gap:1px;
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  max-height:280px;
+  overflow-y:auto;
+}
+.sec-events::-webkit-scrollbar{width:6px;}
+.sec-events::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.sec-event{
+  display:flex;
+  gap:10px;
+  padding:7px 0;
+  border-bottom:1px solid rgba(26,31,46,0.5);
+  align-items:center;
+}
+.sec-event .se-time{color:var(--text-dim);min-width:90px;font-size:10px;}
+.sec-event .se-type{
+  font-size:9px;font-weight:600;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  padding:2px 7px;
+  border-radius:3px;
+  min-width:130px;
+  text-align:center;
+}
+.sec-event .se-type.auth{background:var(--red-dim);color:var(--red);border:1px solid rgba(224,92,92,0.25);}
+.sec-event .se-type.policy{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(224,160,74,0.25);}
+.sec-event .se-type.rate{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(224,160,74,0.25);}
+.sec-event .se-type.tamper{background:var(--red-dim);color:var(--red);border:1px solid rgba(224,92,92,0.25);}
+.sec-event .se-type.admin{background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--border-accent);}
+.sec-event .se-detail{color:var(--text-secondary);flex:1;font-size:10.5px;}
+.sec-event .se-ip{color:var(--text-tertiary);font-size:10px;}
+
+/* Lint warnings */
+.lint-list{
+  display:flex;flex-direction:column;
+  gap:8px;
+  max-height:280px;
+  overflow-y:auto;
+}
+.lint-item{
+  display:flex;
+  gap:10px;
+  padding:10px 12px;
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-left-width:3px;
+  border-radius:5px;
+  align-items:flex-start;
+}
+.lint-item.warn{border-left-color:var(--amber);}
+.lint-item.error{border-left-color:var(--red);}
+.lint-item.info{border-left-color:var(--cyan);}
+.lint-icon{
+  width:16px;height:16px;
+  flex-shrink:0;
+  stroke:var(--amber);
+  fill:none;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.lint-item.error .lint-icon{stroke:var(--red);}
+.lint-item.info .lint-icon{stroke:var(--cyan);}
+.lint-text{flex:1;}
+.lint-text .lint-msg{font-size:11.5px;color:var(--text);margin-bottom:3px;}
+.lint-text .lint-key{
+  font-family:'Geist Mono',monospace;
+  font-size:10px;
+  color:var(--text-tertiary);
+}
+.lint-text .lint-key code{
+  color:var(--cyan-deep);
+  background:var(--bg-base);
+  padding:1px 5px;
+  border-radius:3px;
+  border:1px solid var(--border);
+}
+
+/* Security summary numbers */
+.sec-summary{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:10px;
+}
+.sec-summary .stat-card{padding:10px 12px;}
+.sec-summary .stat-val{font-size:20px;}
+
+/* ═══════════════════════════════════════════════════════════════
+   PIPELINE VIEW (full-page)
+═══════════════════════════════════════════════════════════════ */
+.pipe-hero{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:32px 24px 26px;
+  margin-bottom:14px;
+  position:relative;
+  overflow:hidden;
+}
+.pipe-hero::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(94,200,230,0.25),transparent);
+}
+.pipe-hero-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:24px;
+}
+.pipe-hero .pipeline-flow{
+  padding:20px 0 30px;
+  gap:0;
+}
+.pipe-hero .p-node{
+  width:80px;height:92px;
+}
+.pipe-hero .p-node .num{font-size:22px;}
+.pipe-hero .p-node .lbl{font-size:9px;bottom:-22px;}
+.pipe-hero .p-node .lat{font-size:10px;top:-20px;}
+.pipe-hero .p-conn{
+  width:36px;
+}
+
+.pipe-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:14px;
+}
+.pipe-card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:14px 16px;
+  position:relative;
+}
+.pipe-card::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+.pipe-card-title{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;letter-spacing:0.10em;font-weight:600;
+  text-transform:uppercase;color:var(--text-tertiary);
+  margin-bottom:10px;
+}
+.pipe-stat{
+  display:flex;justify-content:space-between;
+  padding:5px 0;
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  border-bottom:1px solid rgba(26,31,46,0.5);
+}
+.pipe-stat:last-child{border-bottom:none;}
+.pipe-stat .k{color:var(--text-tertiary);}
+.pipe-stat .v{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums;}
+
+/* SSE event stream */
+.sse-stream{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  margin-top:14px;
+  position:relative;
+  max-height:280px;
+  display:flex;flex-direction:column;
+}
+.sse-stream::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+.sse-list{
+  flex:1;
+  overflow-y:auto;
+  font-family:'Geist Mono',monospace;
+  font-size:10.5px;
+  margin-top:8px;
+}
+.sse-list::-webkit-scrollbar{width:6px;}
+.sse-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.sse-line{
+  display:flex;
+  gap:10px;
+  padding:3px 0;
+  border-bottom:1px solid rgba(26,31,46,0.4);
+  animation:a-in 0.3s ease-out;
+  font-variant-numeric:tabular-nums;
+}
+.sse-line .sse-time{color:var(--text-dim);min-width:90px;}
+.sse-line .sse-stage{
+  min-width:90px;
+  font-size:9.5px;font-weight:600;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  color:var(--cyan);
+}
+.sse-line .sse-result{flex:1;color:var(--text-secondary);}
+.sse-line .sse-result .hit{color:var(--green);}
+.sse-line .sse-result .miss{color:var(--text-dim);}
+.sse-line .sse-lat{color:var(--text-tertiary);min-width:55px;text-align:right;}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONFLICTS VIEW
+═══════════════════════════════════════════════════════════════ */
+.conflict-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.conflict-card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:14px 18px 16px;
+  position:relative;
+}
+.conflict-card::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(224,160,74,0.25),transparent);
+}
+.conflict-card-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:12px;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+}
+.conflict-card-title{
+  display:flex;align-items:center;gap:10px;
+  font-size:13px;font-weight:500;
+  color:var(--text);
+}
+.conflict-card-title svg{
+  width:14px;height:14px;
+  stroke:var(--amber);fill:none;
+  stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;
+}
+.conflict-card-title .entity{
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  color:var(--cyan-deep);
+  background:var(--bg-card-2);
+  padding:2px 7px;
+  border-radius:3px;
+  border:1px solid var(--border);
+}
+.conflict-card-meta{
+  font-family:'Geist Mono',monospace;
+  font-size:10px;
+  color:var(--text-tertiary);
+}
+.conflict-values{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.conflict-value{
+  display:flex;
+  gap:14px;
+  align-items:center;
+  padding:9px 12px;
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-left-width:3px;
+  border-left-color:var(--amber);
+  border-radius:4px;
+  font-family:'Geist Mono',monospace;
+}
+.conflict-value .cv-source{
+  min-width:120px;
+  font-size:10px;
+  color:var(--text-secondary);
+  display:flex;align-items:center;gap:6px;
+}
+.conflict-value .cv-source .dot{width:6px;height:6px;border-radius:50%;}
+.conflict-value .cv-content{
+  flex:1;
+  font-size:11.5px;
+  color:var(--text);
+}
+.conflict-value .cv-time{
+  font-size:10px;
+  color:var(--text-tertiary);
+  font-variant-numeric:tabular-nums;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SETTINGS VIEW (read-only effective config)
+═══════════════════════════════════════════════════════════════ */
+.cfg-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+}
+.cfg-section{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:14px 18px 16px;
+  position:relative;
+}
+.cfg-section::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+.cfg-section-title{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;letter-spacing:0.10em;font-weight:600;
+  text-transform:uppercase;color:var(--text-tertiary);
+  margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;
+}
+.cfg-section-title svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.7;}
+.cfg-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:7px 0;
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  border-bottom:1px solid rgba(26,31,46,0.5);
+}
+.cfg-row:last-child{border-bottom:none;}
+.cfg-row .k{color:var(--text-tertiary);}
+.cfg-row .v{
+  color:var(--text);
+  font-weight:500;
+  font-variant-numeric:tabular-nums;
+}
+.cfg-row .v.green{color:var(--green);}
+.cfg-row .v.amber{color:var(--amber);}
+.cfg-row .v.red{color:var(--red);}
+.cfg-row .v code{
+  background:var(--bg-card-2);
+  padding:1px 6px;
+  border-radius:3px;
+  border:1px solid var(--border);
+  font-size:10px;
+}
+.cfg-readonly-note{
+  font-family:'Geist Mono',monospace;
+  font-size:10px;
+  color:var(--text-tertiary);
+  padding:10px 14px;
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-left:3px solid var(--cyan);
+  border-radius:4px;
+  margin-bottom:14px;
+  display:flex;align-items:center;gap:10px;
+}
+.cfg-readonly-note svg{
+  width:14px;height:14px;
+  stroke:var(--cyan);fill:none;stroke-width:1.7;
+  flex-shrink:0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ENDPOINT BADGE — shows which API endpoint a panel is wired to
+═══════════════════════════════════════════════════════════════ */
+.ep-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  font-family:'Geist Mono',monospace;
+  font-size:9px;font-weight:500;
+  letter-spacing:0.02em;
+  color:var(--text-tertiary);
+  padding:2px 7px;
+  background:var(--bg-base);
+  border:1px solid var(--border);
+  border-radius:3px;
+}
+.ep-badge::before{
+  content:'';
+  display:inline-block;
+  width:5px;height:5px;
+  border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 4px var(--green-glow);
+}
+.ep-badge.sse::before{background:var(--cyan);box-shadow:0 0 4px var(--cyan-glow);}
+.ep-badge.metric::before{background:var(--amber);box-shadow:0 0 4px rgba(224,160,74,0.4);}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ADAPTER-WIRED ELEMENTS — CSS for elements added by the data adapter
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Offline banner — top of viewport when daemon unreachable */
+#offlineBanner{
+  position:fixed;
+  top:0;left:0;right:0;
+  z-index:200;
+  background:linear-gradient(180deg,rgba(224,160,74,0.16),rgba(224,160,74,0.06));
+  border-bottom:1px solid rgba(224,160,74,0.4);
+  color:var(--amber);
+  font-family:'Geist Mono',monospace;
+  font-size:11px;font-weight:500;
+  letter-spacing:0.04em;
+  padding:8px 16px;
+  text-align:center;
+  transform:translateY(-100%);
+  transition:transform 0.3s cubic-bezier(0.2,0.9,0.3,1);
+  backdrop-filter:blur(8px);
+}
+#offlineBanner.visible{transform:translateY(0);}
+
+/* Empty-state for any list with no rows */
+.empty-state{
+  padding:40px 20px;
+  text-align:center;
+  color:var(--text-tertiary);
+  font-family:'Geist Mono',monospace;
+  font-size:11px;
+  border:1px dashed var(--border);
+  border-radius:6px;
+}
+
+/* Audit table flash animation for filtered rows */
+.audit-table tbody tr.flash-amber{animation:af-amber-row 0.6s ease-out;}
+@keyframes af-amber-row{0%{background:var(--amber-dim);}100%{background:transparent;}}
+
+/* ─── Lint warnings (security view) ─── */
+.lint-row{
+  display:grid;
+  grid-template-columns:60px 180px 1fr auto;
+  gap:12px;align-items:center;
+  padding:8px 10px;
+  border-bottom:1px solid var(--border);
+  font-family:'Geist Mono',monospace;
+  font-size:10.5px;
+}
+.lint-row:last-child{border-bottom:none;}
+.lint-row .lint-sev{
+  font-size:9px;font-weight:600;letter-spacing:0.06em;
+  padding:2px 6px;border-radius:3px;text-align:center;
+}
+.lint-row.warn .lint-sev{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(224,160,74,0.3);}
+.lint-row.info .lint-sev{background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--border-accent);}
+.lint-row.error .lint-sev{background:var(--red-dim);color:var(--red);border:1px solid rgba(224,92,92,0.3);}
+.lint-row .lint-code{color:var(--text);}
+.lint-row .lint-code code{font-size:10px;}
+.lint-row .lint-msg{color:var(--text-secondary);font-family:'Geist',sans-serif;font-size:11px;}
+.lint-row .lint-loc{color:var(--text-tertiary);font-size:9.5px;}
+
+/* ─── SSE event line cells (pipeline view) ─── */
+.sse-line .sse-ts{
+  color:var(--text-dim);
+  min-width:88px;
+  display:inline-block;
+}
+.sse-line .sse-req{
+  color:var(--cyan);
+  min-width:120px;
+  display:inline-block;
+  margin-right:10px;
+}
+.sse-line .sse-stages{
+  color:var(--text-secondary);
+  flex:1;
+  display:inline-block;
+}
+.sse-line .sse-total{
+  color:var(--text);
+  font-weight:500;
+  margin-left:10px;
+  text-align:right;
+  min-width:60px;
+  display:inline-block;
+}
+.sse-line .sse-step{
+  font-family:'Geist Mono',monospace;
+  font-size:10px;
+  color:var(--text-secondary);
+  white-space:nowrap;
+}
+.sse-line .sse-step.hit{color:var(--green);font-weight:500;}
+.sse-line .sse-arrow{color:var(--text-dim);margin:0 4px;}
+
+/* ─── Conflict cards (conflicts view) ─── */
+.conflict-card{
+  background:var(--bg-card-2);
+  border:1px solid var(--border);
+  border-radius:6px;
+  padding:14px 16px;
+  margin-bottom:12px;
+  position:relative;
+}
+.conflict-card::before{
+  content:'';position:absolute;top:0;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.05),transparent);
+}
+.conflict-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:12px;
+}
+.conflict-title{
+  display:flex;align-items:center;gap:10px;
+  font-family:'Geist Mono',monospace;font-size:11px;
+}
+.conflict-id{
+  color:var(--text-tertiary);
+  background:var(--bg-base);
+  padding:2px 6px;
+  border-radius:3px;
+  border:1px solid var(--border);
+  font-size:10px;
+}
+.conflict-subject{color:var(--text);}
+.conflict-subject code{font-size:11px;color:var(--cyan);}
+.conflict-entity{color:var(--text-tertiary);}
+.conflict-entity code{font-size:11px;color:var(--text);}
+.conflict-pill{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;font-weight:600;
+  letter-spacing:0.06em;text-transform:uppercase;
+  padding:3px 8px;border-radius:3px;
+  background:var(--amber-dim);color:var(--amber);
+  border:1px solid rgba(224,160,74,0.3);
+}
+.conflict-mems{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.conflict-mem{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:5px;
+  padding:10px 12px;
+}
+.conflict-mem-meta{
+  font-family:'Geist Mono',monospace;
+  font-size:9.5px;
+  color:var(--text-tertiary);
+  letter-spacing:0.04em;
+  margin-bottom:6px;
+  display:flex;align-items:center;
+}
+.conflict-mem-content{
+  font-size:12px;
+  color:var(--text);
+  line-height:1.5;
+}
+</style>
+</head>
+<body>
+
+<!-- Hidden SVG defs reused across views -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="sparkGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="var(--cyan)" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="var(--cyan)" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sparkGradGreen" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="var(--green)" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="var(--green)" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div id="offlineBanner" class=""></div>
+
+<div class="app">
+
+  <!-- ═══════════════ SIDEBAR ═══════════════ -->
+  <aside class="sidebar">
+    <div class="logo-wrap">
+      <img src="/logo_metal.png" alt="BubbleFish" id="sidebarLogo">
+    </div>
+    <div class="logo-mark">NEXUS<span class="v" id="sidebarVer">v—</span></div>
+    <div class="sidebar-divider"></div>
+
+    <button class="nav-btn active" data-view="control" data-tip="Ops">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="audit" data-tip="Interaction Log">
+      <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+    </button>
+    <button class="nav-btn" data-view="security" data-tip="Security">
+      <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="pipeline" data-tip="Retrieval Pipeline">
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    </button>
+    <button class="nav-btn" data-view="conflicts" data-tip="Conflicts">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </button>
+    <button class="nav-btn" data-view="settings" data-tip="Effective Config">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+    </button>
+
+    <div class="nav-spacer"></div>
+
+    <button class="nav-btn" id="witnessBtn" data-tip="Witness Mode">
+      <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </aside>
+
+  <!-- ═══════════════ MAIN ═══════════════ -->
+  <main class="main">
+
+    <!-- ═══════════════ HEADER ═══════════════ -->
+    <header class="header">
+      <div class="header-status">
+        <span class="health-pill" id="healthPill">
+          <span class="health-dot"></span>
+          <span id="healthLabel">connecting…</span>
+        </span>
+        <span id="uptime" class="header-meta">uptime —</span>
+        <span id="versionTag" class="header-meta">v—</span>
+        <span id="bindTag"   class="header-meta">bind —</span>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="mode-switch">
+        <button class="mode-btn active" id="modeOps">Ops</button>
+        <button class="mode-btn" id="modeWitness">Witness</button>
+      </div>
+    </header>
+
+    <!-- ═══════════════ VIEW HOST ═══════════════ -->
+    <div class="view-host">
+
+    <!-- ════════════ CONTROL PLANE / OPS ════════════ -->
+    <div class="view active" id="view-control">
+    <div class="view-pad">
+
+      <!-- ROW 1: Four golden-signal metric cards -->
+      <div class="metric-row">
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+            Memories Stored
+          </div>
+          <div class="metric-value" id="mTotal">—</div>
+          <div class="metric-sub" id="mTotalSub">live · /api/status</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Throughput
+          </div>
+          <div class="metric-value" style="color:var(--cyan)" id="mRate">—<span class="unit">/s</span></div>
+          <div class="metric-sub" id="mRateSub">60s window · live SSE</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            WAL Pending
+          </div>
+          <div class="metric-value" style="color:var(--green)" id="mWal">—</div>
+          <div class="metric-sub" id="mWalSub">durability buffer</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Cache Hit Rate
+          </div>
+          <div class="metric-value" id="mCache">—<span class="unit">%</span></div>
+          <div class="metric-sub" id="mCacheSub">exact — · semantic —</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="mCacheBar" style="width:0%"></div></div>
+        </div>
+
+      </div>
+
+      <!-- ROW 2: Source / connected clients -->
+      <div class="sources-panel">
+        <div class="panel-header">
+          <span class="panel-title">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+            Configured Sources
+          </span>
+          <span class="panel-meta" id="sourcesMeta">— configured</span>
+        </div>
+        <div class="sources-grid" id="sourcesGrid">
+          <div class="empty-state">loading sources…</div>
+        </div>
+      </div>
+
+      <!-- ROW 3: Pipeline + Audit -->
+      <div class="pipeline-panel">
+        <div class="panel-header">
+          <span class="panel-title">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Retrieval Cascade
+          </span>
+          <span class="panel-meta" id="pipelineProfile">profile: —</span>
+        </div>
+        <div class="pipeline-flow" id="pipeline">
+          <div class="p-node" data-s="0"><div class="hex"></div><span class="lat" id="ps0lat">—</span><span class="num">0</span><span class="lbl">Policy</span></div>
+          <div class="p-conn"><div class="pdot"></div></div>
+          <div class="p-node" data-s="1"><div class="hex"></div><span class="lat" id="ps1lat">—</span><span class="num">1</span><span class="lbl">Cache</span></div>
+          <div class="p-conn"><div class="pdot"></div></div>
+          <div class="p-node" data-s="2"><div class="hex"></div><span class="lat" id="ps2lat">—</span><span class="num">2</span><span class="lbl">Semantic</span></div>
+          <div class="p-conn"><div class="pdot"></div></div>
+          <div class="p-node" data-s="3"><div class="hex"></div><span class="lat" id="ps3lat">—</span><span class="num">3</span><span class="lbl">Lookup</span></div>
+          <div class="p-conn"><div class="pdot"></div></div>
+          <div class="p-node" data-s="4"><div class="hex"></div><span class="lat" id="ps4lat">—</span><span class="num">4</span><span class="lbl">Vector</span></div>
+          <div class="p-conn"><div class="pdot"></div></div>
+          <div class="p-node" data-s="5"><div class="hex"></div><span class="lat" id="ps5lat">—</span><span class="num">5</span><span class="lbl">Merge</span></div>
+        </div>
+        <div class="pipeline-stats">
+          <span>Queries/s <span class="val" id="pipeQps">—</span></span>
+          <span>p50 <span class="val" id="pipeP50">—</span></span>
+          <span>p99 <span class="val" id="pipeP99">—</span></span>
+          <span>Cache hits <span class="val" id="pipeCacheRate">—</span></span>
+          <span>Filtered <span class="val" id="pipeFiltered" style="color:var(--amber)">—</span></span>
+        </div>
+      </div>
+
+      <div class="audit-panel">
+        <div class="panel-header">
+          <span class="panel-title">
+            <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+            Interaction Log — Live
+          </span>
+          <span class="panel-meta" id="auditMeta">SSE · /api/viz/events</span>
+        </div>
+        <div class="audit-list" id="auditList">
+          <div class="empty-state">waiting for events… (perform a write or query against the daemon)</div>
+        </div>
+      </div>
+    </div>
+    </div><!-- /view-control -->
+
+    <!-- ════════════ AUDIT VIEW ════════════ -->
+    <div class="view" id="view-audit">
+      <div class="view-pad">
+        <div class="page-head">
+          <div class="page-head-l">
+            <div class="page-title">
+              <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/></svg>
+              Interaction Log
+            </div>
+            <div class="page-sub">Live tail of <code>/api/viz/events</code> + persisted from <code>/api/audit/log</code></div>
+          </div>
+          <div class="page-head-r">
+            <span class="ep-badge sse" id="auditSseBadge">SSE · connecting</span>
+          </div>
+        </div>
+
+        <div class="audit-stats">
+          <div class="stat-card">
+            <div class="stat-lbl">Total (this session)</div>
+            <div class="stat-val" id="audStatTotal">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-lbl">Writes</div>
+            <div class="stat-val cyan" id="audStatWrites">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-lbl">Queries</div>
+            <div class="stat-val green" id="audStatQueries">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-lbl">Filtered</div>
+            <div class="stat-val amber" id="audStatFiltered">—</div>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-lbl">source</label>
+            <select id="audFilterSource"><option value="">all</option></select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-lbl">op</label>
+            <select id="audFilterOp">
+              <option value="">all</option>
+              <option value="WRITE">WRITE</option>
+              <option value="QUERY">QUERY</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-lbl">status</label>
+            <select id="audFilterStatus">
+              <option value="">all</option>
+              <option value="ALLOWED">ALLOWED</option>
+              <option value="FILTERED">FILTERED</option>
+              <option value="DENIED">DENIED</option>
+            </select>
+          </div>
+          <div class="filter-group" style="flex:1">
+            <label class="filter-lbl">subject contains</label>
+            <input type="text" id="audFilterSubject" placeholder="">
+          </div>
+        </div>
+
+        <div class="audit-table-wrap">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th class="col-time">time</th>
+                <th class="col-op">op</th>
+                <th class="col-src">source</th>
+                <th class="col-subject">subject</th>
+                <th class="col-detail">detail</th>
+                <th class="col-status">status</th>
+                <th class="col-lat">lat</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody"></tbody>
+          </table>
+        </div>
+        <div id="auditPersistedNote" class="empty-state" style="margin-top:14px;display:none"></div>
+      </div>
+    </div>
+
+    <!-- ════════════ SECURITY VIEW ════════════ -->
+    <div class="view" id="view-security">
+      <div class="view-pad">
+        <div class="page-head">
+          <div class="page-head-l">
+            <div class="page-title">
+              <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
+              Security
+            </div>
+            <div class="page-sub">Counters from <code>/api/security/summary</code> · events from <code>/api/security/events</code> · lint from <code>/api/lint</code></div>
+          </div>
+        </div>
+
+        <div class="audit-stats">
+          <div class="stat-card">
+            <div class="stat-lbl">Auth Failures</div>
+            <div class="stat-val red" id="secAuthFails">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-lbl">Policy Denials</div>
+            <div class="stat-val amber" id="secPolicyDenies">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-lbl">Rate Limit Hits</div>
+            <div class="stat-val amber" id="secRateLimits">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-lbl">Admin Calls</div>
+            <div class="stat-val cyan" id="secAdminCalls">—</div>
+          </div>
+        </div>
+
+        <div class="panel-header" style="margin-top:18px">
+          <span class="panel-title">Compiled Source Policies</span>
+          <span class="panel-meta">/api/policies</span>
+        </div>
+        <div class="policy-table-wrap">
+          <table class="policy-table">
+            <thead><tr>
+              <th>source</th><th>read</th><th>write</th><th>destinations</th>
+              <th>max_results</th><th>max_response_bytes</th><th>rate_limit</th><th>policy_hash</th>
+            </tr></thead>
+            <tbody id="policyTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="panel-header" style="margin-top:18px">
+          <span class="panel-title">Recent Security Events</span>
+          <span class="panel-meta">/api/security/events</span>
+        </div>
+        <div class="sec-events" id="secEventsList"></div>
+
+        <div class="panel-header" style="margin-top:18px">
+          <span class="panel-title">Config Lint Warnings</span>
+          <span class="panel-meta">/api/lint</span>
+        </div>
+        <div class="lint-list" id="lintList"></div>
+      </div>
+    </div>
+
+    <!-- ════════════ PIPELINE VIEW ════════════ -->
+    <div class="view" id="view-pipeline">
+      <div class="view-pad">
+        <div class="page-head">
+          <div class="page-head-l">
+            <div class="page-title">
+              <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Retrieval Pipeline
+            </div>
+            <div class="page-sub">Live cascade visualisation · stage timings from <code>/api/viz/events</code> · cache stats from <code>/api/cache</code></div>
+          </div>
+          <div class="page-head-r">
+            <span class="ep-badge sse" id="pipeSseBadge">SSE · connecting</span>
+          </div>
+        </div>
+
+        <div class="pipeline-panel" style="margin-top:14px">
+          <div class="panel-header">
+            <span class="panel-title">Cascade · live</span>
+            <span class="panel-meta" id="pipeProfile2">profile: —</span>
+          </div>
+          <div class="pipeline-flow" id="pipelineHero">
+            <div class="p-node" data-s="0"><div class="hex"></div><span class="lat" id="ph0lat">—</span><span class="num">0</span><span class="lbl">Policy</span></div>
+            <div class="p-conn"><div class="pdot"></div></div>
+            <div class="p-node" data-s="1"><div class="hex"></div><span class="lat" id="ph1lat">—</span><span class="num">1</span><span class="lbl">Cache</span></div>
+            <div class="p-conn"><div class="pdot"></div></div>
+            <div class="p-node" data-s="2"><div class="hex"></div><span class="lat" id="ph2lat">—</span><span class="num">2</span><span class="lbl">Semantic</span></div>
+            <div class="p-conn"><div class="pdot"></div></div>
+            <div class="p-node" data-s="3"><div class="hex"></div><span class="lat" id="ph3lat">—</span><span class="num">3</span><span class="lbl">Lookup</span></div>
+            <div class="p-conn"><div class="pdot"></div></div>
+            <div class="p-node" data-s="4"><div class="hex"></div><span class="lat" id="ph4lat">—</span><span class="num">4</span><span class="lbl">Vector</span></div>
+            <div class="p-conn"><div class="pdot"></div></div>
+            <div class="p-node" data-s="5"><div class="hex"></div><span class="lat" id="ph5lat">—</span><span class="num">5</span><span class="lbl">Merge</span></div>
+          </div>
+        </div>
+
+        <div class="pipe-grid">
+          <div class="pipe-card">
+            <div class="panel-header"><span class="panel-title">Cache</span><span class="panel-meta">/api/cache</span></div>
+            <div class="pipe-stat"><span class="k">Exact hits</span><span class="v" id="pipeCacheExact">—</span></div>
+            <div class="pipe-stat"><span class="k">Semantic hits</span><span class="v" id="pipeCacheSem">—</span></div>
+            <div class="pipe-stat"><span class="k">Misses</span><span class="v" id="pipeCacheMiss">—</span></div>
+            <div class="pipe-stat"><span class="k">Evictions</span><span class="v" id="pipeCacheEvict">—</span></div>
+            <div class="pipe-stat"><span class="k">Watermark</span><span class="v" id="pipeCacheWater">—</span></div>
+          </div>
+          <div class="pipe-card">
+            <div class="panel-header"><span class="panel-title">Latency window</span><span class="panel-meta">last 60s · client-side</span></div>
+            <div class="pipe-stat"><span class="k">samples</span><span class="v" id="pipeWinN">—</span></div>
+            <div class="pipe-stat"><span class="k">p50</span><span class="v" id="pipeWinP50">—</span></div>
+            <div class="pipe-stat"><span class="k">p95</span><span class="v" id="pipeWinP95">—</span></div>
+            <div class="pipe-stat"><span class="k">p99</span><span class="v" id="pipeWinP99">—</span></div>
+            <div class="pipe-stat"><span class="k">max</span><span class="v" id="pipeWinMax">—</span></div>
+          </div>
+        </div>
+
+        <div class="panel-header" style="margin-top:18px"><span class="panel-title">Live event tail</span><span class="panel-meta">last 60 events</span></div>
+        <div class="sse-list" id="sseList"><div class="empty-state">waiting for events…</div></div>
+      </div>
+    </div>
+
+    <!-- ════════════ CONFLICTS VIEW ════════════ -->
+    <div class="view" id="view-conflicts">
+      <div class="view-pad">
+        <div class="page-head">
+          <div class="page-head-l">
+            <div class="page-title">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Conflict Inspector
+            </div>
+            <div class="page-sub">Contradictory memories grouped by subject · <code>/api/conflicts</code></div>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-lbl">source</label>
+            <select id="confFilterSource"><option value="">all</option></select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-lbl">actor</label>
+            <select id="confFilterActor">
+              <option value="">all</option>
+              <option value="user">user</option>
+              <option value="agent">agent</option>
+              <option value="system">system</option>
+            </select>
+          </div>
+          <div class="filter-group" style="flex:1">
+            <label class="filter-lbl">subject contains</label>
+            <input type="text" id="confFilterSubject" placeholder="">
+          </div>
+          <div class="filter-group">
+            <label class="filter-lbl">limit</label>
+            <select id="confFilterLimit">
+              <option>25</option><option selected>50</option><option>100</option><option>200</option>
+            </select>
+          </div>
+          <span class="filter-pill" id="conflictCount">— conflicts</span>
+        </div>
+
+        <div class="conflict-list" id="conflictList">
+          <div class="empty-state">loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════ SETTINGS / EFFECTIVE CONFIG VIEW ════════════ -->
+    <div class="view" id="view-settings">
+      <div class="view-pad">
+        <div class="page-head">
+          <div class="page-head-l">
+            <div class="page-title">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Effective Config
+            </div>
+            <div class="page-sub">Compiled, signed config from the running daemon · <code>/api/config</code> + <code>/api/status</code></div>
+          </div>
+          <div class="page-head-r">
+            <span class="ep-badge" id="cfgEpBadge">live</span>
+          </div>
+        </div>
+        <div class="cfg-grid" id="cfgGrid">
+          <div class="empty-state">loading effective config…</div>
+        </div>
+        <div class="cfg-readonly-note">read-only · edit <code>daemon.toml</code> on disk and restart the daemon to apply changes</div>
+      </div>
+    </div>
+
+    </div><!-- /view-host -->
+  </main>
+</div>
+
+<!-- ═══════════════ WITNESS OVERLAY ═══════════════ -->
+<div class="witness-overlay" id="witnessOverlay">
+  <div class="witness-grain"></div>
+  <div class="witness-vignette"></div>
+  <div class="witness-sonar">
+    <div class="witness-ring"></div>
+    <div class="witness-ring"></div>
+    <div class="witness-ring"></div>
+  </div>
+  <img class="witness-logo" src="/logo_metal.png" alt="">
+  <div class="witness-title"><span>Memory Witness · Live</span></div>
+  <button class="witness-close" id="witnessClose">ESC · EXIT</button>
+
+  <!-- Empty grid — populated ONLY by real SSE events -->
+  <div class="witness-field" id="witnessField"></div>
+
+  <!-- Top fact strip — every chip is bound to a live value -->
+  <div class="witness-facts top">
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+      <div><div class="fact-label">Build</div><div class="fact-val" id="wBuild">v—</div></div>
+    </div>
+    <div class="fact-chip green" id="wHealthChip">
+      <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6z"/></svg>
+      <div><div class="fact-label">Daemon</div><div class="fact-val" id="wHealth">—</div></div>
+    </div>
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <div><div class="fact-label">Uptime</div><div class="fact-val" id="wUptime">—</div></div>
+    </div>
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
+      <div><div class="fact-label">Memories</div><div class="fact-val" id="wCount">—</div></div>
+    </div>
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      <div><div class="fact-label">WAL Pending</div><div class="fact-val" id="wWal">—</div></div>
+    </div>
+  </div>
+
+  <div class="witness-facts mid">
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/></svg>
+      <div><div class="fact-label">Bind</div><div class="fact-val" id="wBind">—</div></div>
+    </div>
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <div><div class="fact-label">QPS (60s)</div><div class="fact-val" id="wQps">—</div></div>
+    </div>
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <div><div class="fact-label">p99</div><div class="fact-val" id="wP99">—</div></div>
+    </div>
+    <div class="fact-chip" id="wConflictsChip" style="display:none">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
+      <div><div class="fact-label">Conflicts</div><div class="fact-val" id="wConflicts">—</div></div>
+    </div>
+    <div class="fact-chip">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div><div class="fact-label">Sources</div><div class="fact-val" id="wSources">—</div></div>
+    </div>
+  </div>
+
+  <!-- Engineer's tail -->
+  <div class="witness-log">
+    <div class="witness-log-header">
+      <div class="witness-log-title">
+        <span class="pulse"></span>
+        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        Interaction Log
+      </div>
+      <div class="witness-log-meta">tail -f · live</div>
+    </div>
+    <div class="witness-log-list" id="witnessLogList"></div>
+  </div>
+</div>
+
+</body>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   BubbleFish Nexus — Control Plane (v5, no-mock)
+   ───────────────────────────────────────────────────────────────────
+   HARD RULE: there is NO mock data layer in this file. Every value the
+   user sees is either:
+     (a) returned by the live Nexus daemon, OR
+     (b) the literal string "—" (rendered when the value is unknown,
+         the endpoint is unreachable, or the field is sentinel-disabled)
+     (c) a count derived from the live SSE event stream
+
+   The dashboard is served from port 8081 in-process with the daemon's
+   admin router mounted at /api/* on the same origin, so all fetches
+   are relative paths and no CORS is involved.
+
+   Token + MOCK_MODE are server-side injected by handleIndex() in
+   internal/web/dashboard.go. We honour MOCK_MODE only as a kill switch
+   (if true, we render empty states everywhere — we never fabricate).
+═══════════════════════════════════════════════════════════════════ */
+
+const CONFIG = {
+  MOCK_MODE: false,                       // injected: dashboard.go flips to false
+  ADMIN_TOKEN: '',                        // injected: dashboard.go writes the bfn_admin_ token
+  REFRESH_MS: 5000,
+  SSE_RECONNECT_MS: 2000,
+  SSE_RECONNECT_MAX_MS: 30000,
+  WINDOW_MS: 60000                        // sliding window for QPS / latency stats
+};
+
+const DASH = '—';
+
+/* ═══ FORMAT HELPERS ═══════════════════════════════════════════════ */
+const fmt = {
+  num:  (n) => (n == null || Number.isNaN(n)) ? DASH : Number(n).toLocaleString('en-US'),
+  ms:   (n) => (n == null || Number.isNaN(n)) ? DASH : (n < 1 ? n.toFixed(2) : n.toFixed(1)) + 'ms',
+  pct:  (n) => (n == null || Number.isNaN(n) || n < 0) ? DASH : (n * 100).toFixed(0) + '%',
+  bytes:(n) => {
+    if (n == null) return DASH;
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB';
+    return (n/1073741824).toFixed(2) + ' GB';
+  },
+  uptime:(sec) => {
+    if (sec == null) return DASH;
+    const d = Math.floor(sec/86400);
+    const h = Math.floor((sec%86400)/3600);
+    const m = Math.floor((sec%3600)/60);
+    const s = Math.floor(sec%60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m ${s}s`;
+  },
+  ts: (d) => {
+    const t = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(t.getTime())) return DASH;
+    return t.toTimeString().substring(0,8) + '.' + String(t.getMilliseconds()).padStart(3,'0');
+  },
+  rate:(n,unit) => (n == null || Number.isNaN(n)) ? DASH : n.toFixed(n < 10 ? 1 : 0) + (unit||'')
+};
+
+const $ = (id) => document.getElementById(id);
+const setText = (id, v) => { const el = $(id); if (el) el.textContent = (v == null || v === '' ? DASH : v); };
+
+/* ═══ NETWORK ADAPTER — fetch returns null on failure, never falls back ═══ */
+const nx = {
+  _offline: false,
+
+  setOffline(reason) {
+    if (this._offline) return;
+    this._offline = true;
+    const b = $('offlineBanner');
+    if (b) {
+      b.textContent = '⚠ daemon unreachable — ' + reason + ' · values shown as —';
+      b.classList.add('visible');
+    }
+    const hp = $('healthPill'); if (hp) hp.classList.add('down');
+    setText('healthLabel', 'OFFLINE');
+  },
+
+  setOnline() {
+    if (!this._offline) return;
+    this._offline = false;
+    const b = $('offlineBanner'); if (b) b.classList.remove('visible');
+    const hp = $('healthPill'); if (hp) hp.classList.remove('down');
+  },
+
+  async fetch(path, params) {
+    if (CONFIG.MOCK_MODE) return null;            // hard kill: never fabricate
+    const url = new URL(path, window.location.origin);
+    if (params) Object.entries(params).forEach(([k,v]) => {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+    });
+    try {
+      const res = await fetch(url.toString(), {
+        headers: { 'Authorization': 'Bearer ' + CONFIG.ADMIN_TOKEN, 'Accept': 'application/json' },
+        credentials: 'omit'
+      });
+      if (!res.ok) {
+        if (res.status === 404) return { __notfound: true };
+        this.setOffline('HTTP ' + res.status);
+        return null;
+      }
+      this.setOnline();
+      return await res.json();
+    } catch (e) {
+      this.setOffline(e.message || 'network error');
+      return null;
+    }
+  },
+
+  sse(path, onMessage, onState) {
+    if (CONFIG.MOCK_MODE) { onState && onState('disabled'); return { close(){} }; }
+    let es = null, attempts = 0, closed = false;
+    const open = () => {
+      if (closed) return;
+      // EventSource cannot send headers. /api/viz/events accepts ?token= per audit §8.
+      const url = new URL(path, window.location.origin);
+      if (CONFIG.ADMIN_TOKEN) url.searchParams.set('token', CONFIG.ADMIN_TOKEN);
+      try {
+        es = new EventSource(url.toString());
+        es.onopen = () => { attempts = 0; nx.setOnline(); onState && onState('open'); };
+        es.onmessage = (ev) => {
+          try { onMessage(JSON.parse(ev.data)); } catch (e) {}
+        };
+        es.onerror = () => {
+          es && es.close();
+          nx.setOffline('SSE disconnected');
+          onState && onState('reconnecting');
+          attempts++;
+          const delay = Math.min(CONFIG.SSE_RECONNECT_MS * Math.pow(1.6, attempts), CONFIG.SSE_RECONNECT_MAX_MS);
+          setTimeout(open, delay);
+        };
+      } catch (e) {
+        nx.setOffline(e.message || 'SSE failed');
+        onState && onState('failed');
+      }
+    };
+    open();
+    return { close: () => { closed = true; es && es.close(); } };
+  }
+};
+
+/* ═══ SOURCE COLOR HELPER (single source 'default' → cyan; extensible) ═══ */
+const SOURCE_COLORS = {
+  // The dogfood install has a single source. Add entries here if more
+  // sources are configured. Anything not listed gets the neutral colour.
+  'default': { c: 'var(--cyan)', g: 'var(--cyan-glow)', cls: 'src-default' }
+};
+function srcColor(id) { return SOURCE_COLORS[id] || { c: 'var(--text-tertiary)', g: 'transparent', cls: 'src-other' }; }
+function srcDot(id) {
+  const { c, g } = srcColor(id);
+  return `<span class="dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};box-shadow:0 0 6px ${g};margin-right:6px;vertical-align:middle"></span>`;
+}
+
+/* ═══ EVENT BUS — single SSE connection fanned out to subscribers ═══ */
+const bus = (() => {
+  const listeners = new Set();
+  let sseHandle = null;
+  return {
+    start() {
+      if (sseHandle) return;
+      sseHandle = nx.sse('/api/viz/events',
+        (ev) => listeners.forEach(fn => { try { fn(ev); } catch(e) {} }),
+        (state) => {
+          const tags = ['auditSseBadge','pipeSseBadge'];
+          tags.forEach(id => {
+            const el = $(id); if (!el) return;
+            el.textContent = 'SSE · ' + state;
+            el.className = 'ep-badge sse ' + (state === 'open' ? 'ok' : 'warn');
+          });
+        });
+    },
+    on(fn)  { listeners.add(fn);    return () => listeners.delete(fn); },
+    off(fn) { listeners.delete(fn); }
+  };
+})();
+
+/* ═══ ROLLING WINDOW — QPS, latency percentiles from SSE ═══ */
+const rollingWindow = (() => {
+  const events = [];   // {t, op, total_ms, status, cacheHit}
+  function push(ev) {
+    const t = Date.now();
+    const cacheHit = !!(ev.stages && ev.stages.some(s => s.hit && (s.name === 'cache' || s.name === 'semantic')));
+    events.push({ t, op: ev.op, total_ms: ev.total_ms, status: ev.status, cacheHit });
+    prune();
+  }
+  function prune() {
+    const cutoff = Date.now() - CONFIG.WINDOW_MS;
+    while (events.length && events[0].t < cutoff) events.shift();
+  }
+  function snapshot() {
+    prune();
+    if (!events.length) return { n: 0, qps: null, p50: null, p95: null, p99: null, max: null, cacheHitRate: null, filtered: 0, writes: 0, queries: 0 };
+    const lats = events.map(e => e.total_ms).sort((a,b) => a-b);
+    const pct = (p) => lats[Math.min(lats.length-1, Math.floor(lats.length * p))];
+    const queries = events.filter(e => e.op === 'QUERY');
+    const cacheable = queries.length;
+    const cacheHits = queries.filter(e => e.cacheHit).length;
+    return {
+      n: events.length,
+      qps: events.length / (CONFIG.WINDOW_MS / 1000),
+      p50: pct(0.50), p95: pct(0.95), p99: pct(0.99), max: lats[lats.length-1],
+      cacheHitRate: cacheable ? cacheHits / cacheable : null,
+      filtered: events.filter(e => e.status === 'FILTERED').length,
+      writes:   events.filter(e => e.op === 'WRITE').length,
+      queries:  queries.length
+    };
+  }
+  return { push, snapshot };
+})();
+bus.on(rollingWindow.push);
+
+/* ═══ STAGE LATENCY EMA — rolling average per-stage for cascade labels ═══ */
+const stageEma = (() => {
+  const ema = new Array(6).fill(null);
+  const ALPHA = 0.2;
+  function update(ev) {
+    if (!ev.stages) return;
+    ev.stages.forEach((s, i) => {
+      if (i >= 6) return;
+      // Only roll into EMA when stage actually fired (non-zero ms or explicit hit)
+      if (s.ms > 0 || s.hit) {
+        ema[i] = ema[i] == null ? s.ms : ema[i] * (1 - ALPHA) + s.ms * ALPHA;
+      }
+    });
+    applyLabels();
+  }
+  function applyLabels() {
+    for (let i = 0; i < 6; i++) {
+      const val = ema[i] != null ? fmt.ms(ema[i]) : DASH;
+      setText('ps' + i + 'lat', val);
+      setText('ph' + i + 'lat', val);
+    }
+  }
+  return { update, applyLabels };
+})();
+bus.on(stageEma.update);
+
+/* ═══ AUDIT LINE RENDERER — shared by control / audit / witness log ═══ */
+function renderAuditLine(ev, target, maxLines) {
+  if (!target) return;
+  // remove "waiting for events" empty state on first event
+  const empty = target.querySelector('.empty-state');
+  if (empty) empty.remove();
+  while (target.children.length >= maxLines) target.firstChild.remove();
+  const line = document.createElement('div');
+  line.className = 'a-line' + (ev.status === 'FILTERED' ? ' flash-amber' : '') + (ev.status === 'DENIED' ? ' flash-red' : '');
+  const polClass = ev.status === 'ALLOWED' ? 'ok' : ev.status === 'FILTERED' ? 'filt' : 'deny';
+  const subj = ev.subject || '∅';
+  const detail = `${ev.source} → sqlite  subject:${subj}` +
+                 (ev.labels && ev.labels.length ? ' labels:[' + ev.labels.join(',') + ']' : '') +
+                 (ev.op === 'QUERY' ? ' results:' + ev.result_count : '');
+  const parts = [
+    ['a-time', fmt.ts(ev.ts)],
+    ['a-op '   + (ev.op === 'WRITE' ? 'write' : 'query'), ev.op],
+    ['a-detail', detail],
+    ['a-pol '  + polClass, ev.status],
+    ['a-lat',  (ev.total_ms != null ? ev.total_ms.toFixed(1) + 'ms' : DASH)]
+  ];
+  parts.forEach(([c, t]) => {
+    const s = document.createElement('span');
+    s.className = c; s.textContent = t;
+    line.appendChild(s);
+  });
+  target.appendChild(line);
+  target.scrollTop = target.scrollHeight;
+}
+
+/* ═══ PIPELINE STAGE ANIMATION ═══ */
+function animateCascade(scopeId, ev) {
+  if (!ev || !ev.stages) return;
+  const nodes = document.querySelectorAll(`#${scopeId} .p-node`);
+  const dots  = document.querySelectorAll(`#${scopeId} .p-conn .pdot`);
+  if (!nodes.length) return;
+  // Find the LAST stage with a non-zero ms or hit=true; that's where the cascade actually went
+  let lastReal = -1;
+  ev.stages.forEach((s, i) => { if (s.ms > 0 || s.hit) lastReal = i; });
+  if (lastReal < 0) lastReal = ev.stages.length - 1;
+  const hitIdx = ev.stages.findIndex(s => s.hit);
+  let d = 0;
+  for (let i = 0; i <= lastReal; i++) {
+    const idx = i, dl = d;
+    setTimeout(() => {
+      const cls = (idx === hitIdx) ? 'hit' : 'active';
+      nodes[idx].classList.add(cls);
+      setTimeout(() => nodes[idx].classList.remove('active','hit'), 650);
+    }, dl);
+    if (idx < lastReal && dots[idx]) {
+      setTimeout(() => {
+        dots[idx].classList.add('go');
+        setTimeout(() => dots[idx].classList.remove('go'), 280);
+      }, dl + 130);
+    }
+    d += 210;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONTROL PLANE / OPS VIEW
+═══════════════════════════════════════════════════════════════════ */
+const controlView = (() => {
+  let timer = null, busOff = null, statsTimer = null;
+
+  async function refresh() {
+    const [s, c, p] = await Promise.all([
+      nx.fetch('/api/status'),
+      nx.fetch('/api/cache'),
+      nx.fetch('/api/policies')
+    ]);
+
+    // ─ ROW 1: metric cards ─
+    if (s) {
+      setText('mTotal', fmt.num(s.memories_total));
+      setText('mWal',   fmt.num(s.wal && s.wal.pending_entries));
+
+      // Cache hit rate: prefer /api/cache (more granular), fall back to /api/status.cache
+      const cacheBlock = c || (s.cache ? { exact:{hit_rate:s.cache.exact_rate}, semantic:{hit_rate:s.cache.semantic_rate}, exact_hit_rate: s.cache.exact_rate, semantic_hit_rate: s.cache.semantic_rate } : null);
+      let totalHits = 0, totalReqs = 0;
+      if (c) {
+        totalHits = (c.exact.hits || 0) + (c.semantic.hits || 0);
+        totalReqs = totalHits + (c.misses_total || 0);
+      }
+      const hitRate = totalReqs > 0 ? totalHits / totalReqs : null;
+      setText('mCache', hitRate != null ? Math.round(hitRate*100) : DASH);
+      const mCacheEl = $('mCache');
+      if (mCacheEl && hitRate != null) mCacheEl.innerHTML = Math.round(hitRate*100) + '<span class="unit">%</span>';
+      const sub = $('mCacheSub');
+      if (sub) {
+        if (c) sub.textContent = `exact ${fmt.num(c.exact.hits)} · semantic ${fmt.num(c.semantic.hits)} · miss ${fmt.num(c.misses_total)}`;
+        else sub.textContent = 'no cache data';
+      }
+      const bar = $('mCacheBar');
+      if (bar) bar.style.width = (hitRate != null ? Math.round(hitRate*100) : 0) + '%';
+
+      // Header badges
+      setText('uptime',     'uptime ' + fmt.uptime(s.uptime_seconds));
+      setText('versionTag', 'v' + s.version);
+      setText('bindTag',    'bind ' + s.bind);
+      setText('sidebarVer', 'v' + s.version);
+      const hp = $('healthPill'); if (hp) hp.classList.toggle('down', !(s.wal && s.wal.healthy));
+      setText('healthLabel', (s.wal && s.wal.healthy) ? 'HEALTHY' : 'DEGRADED');
+
+      // Witness HUD mirror
+      setText('wBuild', 'v' + s.version);
+      setText('wHealth', (s.wal && s.wal.healthy) ? 'HEALTHY' : 'DEGRADED');
+      setText('wUptime', fmt.uptime(s.uptime_seconds));
+      setText('wCount',  fmt.num(s.memories_total));
+      setText('wWal',    fmt.num(s.wal && s.wal.pending_entries));
+      setText('wBind',   s.bind);
+      setText('wSources', s.sources_total);
+    } else {
+      // Daemon offline — show dashes everywhere honestly
+      ['mTotal','mWal','mCache','mCacheSub','uptime','versionTag','bindTag','sidebarVer',
+       'wBuild','wHealth','wUptime','wCount','wWal','wBind','wSources'].forEach(id => setText(id, DASH));
+      const bar = $('mCacheBar'); if (bar) bar.style.width = '0%';
+    }
+
+    // ─ ROW 2: source cards from /api/policies ─
+    const grid = $('sourcesGrid');
+    if (grid) {
+      if (p && p.sources) {
+        setText('sourcesMeta', `${p.sources.length} configured`);
+        grid.innerHTML = p.sources.map(src => {
+          const col = srcColor(src.source);
+          return `
+          <div class="source-card">
+            <div class="source-name">
+              <div class="source-dot" style="background:${col.c};box-shadow:0 0 6px ${col.g}"></div>
+              ${src.source}
+            </div>
+            <div class="source-stats">
+              <span>R <span style="color:${src.can_read ? 'var(--green)' : 'var(--red)'}">${src.can_read ? 'YES' : 'NO'}</span></span>
+              <span>W <span style="color:${src.can_write ? 'var(--green)' : 'var(--red)'}">${src.can_write ? 'YES' : 'NO'}</span></span>
+              <span>limit <span style="color:var(--text-secondary)">${fmt.num(src.rate_limit_per_min)}/min</span></span>
+            </div>
+            <div class="source-stats" style="margin-top:4px">
+              <span>dest <span style="color:var(--text-secondary)">${(src.allowed_destinations||[]).join(', ')}</span></span>
+              <span>policy <code style="font-size:9.5px;color:var(--text-tertiary)">${(src.policy_hash||'').slice(0,6)}…</code></span>
+            </div>
+          </div>`;
+        }).join('') + `
+          <div class="source-card add">
+            <div class="source-name">+ Add Source</div>
+            <div class="source-stats"><span>edit <code>sources/*.toml</code> &amp; restart</span></div>
+          </div>`;
+      } else {
+        grid.innerHTML = '<div class="empty-state">no source data — endpoint unreachable</div>';
+      }
+    }
+
+    // ─ ROW 3: pipeline profile + cache fields are updated below in updateWindowStats ─
+    if (p && p.sources && p.sources[0]) {
+      // Profile is per-source; show the first source's profile (or default text)
+      // /api/policies doesn't return profile; profile lives in source TOML.
+      // Pull from /api/config instead:
+      const cfg = await nx.fetch('/api/config');
+      if (cfg && cfg.retrieval && cfg.retrieval.default_profile) {
+        setText('pipelineProfile', 'profile: ' + cfg.retrieval.default_profile);
+        setText('pipeProfile2',    'profile: ' + cfg.retrieval.default_profile);
+      } else {
+        setText('pipelineProfile', 'profile: —');
+        setText('pipeProfile2',    'profile: —');
+      }
+    }
+  }
+
+  function updateWindowStats() {
+    const w = rollingWindow.snapshot();
+    setText('mRate',    w.qps != null ? fmt.rate(w.qps) : DASH);
+    const mRateEl = $('mRate');
+    if (mRateEl && w.qps != null) mRateEl.innerHTML = fmt.rate(w.qps) + '<span class="unit">/s</span>';
+    setText('mRateSub', `${w.n} events in last ${CONFIG.WINDOW_MS/1000}s`);
+
+    setText('pipeQps',       w.qps != null ? fmt.rate(w.qps) : DASH);
+    setText('pipeP50',       w.p50 != null ? fmt.ms(w.p50) : DASH);
+    setText('pipeP99',       w.p99 != null ? fmt.ms(w.p99) : DASH);
+    setText('pipeCacheRate', fmt.pct(w.cacheHitRate));
+    setText('pipeFiltered',  w.filtered);
+
+    setText('wQps', w.qps != null ? fmt.rate(w.qps) : DASH);
+    setText('wP99', w.p99 != null ? fmt.ms(w.p99) : DASH);
+  }
+
+  function onEvent(ev) {
+    const list = $('auditList');
+    if (list && $('view-control').classList.contains('active')) {
+      renderAuditLine(ev, list, 14);
+    }
+    if (ev.stages && $('view-control').classList.contains('active')) {
+      animateCascade('pipeline', ev);
+    }
+  }
+
+  return {
+    mount() {
+      refresh();
+      timer = setInterval(refresh, CONFIG.REFRESH_MS);
+      statsTimer = setInterval(updateWindowStats, 1000);
+      busOff = bus.on(onEvent);
+      updateWindowStats();
+    },
+    unmount() {
+      clearInterval(timer); timer = null;
+      clearInterval(statsTimer); statsTimer = null;
+      if (busOff) busOff();
+    }
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   AUDIT VIEW
+═══════════════════════════════════════════════════════════════════ */
+const auditView = (() => {
+  let busOff = null, timer = null;
+  const filters = { source: '', op: '', status: '', subject: '' };
+  let sessionStats = { total: 0, writes: 0, queries: 0, filtered: 0 };
+
+  function passes(ev) {
+    if (filters.source && ev.source !== filters.source) return false;
+    if (filters.op && ev.op !== filters.op) return false;
+    if (filters.status && ev.status !== filters.status) return false;
+    if (filters.subject && !(ev.subject||'').includes(filters.subject)) return false;
+    return true;
+  }
+
+  function renderRow(ev) {
+    sessionStats.total++;
+    if (ev.op === 'WRITE') sessionStats.writes++; else sessionStats.queries++;
+    if (ev.status === 'FILTERED') sessionStats.filtered++;
+    setText('audStatTotal', fmt.num(sessionStats.total));
+    setText('audStatWrites', fmt.num(sessionStats.writes));
+    setText('audStatQueries', fmt.num(sessionStats.queries));
+    setText('audStatFiltered', fmt.num(sessionStats.filtered));
+
+    const tbody = $('auditTableBody');
+    if (!tbody || !passes(ev)) return;
+    while (tbody.children.length > 200) tbody.firstChild.remove();
+    const tr = document.createElement('tr');
+    tr.className = ev.status === 'FILTERED' ? 'flash-amber' : ev.status === 'DENIED' ? 'flash-red' : '';
+    const polClass = ev.status === 'ALLOWED' ? 'ok' : ev.status === 'FILTERED' ? 'filt' : 'deny';
+    const subj = ev.subject || '<span style="color:var(--text-tertiary)">∅</span>';
+    tr.innerHTML = `
+      <td class="col-time">${fmt.ts(ev.ts)}</td>
+      <td class="col-op ${ev.op === 'WRITE' ? 'write' : 'query'}">${ev.op}</td>
+      <td class="col-src">${srcDot(ev.source)}${ev.source}</td>
+      <td class="col-subject"><code>${subj}</code></td>
+      <td class="col-detail">${ev.op === 'QUERY' ? 'results: ' + ev.result_count : 'payload accepted'}${ev.labels && ev.labels.length ? ' · labels:[' + ev.labels.join(',') + ']' : ''}</td>
+      <td class="col-status ${polClass}">${ev.status}</td>
+      <td class="col-lat">${ev.total_ms != null ? ev.total_ms.toFixed(1) + 'ms' : DASH}</td>
+    `;
+    tbody.appendChild(tr);
+    tbody.parentElement.scrollTop = tbody.parentElement.scrollHeight;
+  }
+
+  async function loadPersisted() {
+    const note = $('auditPersistedNote');
+    const log  = await nx.fetch('/api/audit/log', { limit: 50 });
+    if (!log) { if (note) { note.style.display = 'block'; note.textContent = '/api/audit/log unreachable'; } return; }
+    if (log.__notfound) { if (note) { note.style.display = 'block'; note.textContent = '/api/audit/log not implemented in this build'; } return; }
+    if (!log.records || log.records.length === 0) {
+      if (note) { note.style.display = 'block'; note.textContent = 'audit subsystem returns no records — enable [daemon.audit] in daemon.toml to persist interactions'; }
+      return;
+    }
+    if (note) note.style.display = 'none';
+    // Persisted records have a different shape (audit.InteractionRecord); render conservatively
+    const tbody = $('auditTableBody');
+    if (!tbody) return;
+    log.records.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.className = 'persisted';
+      tr.innerHTML = `
+        <td class="col-time">${fmt.ts(r.timestamp || r.ts)}</td>
+        <td class="col-op ${(r.operation_type||'').toLowerCase().includes('write') ? 'write' : 'query'}">${r.operation_type || '—'}</td>
+        <td class="col-src">${srcDot(r.source)}${r.source || '—'}</td>
+        <td class="col-subject"><code>${r.subject || '∅'}</code></td>
+        <td class="col-detail">${r.endpoint || ''}</td>
+        <td class="col-status ${(r.policy_decision || '').toLowerCase()}">${r.policy_decision || '—'}</td>
+        <td class="col-lat">${r.latency_ms != null ? r.latency_ms.toFixed(1) + 'ms' : DASH}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function bindFilters() {
+    [['audFilterSource','source'],['audFilterOp','op'],['audFilterStatus','status']].forEach(([id,key]) => {
+      const el = $(id); if (!el || el._bound) return; el._bound = true;
+      el.addEventListener('change', () => { filters[key] = el.value; });
+    });
+    const sub = $('audFilterSubject');
+    if (sub && !sub._bound) {
+      sub._bound = true;
+      sub.addEventListener('input', () => { filters.subject = sub.value; });
+    }
+  }
+
+  async function populateSourceFilter() {
+    const p = await nx.fetch('/api/policies');
+    const sel = $('audFilterSource');
+    if (sel && p && p.sources) {
+      const seen = new Set();
+      p.sources.forEach(s => {
+        if (seen.has(s.source)) return;
+        seen.add(s.source);
+        const opt = document.createElement('option');
+        opt.value = s.source; opt.textContent = s.source;
+        sel.appendChild(opt);
+      });
+    }
+  }
+
+  return {
+    mount() {
+      bindFilters();
+      populateSourceFilter();
+      loadPersisted();
+      busOff = bus.on(renderRow);
+      setText('audStatTotal', fmt.num(sessionStats.total));
+      setText('audStatWrites', fmt.num(sessionStats.writes));
+      setText('audStatQueries', fmt.num(sessionStats.queries));
+      setText('audStatFiltered', fmt.num(sessionStats.filtered));
+    },
+    unmount() {
+      clearInterval(timer); timer = null;
+      if (busOff) busOff();
+    }
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   SECURITY VIEW
+═══════════════════════════════════════════════════════════════════ */
+const securityView = (() => {
+  let timer = null;
+
+  async function refresh() {
+    const [summary, events, lint, policies] = await Promise.all([
+      nx.fetch('/api/security/summary'),
+      nx.fetch('/api/security/events'),
+      nx.fetch('/api/lint'),
+      nx.fetch('/api/policies')
+    ]);
+
+    if (summary) {
+      setText('secAuthFails',    fmt.num(summary.auth_failures_total));
+      setText('secPolicyDenies', fmt.num(summary.policy_denials_total));
+      setText('secRateLimits',   fmt.num(summary.rate_limit_hits_total));
+      setText('secAdminCalls',   fmt.num(summary.admin_calls_total));
+    } else {
+      ['secAuthFails','secPolicyDenies','secRateLimits','secAdminCalls'].forEach(id => setText(id, DASH));
+    }
+
+    const tbody = $('policyTableBody');
+    if (tbody) {
+      if (policies && policies.sources && policies.sources.length) {
+        tbody.innerHTML = policies.sources.map(p => `
+          <tr>
+            <td class="src">${srcDot(p.source)}${p.source}</td>
+            <td class="cap-cell ${p.can_read  ? 'cap-yes' : 'cap-no'}">${p.can_read  ? 'YES' : 'NO'}</td>
+            <td class="cap-cell ${p.can_write ? 'cap-yes' : 'cap-no'}">${p.can_write ? 'YES' : 'NO'}</td>
+            <td>${(p.allowed_destinations||[]).join(', ')}</td>
+            <td>${fmt.num(p.max_results)}</td>
+            <td>${fmt.num(p.max_response_bytes)}</td>
+            <td>${fmt.num(p.rate_limit_per_min)}/min</td>
+            <td><code style="font-size:9.5px;color:var(--text-tertiary)">${(p.policy_hash||'').slice(0,6)}…</code></td>
+          </tr>`).join('');
+      } else {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">no policy data</td></tr>';
+      }
+    }
+
+    const eList = $('secEventsList');
+    if (eList) {
+      if (events && events.events && events.events.length) {
+        eList.innerHTML = events.events.map(e => `
+          <div class="sec-event ${e.severity}">
+            <div class="sec-event-head">
+              <span class="sec-event-kind">${(e.kind||'').replace(/_/g,' ')}</span>
+              <span class="sec-event-ts">${new Date(e.ts).toLocaleTimeString()}</span>
+            </div>
+            <div class="sec-event-body">
+              ${e.source ? srcDot(e.source) + '<span style="color:var(--text-tertiary)">' + e.source + '</span> · ' : ''}${e.message || ''}
+            </div>
+          </div>`).join('');
+      } else {
+        eList.innerHTML = '<div class="empty-state">no recent security events</div>';
+      }
+    }
+
+    const lList = $('lintList');
+    if (lList) {
+      if (lint && lint.warnings && lint.warnings.length) {
+        lList.innerHTML = lint.warnings.map(w => `
+          <div class="lint-row ${w.severity}">
+            <span class="lint-sev">${(w.severity||'').toUpperCase()}</span>
+            <span class="lint-code"><code>${w.code}</code></span>
+            <span class="lint-msg">${w.message}</span>
+            <span class="lint-loc">${w.file}${w.line ? ':' + w.line : ''}</span>
+          </div>`).join('');
+      } else {
+        lList.innerHTML = '<div class="empty-state">no lint warnings</div>';
+      }
+    }
+  }
+
+  return {
+    mount()   { refresh(); timer = setInterval(refresh, CONFIG.REFRESH_MS); },
+    unmount() { clearInterval(timer); timer = null; }
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   PIPELINE VIEW
+═══════════════════════════════════════════════════════════════════ */
+const pipelineView = (() => {
+  let busOff = null, timer = null, winTimer = null;
+
+  async function refreshCache() {
+    const c = await nx.fetch('/api/cache');
+    if (c) {
+      setText('pipeCacheExact', fmt.num(c.exact && c.exact.hits));
+      setText('pipeCacheSem',   fmt.num(c.semantic && c.semantic.hits));
+      setText('pipeCacheMiss',  fmt.num(c.misses_total));
+      setText('pipeCacheEvict', fmt.num(c.evictions_total));
+      setText('pipeCacheWater', `${fmt.num(c.used)} / ${fmt.num(c.capacity)}`);
+    } else {
+      ['pipeCacheExact','pipeCacheSem','pipeCacheMiss','pipeCacheEvict','pipeCacheWater'].forEach(id => setText(id, DASH));
+    }
+  }
+
+  function refreshWindow() {
+    const w = rollingWindow.snapshot();
+    setText('pipeWinN',   w.n);
+    setText('pipeWinP50', w.p50 != null ? fmt.ms(w.p50) : DASH);
+    setText('pipeWinP95', w.p95 != null ? fmt.ms(w.p95) : DASH);
+    setText('pipeWinP99', w.p99 != null ? fmt.ms(w.p99) : DASH);
+    setText('pipeWinMax', w.max != null ? fmt.ms(w.max) : DASH);
+  }
+
+  function renderSseLine(ev) {
+    const list = $('sseList'); if (!list) return;
+    const empty = list.querySelector('.empty-state'); if (empty) empty.remove();
+    while (list.children.length > 60) list.firstChild.remove();
+    const line = document.createElement('div');
+    line.className = 'sse-line';
+    const stages = ev.stages
+      ? ev.stages.map(s => `<span class="sse-step ${s.hit?'hit':''} ${s.ms===0?'skip':''}">${s.name}:${s.ms.toFixed(2)}ms</span>`).join(' <span class="sse-arrow">→</span> ')
+      : '<span class="sse-step">write</span>';
+    line.innerHTML = `
+      <span class="sse-ts">${fmt.ts(ev.ts)}</span>
+      <span class="sse-req">${ev.request_id}</span>
+      <span class="sse-stages">${stages}</span>
+      <span class="sse-total">${ev.total_ms.toFixed(2)}ms</span>`;
+    list.appendChild(line);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  async function refreshProfile() {
+    const cfg = await nx.fetch('/api/config');
+    if (cfg && cfg.retrieval && cfg.retrieval.default_profile) {
+      setText('pipeProfile2', 'profile: ' + cfg.retrieval.default_profile);
+    }
+  }
+
+  function onEvent(ev) {
+    if (!$('view-pipeline').classList.contains('active')) return;
+    renderSseLine(ev);
+    animateCascade('pipelineHero', ev);
+  }
+
+  return {
+    mount() {
+      refreshCache();
+      refreshWindow();
+      stageEma.applyLabels();
+      refreshProfile();
+      timer = setInterval(refreshCache, CONFIG.REFRESH_MS);
+      winTimer = setInterval(refreshWindow, 1000);
+      busOff = bus.on(onEvent);
+    },
+    unmount() {
+      clearInterval(timer); timer = null;
+      clearInterval(winTimer); winTimer = null;
+      if (busOff) busOff();
+    }
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONFLICTS VIEW
+═══════════════════════════════════════════════════════════════════ */
+const conflictsView = (() => {
+  const filters = { source: '', actor_type: '', subject: '', limit: 50 };
+
+  async function refresh() {
+    const data = await nx.fetch('/api/conflicts', filters);
+    const list = $('conflictList');
+    const cnt = $('conflictCount');
+    if (!data) {
+      if (list) list.innerHTML = '<div class="empty-state">/api/conflicts unreachable</div>';
+      if (cnt)  { cnt.textContent = '— conflicts'; cnt.className = 'filter-pill'; }
+      return;
+    }
+    if (list) {
+      if (!data.conflicts || !data.conflicts.length) {
+        list.innerHTML = '<div class="empty-state">no conflicts found for current filters</div>';
+      } else {
+        list.innerHTML = data.conflicts.map(c => `
+          <div class="conflict-card">
+            <div class="conflict-head">
+              <div class="conflict-title">
+                <span class="conflict-id">${c.id}</span>
+                <span class="conflict-subject"><code>${c.subject}</code></span>
+                ${c.entity ? '<span class="conflict-entity">→ <code>' + c.entity + '</code></span>' : ''}
+              </div>
+              <span class="conflict-pill">${c.group_size} divergent</span>
+            </div>
+            <div class="conflict-mems">
+              ${(c.memories||[]).map(m => `
+                <div class="conflict-mem">
+                  <div class="conflict-mem-meta">
+                    ${srcDot(m.source)}${m.source} · ${m.actor_type} · ${new Date(m.ts).toLocaleString()}
+                  </div>
+                  <div class="conflict-mem-content">${escapeHtml(m.content || '')}</div>
+                </div>`).join('')}
+            </div>
+          </div>`).join('');
+      }
+    }
+    if (cnt) {
+      const n = (data.conflicts||[]).length;
+      cnt.textContent = n + (n === 1 ? ' conflict' : ' conflicts');
+      cnt.className = 'filter-pill ' + (n ? 'amber' : 'green');
+      // Witness HUD mirror
+      const chip = $('wConflictsChip');
+      if (chip) chip.style.display = n > 0 ? '' : 'none';
+      setText('wConflicts', n + ' pending');
+    }
+  }
+
+  function escapeHtml(s) { return s.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+  function bindFilters() {
+    [['confFilterSource','source'],['confFilterActor','actor_type'],['confFilterLimit','limit']].forEach(([id,key]) => {
+      const el = $(id); if (!el || el._bound) return; el._bound = true;
+      el.addEventListener('change', () => { filters[key] = el.value; refresh(); });
+    });
+    const sub = $('confFilterSubject');
+    if (sub && !sub._bound) {
+      sub._bound = true;
+      let t;
+      sub.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { filters.subject = sub.value; refresh(); }, 250); });
+    }
+  }
+
+  async function populateSourceFilter() {
+    const p = await nx.fetch('/api/policies');
+    const sel = $('confFilterSource');
+    if (sel && p && p.sources) {
+      const seen = new Set();
+      p.sources.forEach(s => {
+        if (seen.has(s.source)) return;
+        seen.add(s.source);
+        const opt = document.createElement('option');
+        opt.value = s.source; opt.textContent = s.source;
+        sel.appendChild(opt);
+      });
+    }
+  }
+
+  return {
+    mount() { bindFilters(); populateSourceFilter(); refresh(); },
+    unmount() {}
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   SETTINGS / EFFECTIVE CONFIG VIEW — wired to /api/config
+═══════════════════════════════════════════════════════════════════ */
+const settingsView = (() => {
+  let timer = null;
+
+  function row(k, v, cls) {
+    return `<div class="cfg-row"><span class="k">${k}</span><span class="v ${cls||''}">${v == null || v === '' ? DASH : v}</span></div>`;
+  }
+
+  function section(title, icon, rows) {
+    return `<div class="cfg-section">
+      <div class="cfg-section-title">${icon}${title}</div>
+      ${rows}
+    </div>`;
+  }
+
+  async function refresh() {
+    const [cfg, status] = await Promise.all([nx.fetch('/api/config'), nx.fetch('/api/status')]);
+    const grid = $('cfgGrid');
+    if (!grid) return;
+    if (!cfg) { grid.innerHTML = '<div class="empty-state">/api/config unreachable</div>'; return; }
+
+    const ic = (svg) => `<svg viewBox="0 0 24 24">${svg}</svg>`;
+    const html = [];
+
+    html.push(section('Daemon', ic('<rect x="2" y="2" width="20" height="20" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/>'),
+      row('mode', `<code>${cfg.daemon.mode}</code>`) +
+      row('bind', `<code>${cfg.daemon.bind}:${cfg.daemon.port}</code>`) +
+      row('log_level', cfg.daemon.log_level) +
+      row('queue_size', fmt.num(cfg.daemon.queue_size)) +
+      row('pid', fmt.num(status && status.pid)) +
+      row('goroutines', fmt.num(status && status.goroutines)) +
+      row('memory', fmt.bytes(status && status.memory_resident_bytes))
+    ));
+
+    html.push(section('WAL', ic('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>'),
+      row('path', `<code>${cfg.wal.path}</code>`) +
+      row('integrity_mode', cfg.wal.integrity_mode) +
+      row('encryption', cfg.wal.encryption_enabled ? 'enabled' : 'disabled', cfg.wal.encryption_enabled ? 'green' : '') +
+      row('max_segment', cfg.wal.max_segment_size_mb + ' MB') +
+      row('watchdog', 'every ' + cfg.wal.watchdog_interval_s + 's') +
+      row('healthy', status && status.wal && status.wal.healthy ? 'YES' : 'NO',
+          status && status.wal && status.wal.healthy ? 'green' : 'red') +
+      row('pending', fmt.num(status && status.wal && status.wal.pending_entries)) +
+      row('current_segment', `<code>${status && status.wal && status.wal.current_segment}</code>`)
+    ));
+
+    html.push(section('MCP', ic('<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/>'),
+      row('enabled', cfg.mcp.enabled ? 'YES' : 'NO', cfg.mcp.enabled ? 'green' : '') +
+      row('bind', `<code>${cfg.mcp.bind}:${cfg.mcp.port}</code>`) +
+      row('source_name', cfg.mcp.source_name)
+    ));
+
+    html.push(section('Web Dashboard', ic('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>'),
+      row('port', cfg.web.port) +
+      row('require_auth', cfg.web.require_auth ? 'YES' : 'NO', cfg.web.require_auth ? 'green' : 'amber')
+    ));
+
+    html.push(section('Embedding', ic('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/>'),
+      row('enabled', cfg.embedding.enabled ? 'YES' : 'NO', cfg.embedding.enabled ? 'green' : '') +
+      row('provider', cfg.embedding.provider) +
+      row('model', cfg.embedding.model) +
+      row('dimensions', cfg.embedding.dimensions || DASH)
+    ));
+
+    html.push(section('TLS', ic('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
+      row('enabled', cfg.tls.enabled ? 'YES' : 'NO', cfg.tls.enabled ? 'green' : 'amber') +
+      row('min_version', cfg.tls.min_version)
+    ));
+
+    html.push(section('Rate Limit', ic('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'),
+      row('global_rpm', fmt.num(cfg.rate_limit.global_rpm))
+    ));
+
+    html.push(section('Retrieval', ic('<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
+      row('time_decay', cfg.retrieval.time_decay ? 'YES' : 'NO', cfg.retrieval.time_decay ? 'green' : '') +
+      row('half_life_days', cfg.retrieval.half_life_days) +
+      row('default_profile', cfg.retrieval.default_profile)
+    ));
+
+    html.push(section('Audit', ic('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/>'),
+      row('enabled', cfg.audit.enabled ? 'YES' : 'NO', cfg.audit.enabled ? 'green' : 'amber') +
+      row('dual_write', cfg.audit.dual_write ? 'YES' : 'NO')
+    ));
+
+    html.push(section('Sources / Destinations', ic('<circle cx="12" cy="12" r="9"/>'),
+      row('sources', (cfg.sources||[]).map(s => '<code>'+s+'</code>').join(' ')) +
+      row('destinations', (cfg.destinations||[]).map(d => '<code>'+d+'</code>').join(' '))
+    ));
+
+    grid.innerHTML = html.join('');
+  }
+
+  return {
+    mount()   { refresh(); timer = setInterval(refresh, CONFIG.REFRESH_MS); },
+    unmount() { clearInterval(timer); timer = null; }
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   ROUTER
+═══════════════════════════════════════════════════════════════════ */
+const router = (() => {
+  const views = {
+    control:   controlView,
+    audit:     auditView,
+    security:  securityView,
+    pipeline:  pipelineView,
+    conflicts: conflictsView,
+    settings:  settingsView
+  };
+  let current = null;
+
+  function go(name) {
+    if (!views[name]) return;
+    if (current && current.name === name) return;
+    if (current) {
+      try { views[current.name].unmount(); } catch(e) {}
+      $('view-' + current.name).classList.remove('active');
+      const prev = document.querySelector(`.nav-btn[data-view="${current.name}"]`);
+      if (prev) prev.classList.remove('active');
+    }
+    $('view-' + name).classList.add('active');
+    const btn = document.querySelector(`.nav-btn[data-view="${name}"]`);
+    if (btn) btn.classList.add('active');
+    try { views[name].mount(); } catch(e) { console.error('mount failed:', name, e); }
+    current = { name };
+  }
+
+  function bind() {
+    document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => go(btn.dataset.view));
+    });
+  }
+
+  return { go, bind, current: () => current };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   WITNESS MODE — cards spawn ONLY from real SSE events
+═══════════════════════════════════════════════════════════════════ */
+const FORBIDDEN_CELLS = new Set([2, 7]);  // keep middle column clear for fact strips
+const wGrid = new Array(10).fill(null);
+
+function spawnWitnessFromEvent(ev) {
+  const field = $('witnessField');
+  if (!field || !$('witnessOverlay').classList.contains('visible')) return;
+
+  // Build the card text from the real event. For QUERY events the most
+  // user-meaningful thing is the request_id + result_count + subject.
+  // For WRITE events the same. We do NOT make up memory content.
+  const subj = ev.subject || '∅';
+  const text = ev.op === 'WRITE'
+    ? `WRITE accepted · subject:${subj}`
+    : `QUERY → ${ev.result_count} result${ev.result_count === 1 ? '' : 's'} · subject:${subj}`;
+
+  let ci = -1;
+  const valid = [];
+  for (let i = 0; i < 10; i++) if (!wGrid[i] && !FORBIDDEN_CELLS.has(i)) valid.push(i);
+  if (valid.length === 0) {
+    let oi = -1, ot = Infinity;
+    for (let i = 0; i < 10; i++) if (wGrid[i] && !FORBIDDEN_CELLS.has(i) && wGrid[i].t < ot) { ot = wGrid[i].t; oi = i; }
+    if (oi === -1) return;
+    if (wGrid[oi].el.parentNode) wGrid[oi].el.parentNode.removeChild(wGrid[oi].el);
+    wGrid[oi] = null;
+    ci = oi;
+  } else {
+    ci = valid[Math.floor(Math.random()*valid.length)];
+  }
+
+  const cell = document.createElement('div'); cell.className = 'w-cell';
+  cell.style.gridColumn = ((ci%5)+1);
+  cell.style.gridRow    = (Math.floor(ci/5)+1);
+  const col = srcColor(ev.source);
+  const card = document.createElement('div'); card.className = 'w-card ' + col.cls;
+  const txt  = document.createElement('div'); txt.className  = 'wc-text'; txt.textContent = text;
+  const meta = document.createElement('div'); meta.className = 'wc-meta';
+  meta.textContent = `${ev.source} · ${ev.actor_type} · ${ev.total_ms.toFixed(1)}ms · ${ev.status}`;
+  const bar  = document.createElement('div'); bar.className  = 'wc-bar';
+  const fill = document.createElement('div'); fill.className = 'wc-fill';
+  bar.appendChild(fill);
+  card.appendChild(txt); card.appendChild(meta); card.appendChild(bar);
+  cell.appendChild(card);
+  field.appendChild(cell);
+  wGrid[ci] = { el: cell, t: Date.now() };
+
+  // animate in, then decay
+  requestAnimationFrame(() => {
+    card.style.opacity = '1';
+    card.style.transform = 'translateZ(0) scale(1)';
+    fill.style.width = '100%';
+  });
+  setTimeout(() => { fill.style.transition = '35s linear'; fill.style.width = '0%'; }, 50);
+}
+
+bus.on(spawnWitnessFromEvent);
+
+function bindWitness() {
+  const open = () => {
+    $('witnessOverlay').classList.add('visible');
+    $('modeWitness').classList.add('active');
+    $('modeOps').classList.remove('active');
+  };
+  const close = () => {
+    $('witnessOverlay').classList.remove('visible');
+    $('modeOps').classList.add('active');
+    $('modeWitness').classList.remove('active');
+  };
+  $('modeWitness').addEventListener('click', open);
+  $('witnessBtn').addEventListener('click', open);
+  $('witnessClose').addEventListener('click', close);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   AMBIENT — keep witness HUD live regardless of active view
+═══════════════════════════════════════════════════════════════════ */
+function startAmbient() {
+  async function tick() {
+    const s = await nx.fetch('/api/status');
+    if (!s) return;
+    setText('wCount',  fmt.num(s.memories_total));
+    setText('wUptime', fmt.uptime(s.uptime_seconds));
+    setText('wWal',    fmt.num(s.wal && s.wal.pending_entries));
+    setText('wHealth', (s.wal && s.wal.healthy) ? 'HEALTHY' : 'DEGRADED');
+    setText('wBuild',  'v' + s.version);
+    setText('wBind',   s.bind);
+    setText('wSources', s.sources_total);
+    setText('uptime',  'uptime ' + fmt.uptime(s.uptime_seconds));
+  }
+  tick();
+  setInterval(tick, CONFIG.REFRESH_MS);
+
+  // Mirror events into witness log
+  bus.on((ev) => {
+    const wl = $('witnessLogList');
+    if (wl) renderAuditLine(ev, wl, 14);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BOOT
+═══════════════════════════════════════════════════════════════════ */
+(function boot() {
+  router.bind();
+  bindWitness();
+  bus.start();
+  startAmbient();
+  router.go('control');
+})();
+</script>
+
+
+</html>

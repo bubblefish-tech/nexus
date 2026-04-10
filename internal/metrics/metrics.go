@@ -1,0 +1,513 @@
+// Copyright © 2026 BubbleFish Technologies, Inc.
+//
+// This file is part of BubbleFish Nexus.
+//
+// BubbleFish Nexus is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// BubbleFish Nexus is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
+
+// Package metrics provides a private Prometheus registry and all initial
+// BubbleFish Nexus metrics. Every metric registered here has at least one
+// code path that increments or observes it — permanently-zero metrics are bugs.
+//
+// INVARIANT: Never use prometheus.DefaultRegisterer. All metrics live
+// exclusively on the private registry returned by New().
+//
+// Reference: Tech Spec Section 11.3, Phase 0D Behavioral Contract items 1–3.
+package metrics
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+)
+
+// Metrics holds the private Prometheus registry and all registered counters,
+// gauges, and histograms. All metric names use the "bubblefish_" prefix.
+//
+// Initialize with New(). Never embed or copy — pass by pointer.
+type Metrics struct {
+	reg *prometheus.Registry
+
+	// ── Write path ──────────────────────────────────────────────────────────
+	// PayloadProcessingLatency is the end-to-end write path latency, labeled
+	// by source. Observed in handleWrite on each accepted payload.
+	PayloadProcessingLatency *prometheus.HistogramVec
+
+	// ThroughputPerSource counts successful writes per source.
+	// Incremented in handleWrite after WAL + enqueue succeed.
+	ThroughputPerSource *prometheus.CounterVec
+
+	// ErrorsTotal counts errors by type label (e.g. "wal_append", "unmarshal").
+	// Incremented whenever a write or queue operation fails fatally.
+	ErrorsTotal *prometheus.CounterVec
+
+	// ── Read path ────────────────────────────────────────────────────────────
+	// ReadLatency is the end-to-end read path latency, labeled by source and
+	// endpoint. Observed in handleQuery on each completed read.
+	ReadLatency *prometheus.HistogramVec
+
+	// ── Queue ────────────────────────────────────────────────────────────────
+	// QueueDepth is the current number of entries buffered in the queue channel.
+	// Updated by the daemon's watchdog goroutine and on each enqueue/dequeue.
+	QueueDepth prometheus.Gauge
+
+	// QueueProcessingRate counts payloads successfully dequeued and written.
+	// Incremented by the queue worker on each successful destination write.
+	QueueProcessingRate prometheus.Counter
+
+	// ── WAL ──────────────────────────────────────────────────────────────────
+	// WALPendingEntries is the count of WAL entries not yet DELIVERED.
+	// Set after replay and updated by the WAL watchdog.
+	WALPendingEntries prometheus.Gauge
+
+	// WALDiskBytesFree is the available disk space on the WAL partition.
+	// Updated by the WAL watchdog and doctor.
+	WALDiskBytesFree prometheus.Gauge
+
+	// WALHealthy is 1 when the WAL watchdog reports healthy, 0 otherwise.
+	// Set by the WAL watchdog goroutine.
+	WALHealthy prometheus.Gauge
+
+	// WALAppendLatency is the per-Append fsync latency.
+	// Observed in handleWrite around each wal.Append call.
+	WALAppendLatency prometheus.Histogram
+
+	// WALCRCFailures counts CRC32 mismatches detected during replay.
+	// Incremented after replay by syncing WAL.CRCFailures().
+	WALCRCFailures prometheus.Counter
+
+	// WALIntegrityFailures counts HMAC mismatches during replay (integrity=mac).
+	// Incremented when integrity checking is enabled and a MAC fails.
+	WALIntegrityFailures prometheus.Counter
+
+	// ── Replay ───────────────────────────────────────────────────────────────
+	// ReplayEntriesTotal counts WAL entries processed during startup replay.
+	// Incremented once per PENDING entry in replayWAL.
+	ReplayEntriesTotal prometheus.Counter
+
+	// ReplayDurationSeconds records the wall-clock time spent on WAL replay.
+	// Set (not incremented) in replayWAL after replay completes.
+	ReplayDurationSeconds prometheus.Gauge
+
+	// ── Auth ─────────────────────────────────────────────────────────────────
+	// AuthFailuresTotal counts authentication failures by source label.
+	// Incremented in authenticate() when no key matches.
+	AuthFailuresTotal *prometheus.CounterVec
+
+	// ── Policy ───────────────────────────────────────────────────────────────
+	// PolicyDenialsTotal counts policy gate rejections by source and reason.
+	// Incremented whenever a policy check denies a request (403).
+	// Reference: Tech Spec Section 11.3.
+	PolicyDenialsTotal *prometheus.CounterVec
+
+	// ── Rate limit ───────────────────────────────────────────────────────────
+	// RateLimitHitsTotal counts rate limit rejections by source label.
+	// Incremented in handleWrite and handleQuery when Allow() returns false.
+	RateLimitHitsTotal *prometheus.CounterVec
+
+	// ── Admin ────────────────────────────────────────────────────────────────
+	// AdminCallsTotal counts admin endpoint calls by endpoint label.
+	// Incremented in the admin middleware (requireAdminToken success path).
+	AdminCallsTotal *prometheus.CounterVec
+
+	// ── Config ───────────────────────────────────────────────────────────────
+	// ConfigLintWarnings is the number of non-fatal config lint warnings.
+	// Set after config load and after each hot reload.
+	ConfigLintWarnings prometheus.Gauge
+
+	// ── Embedding (Stage 4) ──────────────────────────────────────────────────
+	// EmbeddingLatency is the end-to-end embedding provider call duration.
+	// Observed in the cascade Stage 4 path on each Embed() call.
+	// Reference: Tech Spec Section 11.3.
+	EmbeddingLatency prometheus.Histogram
+
+	// ── Temporal Decay (Stage 5) ─────────────────────────────────────────────
+	// TemporalDecayApplied counts the number of times temporal decay reranking
+	// was applied in Stage 5 (Hybrid Merge + Temporal Decay).
+	// Reference: Tech Spec Section 11.3.
+	TemporalDecayApplied prometheus.Counter
+
+	// ── Visualization ───────────────────────────────────────────────────────
+	// VizEventsDroppedTotal counts pipeline visualization events dropped
+	// (channel full). Reference: Tech Spec Section 11.3.
+	VizEventsDroppedTotal prometheus.Counter
+
+	// ── Event Sink ──────────────────────────────────────────────────────────
+	// EventsDroppedTotal counts event sink events dropped (channel full).
+	// Reference: Tech Spec Section 11.3.
+	EventsDroppedTotal prometheus.Counter
+
+	// EventsDeliveredTotal counts event sink events successfully delivered.
+	// Reference: Tech Spec Section 11.3.
+	EventsDeliveredTotal prometheus.Counter
+
+	// EventsFailedTotal counts event sink delivery failures (retries exhausted).
+	// Reference: Tech Spec Section 11.3.
+	EventsFailedTotal prometheus.Counter
+
+	// ── Consistency ──────────────────────────────────────────────────────────
+	// ConsistencyScore is the WAL-to-destination consistency score (0.0–1.0).
+	// Set by the consistency checker background goroutine.
+	// Reference: Tech Spec Section 11.5.
+	ConsistencyScore prometheus.Gauge
+
+	// ── Audit (Interaction Log) ─────────────────────────────────────────────
+	// AuditLogErrorsTotal counts audit log write failures by file label
+	// (primary or shadow). Incremented when a write or fsync fails.
+	// Reference: Update U1.3.
+	AuditLogErrorsTotal *prometheus.CounterVec
+
+	// AuditShadowErrorsTotal counts shadow file write failures.
+	// Reference: Update U1.7.
+	AuditShadowErrorsTotal prometheus.Counter
+
+	// AuditCRCFailuresTotal counts records where both primary and shadow had
+	// CRC32 mismatches (unrecoverable corruption).
+	// Reference: Update U1.7.
+	AuditCRCFailuresTotal prometheus.Counter
+
+	// AuditShadowRecoveriesTotal counts records recovered from shadow after
+	// primary corruption.
+	// Reference: Update U1.7.
+	AuditShadowRecoveriesTotal prometheus.Counter
+
+	// ── Audit (Interaction Log) — API & Emission ───────────────────────────
+	// AuditRecordsTotal counts interaction records written, labeled by
+	// operation_type and policy_decision.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditRecordsTotal *prometheus.CounterVec
+
+	// AuditLogBytes is the current interaction log file size in bytes.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditLogBytes prometheus.Gauge
+
+	// AuditLogRotationTotal counts interaction log file rotations.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditLogRotationTotal prometheus.Counter
+
+	// AuditQueryLatency is the /api/audit/log query latency.
+	// Reference: Tech Spec Addendum Section A2.6.
+	AuditQueryLatency prometheus.Histogram
+
+	// ── Retrieval Firewall ──────────────────────────────────────────────────
+	// FirewallFilteredTotal counts memories filtered (removed) by the retrieval
+	// firewall, labeled by source and label that triggered the filter.
+	// Reference: Tech Spec Addendum Section A2.6, A3.8.
+	FirewallFilteredTotal *prometheus.CounterVec
+
+	// FirewallDeniedTotal counts queries fully denied by the retrieval firewall,
+	// labeled by source.
+	// Reference: Tech Spec Addendum Section A2.6, A3.8.
+	FirewallDeniedTotal *prometheus.CounterVec
+
+	// FirewallLatency is the retrieval firewall filtering duration, labeled by
+	// source. Reference: Tech Spec Addendum Section A3.8.
+	FirewallLatency *prometheus.HistogramVec
+}
+
+// New creates a Metrics with a private Prometheus registry. All metrics are
+// registered exclusively on this private registry — prometheus.DefaultRegisterer
+// is never touched.
+//
+// New() never returns an error; MustRegister panics only on programming errors
+// (duplicate names), which cannot occur with a fresh private registry.
+func New() *Metrics {
+	reg := prometheus.NewRegistry()
+
+	// Register standard Go runtime and process metrics on the private registry.
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
+	m := &Metrics{reg: reg}
+
+	// ── Write path ──────────────────────────────────────────────────────────
+	m.PayloadProcessingLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "bubblefish_payload_processing_latency_seconds",
+			Help:    "Full write path latency by source.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"source"},
+	)
+	m.ThroughputPerSource = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_throughput_per_source_total",
+			Help: "Successful writes by source.",
+		},
+		[]string{"source"},
+	)
+	m.ErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_errors_total",
+			Help: "Errors by type label.",
+		},
+		[]string{"type"},
+	)
+
+	// ── Read path ────────────────────────────────────────────────────────────
+	m.ReadLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "bubblefish_read_latency_seconds",
+			Help:    "Full read path latency by source and endpoint.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"source", "endpoint"},
+	)
+
+	// ── Queue ────────────────────────────────────────────────────────────────
+	m.QueueDepth = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_queue_depth",
+		Help: "Current queue depth.",
+	})
+	m.QueueProcessingRate = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_queue_processing_rate_total",
+		Help: "Payloads dequeued and successfully written.",
+	})
+
+	// ── WAL ──────────────────────────────────────────────────────────────────
+	m.WALPendingEntries = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_wal_pending_entries",
+		Help: "WAL entries not yet DELIVERED.",
+	})
+	m.WALDiskBytesFree = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_wal_disk_bytes_free",
+		Help: "Free disk on WAL partition.",
+	})
+	m.WALHealthy = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_wal_healthy",
+		Help: "1 if WAL watchdog healthy, 0 if not.",
+	})
+	m.WALAppendLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "bubblefish_wal_append_latency_seconds",
+		Help:    "WAL append + fsync latency.",
+		Buckets: prometheus.DefBuckets,
+	})
+	m.WALCRCFailures = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_wal_crc_failures_total",
+		Help: "CRC32 mismatches on replay.",
+	})
+	m.WALIntegrityFailures = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_wal_integrity_failures_total",
+		Help: "HMAC mismatches on replay (integrity=mac).",
+	})
+
+	// ── Replay ───────────────────────────────────────────────────────────────
+	m.ReplayEntriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_replay_entries_total",
+		Help: "WAL entries processed during replay.",
+	})
+	m.ReplayDurationSeconds = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_replay_duration_seconds",
+		Help: "Time spent on WAL replay at startup.",
+	})
+
+	// ── Auth ─────────────────────────────────────────────────────────────────
+	m.AuthFailuresTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_auth_failures_total",
+			Help: "Auth failures by source label.",
+		},
+		[]string{"source"},
+	)
+
+	// ── Policy ──────────────────────────────────────────────────────────────
+	m.PolicyDenialsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_policy_denials_total",
+			Help: "Policy gate rejections by source and reason.",
+		},
+		[]string{"source", "reason"},
+	)
+
+	// ── Rate limit ───────────────────────────────────────────────────────────
+	m.RateLimitHitsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_rate_limit_hits_total",
+			Help: "Rate limit hits by source label.",
+		},
+		[]string{"source"},
+	)
+
+	// ── Admin ────────────────────────────────────────────────────────────────
+	m.AdminCallsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_admin_calls_total",
+			Help: "Admin endpoint calls by endpoint label.",
+		},
+		[]string{"endpoint"},
+	)
+
+	// ── Config ───────────────────────────────────────────────────────────────
+	m.ConfigLintWarnings = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_config_lint_warnings",
+		Help: "Number of config lint warnings.",
+	})
+
+	// ── Embedding ────────────────────────────────────────────────────────────
+	m.EmbeddingLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "bubblefish_embedding_latency_seconds",
+		Help:    "Embedding provider call duration.",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	// ── Temporal Decay ───────────────────────────────────────────────────────
+	m.TemporalDecayApplied = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_temporal_decay_applied_total",
+		Help: "Number of times temporal decay reranking was applied in Stage 5.",
+	})
+
+	// ── Visualization ───────────────────────────────────────────────────────
+	m.VizEventsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_visualization_events_dropped_total",
+		Help: "Pipeline visualization events dropped (channel full).",
+	})
+
+	// ── Event Sink ──────────────────────────────────────────────────────────
+	m.EventsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_events_dropped_total",
+		Help: "Event sink events dropped (channel full).",
+	})
+	m.EventsDeliveredTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_events_delivered_total",
+		Help: "Event sink events successfully delivered.",
+	})
+	m.EventsFailedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_events_failed_total",
+		Help: "Event sink delivery failures.",
+	})
+
+	// ── Consistency ──────────────────────────────────────────────────────────
+	m.ConsistencyScore = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_consistency_score",
+		Help: "WAL-to-destination consistency score (0.0-1.0).",
+	})
+
+	// ── Audit (Interaction Log) ─────────────────────────────────────────────
+	m.AuditLogErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_audit_log_errors_total",
+			Help: "Audit log write failures by file label.",
+		},
+		[]string{"file"},
+	)
+	m.AuditShadowErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_shadow_errors_total",
+		Help: "Shadow file write failures.",
+	})
+	m.AuditCRCFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_crc_failures_total",
+		Help: "Records with CRC32 mismatch (both primary and shadow corrupt).",
+	})
+	m.AuditShadowRecoveriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_shadow_recoveries_total",
+		Help: "Records recovered from shadow after primary corruption.",
+	})
+
+	// ── Audit (Interaction Log) — API & Emission ───────────────────────────
+	m.AuditRecordsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_audit_records_total",
+			Help: "Interaction records written by operation_type and policy_decision.",
+		},
+		[]string{"operation_type", "policy_decision"},
+	)
+	m.AuditLogBytes = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "bubblefish_audit_log_bytes",
+		Help: "Current interaction log file size in bytes.",
+	})
+	m.AuditLogRotationTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "bubblefish_audit_log_rotation_total",
+		Help: "Interaction log file rotations.",
+	})
+	m.AuditQueryLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "bubblefish_audit_query_latency_seconds",
+		Help:    "/api/audit/log query latency.",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	// ── Retrieval Firewall ──────────────────────────────────────────────────
+	m.FirewallFilteredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_retrieval_firewall_filtered_total",
+			Help: "Memories filtered by retrieval firewall.",
+		},
+		[]string{"source", "label"},
+	)
+	m.FirewallDeniedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_retrieval_firewall_denied_total",
+			Help: "Queries fully denied by retrieval firewall.",
+		},
+		[]string{"source"},
+	)
+	m.FirewallLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "bubblefish_retrieval_firewall_latency_seconds",
+			Help:    "Retrieval firewall filtering duration.",
+			Buckets: []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005},
+		},
+		[]string{"source"},
+	)
+
+	// Register all application metrics on the private registry.
+	reg.MustRegister(
+		m.PayloadProcessingLatency,
+		m.ThroughputPerSource,
+		m.ErrorsTotal,
+		m.ReadLatency,
+		m.QueueDepth,
+		m.QueueProcessingRate,
+		m.WALPendingEntries,
+		m.WALDiskBytesFree,
+		m.WALHealthy,
+		m.WALAppendLatency,
+		m.WALCRCFailures,
+		m.WALIntegrityFailures,
+		m.ReplayEntriesTotal,
+		m.ReplayDurationSeconds,
+		m.AuthFailuresTotal,
+		m.PolicyDenialsTotal,
+		m.RateLimitHitsTotal,
+		m.AdminCallsTotal,
+		m.ConfigLintWarnings,
+		m.EmbeddingLatency,
+		m.TemporalDecayApplied,
+		m.VizEventsDroppedTotal,
+		m.EventsDroppedTotal,
+		m.EventsDeliveredTotal,
+		m.EventsFailedTotal,
+		m.ConsistencyScore,
+		m.AuditLogErrorsTotal,
+		m.AuditShadowErrorsTotal,
+		m.AuditCRCFailuresTotal,
+		m.AuditShadowRecoveriesTotal,
+		m.AuditRecordsTotal,
+		m.AuditLogBytes,
+		m.AuditLogRotationTotal,
+		m.AuditQueryLatency,
+		m.FirewallFilteredTotal,
+		m.FirewallDeniedTotal,
+		m.FirewallLatency,
+	)
+
+	return m
+}
+
+// Registry returns the private Prometheus registry. Pass to
+// promhttp.HandlerFor to serve the /metrics endpoint.
+//
+// Reference: Tech Spec Section 12 (/metrics endpoint), Phase 0D item 4.
+func (m *Metrics) Registry() *prometheus.Registry {
+	return m.reg
+}

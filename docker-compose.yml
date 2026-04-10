@@ -1,0 +1,79 @@
+# BubbleFish Nexus — Docker Compose
+# Reference deployment with volumes, secrets, read-only filesystem, and health check.
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f nexus
+#   docker compose down
+#
+# Secrets: Create files in ./secrets/ before starting:
+#   echo "your-admin-token" > secrets/admin_token
+#   echo "your-source-key"  > secrets/source_api_key
+
+services:
+  nexus:
+    build: .
+    image: bubblefish-nexus:0.1.0
+    container_name: bubblefish-nexus
+    restart: unless-stopped
+
+    # Read-only root filesystem for security hardening.
+    read_only: true
+
+    # Writable tmpfs for runtime needs.
+    tmpfs:
+      - /tmp:size=64M
+
+    ports:
+      - "8080:8080"   # Daemon HTTP API
+      - "7474:7474"   # MCP server
+      - "8081:8081"   # Web dashboard
+
+    volumes:
+      # Persistent config — mount your config directory.
+      - nexus-config:/home/nexus/.bubblefish/Nexus/sources:ro
+      - nexus-destinations:/home/nexus/.bubblefish/Nexus/destinations:ro
+      - nexus-compiled:/home/nexus/.bubblefish/Nexus/compiled
+
+      # Persistent WAL and database — MUST be writable.
+      - nexus-wal:/home/nexus/.bubblefish/Nexus/wal
+      - nexus-data:/home/nexus/.bubblefish/Nexus
+
+    secrets:
+      - admin_token
+      - source_api_key
+
+    environment:
+      # Reference secrets via file: prefix in daemon.toml.
+      # Example daemon.toml: admin_token = "file:/run/secrets/admin_token"
+      - NEXUS_ADMIN_TOKEN=file:/run/secrets/admin_token
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    # Resource limits.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "2.0"
+        reservations:
+          memory: 128M
+          cpus: "0.5"
+
+volumes:
+  nexus-config:
+  nexus-destinations:
+  nexus-compiled:
+  nexus-wal:
+  nexus-data:
+
+secrets:
+  admin_token:
+    file: ./secrets/admin_token
+  source_api_key:
+    file: ./secrets/source_api_key

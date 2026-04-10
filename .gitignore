@@ -1,0 +1,88 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+__debug_bin*
+
+# Build output
+dist/
+compiled/
+
+# Go toolchain
+vendor/
+*.test
+*.out
+coverage.*
+
+# Logs and WAL data
+*.log
+*.jsonl
+backups/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Load test artifacts
+loadtest*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# === Runtime state and sandbox directories ===
+daemon.toml
+*.db
+*.wal
+*.sig
+/audit/
+/security/
+/data/
+Test/
+v010-dogfood/
+/tmp/
+/scratch/
+
+# === Build artifacts ===
+bubblefish-nexus.mcpb
+
+# === Environment files ===
+*.env
+
+# === Local tool settings ===
+.claude/
+
+# === Diagnostic artifacts ===
+oauth_audit_bundle.txt
+oauth_remediation_test_output.txt
+jwt_token.txt
+.mcp.json
+
+# === Runtime state and sandbox directories ===
+
+# === Build artifacts ===
+
+# === Environment files ===
+
+# === Local tool settings ===
+
+# === Diagnostic artifacts ===
+CLAUDE.md
+KNOWN_LIMITATIONS.md
+bench/*-results-*
+*.bak
+mcpb-loopback/
+mcpb-stdio/
+mcpb-studio/

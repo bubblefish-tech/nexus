@@ -1,0 +1,21 @@
+{
+  "name": "@bubblefish/openclaw-nexus",
+  "version": "1.0.0",
+  "description": "BubbleFish Nexus memory plugin for OpenClaw — sovereign local-first AI memory",
+  "type": "module",
+  "main": "./index.ts",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
+  "keywords": ["openclaw", "memory", "nexus", "bubblefish", "local-first"],
+  "license": "AGPL-3.0",
+  "author": "BubbleFish Technologies, Inc.",
+  "homepage": "https://github.com/bubblefish-tech/nexus",
+  "peerDependencies": {
+    "openclaw": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@sinclair/typebox": "^0.32.0",
+    "typescript": "^5.0.0"
+  }
+}

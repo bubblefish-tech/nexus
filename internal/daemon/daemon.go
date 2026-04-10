@@ -1,0 +1,1273 @@
+// Copyright © 2026 BubbleFish Technologies, Inc.
+//
+// This file is part of BubbleFish Nexus.
+//
+// BubbleFish Nexus is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// BubbleFish Nexus is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
+
+// Package daemon implements the BubbleFish Nexus gateway daemon. It wires
+// together the WAL, queue, idempotency store, destination adapter, HTTP server,
+// authentication middleware, request handlers, Prometheus metrics, hot reload
+// watcher, and 3-stage graceful shutdown.
+//
+// Lifecycle:
+//
+//	New()   — validates dependencies, wires components, initialises metrics
+//	Start() — opens WAL and destination, starts HTTP server, runs forever
+//	Stop()  — 3-stage budgeted shutdown: HTTP → queue drain → WAL close
+//
+// All state is held in struct fields. There are no package-level variables.
+package daemon
+
+import (
+	"context"
+	"crypto/rsa"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/cache"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/doctor"
+	"github.com/bubblefish-tech/nexus/internal/embedding"
+	"github.com/bubblefish-tech/nexus/internal/hotreload"
+	"github.com/bubblefish-tech/nexus/internal/idempotency"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/eventsink"
+	"github.com/bubblefish-tech/nexus/internal/firewall"
+	"github.com/bubblefish-tech/nexus/internal/jwtauth"
+	"github.com/bubblefish-tech/nexus/internal/oauth"
+	"github.com/bubblefish-tech/nexus/internal/queue"
+	"github.com/bubblefish-tech/nexus/internal/securitylog"
+	"github.com/bubblefish-tech/nexus/internal/signing"
+	"github.com/bubblefish-tech/nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/vizpipe"
+	"github.com/bubblefish-tech/nexus/internal/wal"
+)
+
+// Daemon is the central BubbleFish Nexus gateway daemon. All state is held in
+// struct fields; there are no package-level variables.
+type Daemon struct {
+	// configMu guards cfg. Auth hot path uses RLock(); hot reload uses Lock().
+	// INVARIANT: NEVER call Lock() on the auth hot path. Only RLock().
+	// Reference: Phase 0D Behavioral Contract items 5–6.
+	configMu sync.RWMutex
+	cfg      *config.Config
+
+	logger  *slog.Logger
+	metrics *metrics.Metrics
+
+	wal             *wal.WAL
+	queue           *queue.Queue
+	idem            *idempotency.Store
+	dest            destination.DestinationWriter
+	querier         destination.Querier
+	embeddingClient embedding.EmbeddingClient // nil when embedding disabled
+	exactCache      *cache.ExactCache         // Stage 1 — Phase 4
+	semanticCache   *cache.SemanticCache      // Stage 2 — Phase 6
+	server          *http.Server
+	rl              *rateLimiter
+
+	reloadWatcher *hotreload.Watcher
+	mcpServer     *mcp.Server // nil when MCP is disabled or failed to start
+
+	// securityLog is the structured security event logger. Nil when
+	// security_events.enabled is false. Reference: Tech Spec Section 11.2.
+	securityLog *securitylog.Logger
+
+	// eventSink is the webhook event sink. Nil when daemon.events.enabled
+	// is false. Reference: Tech Spec Section 10.
+	eventSink *eventsink.Sink
+
+	// jwtValidator validates JWTs against a cached JWKS. Nil when
+	// daemon.jwt.enabled is false. Reference: Tech Spec Section 6.6.
+	jwtValidator *jwtauth.Validator
+
+	// vizPipe is the live pipeline visualization event pipe. Always initialized
+	// (never nil). Reference: Tech Spec Section 13.2.
+	vizPipe *vizpipe.Pipe
+
+	// trustedProxies holds parsed CIDR networks for determining effective
+	// client IP from forwarded headers. Nil when no trusted proxies are
+	// configured. Reference: Tech Spec Section 6.3.
+	proxies *trustedProxies
+
+	// signingKey holds the resolved signing key bytes when [daemon.signing]
+	// enabled = true. Nil when signing is disabled. Used at startup and by
+	// hot reload to verify compiled config signatures.
+	// NEVER log this value.
+	signingKey []byte
+
+	// retrievalFirewall is the retrieval firewall engine. Nil when
+	// [daemon.retrieval_firewall] enabled = false.
+	// Reference: Tech Spec Addendum Section A3.1.
+	retrievalFirewall *firewall.RetrievalFirewall
+
+	// auditLogger is the interaction log writer. Nil when
+	// [daemon.audit] enabled = false.
+	// Reference: Tech Spec Addendum Section A2.3.
+	auditLogger *audit.AuditLogger
+
+	// auditReader reads and queries the interaction log. Nil when
+	// [daemon.audit] enabled = false.
+	// Reference: Tech Spec Addendum Section A2.5.
+	auditReader *audit.AuditReader
+
+	// auditRateLimiter rate-limits /api/audit/* queries per admin token.
+	// Reference: Tech Spec Addendum Section A2.5.
+	auditRateLimiter *rateLimiter
+
+	// walHealthy tracks whether the WAL watchdog considers the WAL healthy.
+	// 1 = healthy, 0 = unhealthy. Checked by /ready to return 503.
+	// Reference: Tech Spec Section 4.4.
+	walHealthy atomic.Int32
+
+	// consistencyScore stores the latest WAL-to-destination consistency score
+	// (0.0–1.0) as float64 bits. -1 means not yet computed. Read via
+	// math.Float64frombits. Reference: Tech Spec Section 11.5.
+	consistencyScore atomic.Uint64
+
+	// startedAt records when Start() was called, for uptime calculation.
+	startedAt time.Time
+
+	// exactStats and semanticStats hold cache counter references for the
+	// /api/status and /api/cache admin endpoints.
+	exactStats    *cache.Stats
+	semanticStats *cache.SemanticStats
+
+	stopOnce    sync.Once
+	stopped     chan struct{}
+	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
+}
+
+// New creates a Daemon from the loaded configuration. It does NOT open any
+// files or start any goroutines — call Start() for that.
+//
+// Panics if cfg or logger are nil.
+func New(cfg *config.Config, logger *slog.Logger) *Daemon {
+	if cfg == nil {
+		panic("daemon: cfg must not be nil")
+	}
+	if logger == nil {
+		panic("daemon: logger must not be nil")
+	}
+	m := metrics.New()
+	d := &Daemon{
+		cfg:     cfg,
+		logger:  logger,
+		metrics: m,
+		rl:      newRateLimiter(),
+		vizPipe: vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
+		stopped:     make(chan struct{}),
+		shutdownReq: make(chan struct{}),
+	}
+	// -1.0 means "not yet computed". Overwritten on first check.
+	d.consistencyScore.Store(math.Float64bits(-1.0))
+	return d
+}
+
+// getConfig returns the current *config.Config under RLock. All concurrent
+// accesses to cfg must go through this method to be race-free during hot reload.
+//
+// The returned pointer is to an immutable Config struct — hot reload only swaps
+// the pointer, never mutates in-place. So callers may dereference fields after
+// releasing the RLock.
+func (d *Daemon) getConfig() *config.Config {
+	d.configMu.RLock()
+	c := d.cfg
+	d.configMu.RUnlock()
+	return c
+}
+
+// Start opens the WAL, opens the destination, replays pending WAL entries,
+// starts the queue workers, starts the hot reload watcher, and starts the HTTP
+// server. It blocks until the HTTP server returns (i.e. until Stop is called
+// or the listener fails).
+//
+// Start is not safe to call concurrently. Call it once per Daemon.
+func (d *Daemon) Start() error {
+	d.startedAt = time.Now()
+
+	cfg := d.getConfig()
+
+	// Verify config signatures if signing is enabled.
+	// Reference: Tech Spec Section 6.5 — refuse to start if any compiled
+	// config file has a missing or invalid signature.
+	if cfg.Daemon.Signing.Enabled {
+		if cfg.Daemon.Signing.KeyFile == "" {
+			return fmt.Errorf("daemon: config signing enabled but key_file is missing")
+		}
+		resolvedSignKey, resolveErr := config.ResolveEnv(cfg.Daemon.Signing.KeyFile, d.logger)
+		if resolveErr != nil {
+			return fmt.Errorf("daemon: resolve signing key_file: %w", resolveErr)
+		}
+		if resolvedSignKey == "" {
+			return fmt.Errorf("daemon: signing key_file resolved to empty value")
+		}
+		d.signingKey = []byte(resolvedSignKey)
+
+		configDir, err := config.ConfigDir()
+		if err != nil {
+			return fmt.Errorf("daemon: resolve config dir for signing verification: %w", err)
+		}
+		compiledDir := filepath.Join(configDir, "compiled")
+
+		onEvent := func(eventType string, attrs ...slog.Attr) {
+			d.logger.LogAttrs(context.Background(), slog.LevelWarn, "daemon: security event",
+				append([]slog.Attr{
+					slog.String("component", "signing"),
+					slog.String("event_type", eventType),
+				}, attrs...)...,
+			)
+			if d.securityLog != nil {
+				details := make(map[string]interface{}, len(attrs))
+				for _, a := range attrs {
+					details[a.Key] = a.Value.Any()
+				}
+				d.securityLog.Emit(securitylog.Event{
+					EventType: eventType,
+					Details:   details,
+				})
+			}
+		}
+
+		if err := signing.VerifyAll(compiledDir, d.signingKey, onEvent, d.logger); err != nil {
+			return fmt.Errorf("daemon: config signature verification failed — refusing to start: %w", err)
+		}
+		d.logger.Info("daemon: config signature verification passed",
+			"component", "daemon",
+		)
+	}
+
+	// Open WAL.
+	walPath, err := d.resolveWALPath()
+	if err != nil {
+		return fmt.Errorf("daemon: resolve WAL path: %w", err)
+	}
+
+	d.logger.Info("daemon: opening WAL",
+		"component", "daemon",
+		"path", walPath,
+	)
+
+	// Build WAL options from config.
+	var walOpts []wal.Option
+	if cfg.Daemon.WAL.Integrity.Mode == wal.IntegrityModeMAC {
+		if cfg.Daemon.WAL.Integrity.MacKeyFile == "" {
+			return fmt.Errorf("daemon: integrity mode %q requires mac_key_file", wal.IntegrityModeMAC)
+		}
+		resolved, resolveErr := config.ResolveEnv(cfg.Daemon.WAL.Integrity.MacKeyFile, d.logger)
+		if resolveErr != nil {
+			return fmt.Errorf("daemon: resolve WAL mac_key_file: %w", resolveErr)
+		}
+		if resolved == "" {
+			return fmt.Errorf("daemon: WAL mac_key_file resolved to empty value")
+		}
+		walOpts = append(walOpts, wal.WithIntegrity(wal.IntegrityModeMAC, []byte(resolved)))
+		d.logger.Info("daemon: WAL integrity mode enabled",
+			"component", "daemon",
+			"mode", wal.IntegrityModeMAC,
+		)
+	}
+	// WAL encryption: AES-256-GCM at-rest encryption.
+	// Reference: Tech Spec Section 6.4.2.
+	if cfg.Daemon.WAL.Encryption.Enabled {
+		if cfg.Daemon.WAL.Encryption.KeyFile == "" {
+			return fmt.Errorf("daemon: WAL encryption enabled but key_file is missing")
+		}
+		resolved, resolveErr := config.ResolveEnv(cfg.Daemon.WAL.Encryption.KeyFile, d.logger)
+		if resolveErr != nil {
+			return fmt.Errorf("daemon: resolve WAL encryption key_file: %w", resolveErr)
+		}
+		if resolved == "" {
+			return fmt.Errorf("daemon: WAL encryption key_file resolved to empty value")
+		}
+		walOpts = append(walOpts, wal.WithEncryption([]byte(resolved)))
+		d.logger.Info("daemon: WAL encryption enabled",
+			"component", "daemon",
+		)
+	}
+
+	walOpts = append(walOpts, wal.WithSecurityEvent(func(eventType string, attrs ...slog.Attr) {
+		d.logger.LogAttrs(context.Background(), slog.LevelWarn, "daemon: security event",
+			append([]slog.Attr{
+				slog.String("component", "wal"),
+				slog.String("event_type", eventType),
+			}, attrs...)...,
+		)
+		if d.securityLog != nil {
+			details := make(map[string]interface{}, len(attrs))
+			for _, a := range attrs {
+				details[a.Key] = a.Value.Any()
+			}
+			d.securityLog.Emit(securitylog.Event{
+				EventType: eventType,
+				Details:   details,
+			})
+		}
+	}))
+
+	w, err := wal.Open(walPath, cfg.Daemon.WAL.MaxSegmentSizeMB, d.logger, walOpts...)
+	if err != nil {
+		return fmt.Errorf("daemon: open WAL: %w", err)
+	}
+	d.wal = w
+
+	// Open SQLite destination.
+	sqlitePath, err := d.resolveSQLitePath()
+	if err != nil {
+		return fmt.Errorf("daemon: resolve SQLite path: %w", err)
+	}
+
+	d.logger.Info("daemon: opening SQLite destination",
+		"component", "daemon",
+		"path", sqlitePath,
+	)
+
+	sqliteDest, err := destination.OpenSQLite(sqlitePath, d.logger)
+	if err != nil {
+		return fmt.Errorf("daemon: open SQLite destination: %w", err)
+	}
+	d.dest = sqliteDest
+	d.querier = sqliteDest
+
+	// Create embedding client from config. Returns nil when disabled.
+	// INVARIANT: resolved API key is never logged.
+	if cfg.Daemon.Embedding.Enabled {
+		resolvedEmbedKey, resolveErr := config.ResolveEnv(cfg.Daemon.Embedding.APIKey, d.logger)
+		if resolveErr != nil {
+			d.logger.Warn("daemon: embedding API key resolve failed; semantic retrieval disabled",
+				"component", "daemon",
+				"error", resolveErr,
+			)
+		} else {
+			ec, ecErr := embedding.NewClient(cfg.Daemon.Embedding, resolvedEmbedKey, d.logger)
+			if ecErr != nil {
+				d.logger.Warn("daemon: embedding client creation failed; semantic retrieval disabled",
+					"component", "daemon",
+					"error", ecErr,
+				)
+			} else {
+				d.embeddingClient = ec
+			}
+		}
+	}
+
+	// Initialise exact cache (Stage 1) and semantic cache (Stage 2).
+	// Store stats refs on the daemon for admin endpoint access.
+	d.exactStats = cache.NewStats(d.metrics.Registry())
+	d.semanticStats = cache.NewSemanticStats(d.metrics.Registry())
+	d.exactCache = cache.NewExactCache(cache.DefaultMaxBytes, d.exactStats)
+	d.semanticCache = cache.NewSemanticCache(cache.DefaultSemanticMaxEntries, d.semanticStats)
+
+	// Initialise idempotency store.
+	d.idem = idempotency.New()
+
+	// Create queue — wire OnProcessed to increment queue_processing_rate,
+	// and OnDelivered to advance cache watermarks so stale entries are
+	// invalidated.
+	d.queue = queue.New(
+		queue.Config{
+			Size:        cfg.Daemon.QueueSize,
+			OnProcessed: d.metrics.QueueProcessingRate.Inc,
+			OnDelivered: func(dest string) {
+				d.exactCache.InvalidateDest(dest)
+				d.semanticCache.InvalidateDest(dest)
+			},
+		},
+		d.logger,
+		d.dest,
+		d.wal,
+	)
+
+	// Replay WAL: re-register idempotency keys and re-enqueue PENDING entries.
+	// Measure replay duration for the bubblefish_replay_duration_seconds gauge.
+	if err := d.replayWAL(); err != nil {
+		return fmt.Errorf("daemon: WAL replay: %w", err)
+	}
+
+	// Set initial WAL metrics.
+	d.metrics.WALCRCFailures.Add(float64(d.wal.CRCFailures()))
+	d.metrics.WALIntegrityFailures.Add(float64(d.wal.IntegrityFailures()))
+	d.metrics.WALHealthy.Set(1)
+	d.walHealthy.Store(1)
+
+	// Start WAL watchdog — updates WAL health and disk metrics periodically.
+	// Reference: Tech Spec Section 4.4.
+	go d.walWatchdog(walPath)
+
+	// Start consistency checker if enabled.
+	// Reference: Tech Spec Section 11.5.
+	if cfg.Consistency.Enabled {
+		go d.consistencyChecker()
+		d.logger.Info("daemon: consistency checker started",
+			"component", "daemon",
+			"interval_seconds", cfg.Consistency.IntervalSeconds,
+			"sample_size", cfg.Consistency.SampleSize,
+		)
+	}
+
+	// Start visualization pipe.
+	d.vizPipe.Start()
+
+	// Initialise structured security event logger if enabled.
+	// Reference: Tech Spec Section 11.2, Section 9.2.18.
+	if cfg.SecurityEvents.Enabled && cfg.SecurityEvents.LogFile != "" {
+		logFile := cfg.SecurityEvents.LogFile
+		// Expand ~ prefix to the user home directory.
+		if strings.HasPrefix(logFile, "~/") || strings.HasPrefix(logFile, "~\\") {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return fmt.Errorf("daemon: expand security events log_file: %w", homeErr)
+			}
+			logFile = filepath.Join(home, logFile[2:])
+		}
+		sl, slErr := securitylog.New(logFile, d.logger)
+		if slErr != nil {
+			return fmt.Errorf("daemon: open security event log %q: %w", logFile, slErr)
+		}
+		d.securityLog = sl
+		d.logger.Info("daemon: security event logging enabled",
+			"component", "daemon",
+			"log_file", logFile,
+		)
+	}
+
+	// Initialise retrieval firewall if enabled.
+	// Reference: Tech Spec Addendum Section A3.1.
+	if cfg.Daemon.RetrievalFirewall.Enabled {
+		d.retrievalFirewall = firewall.New(cfg.Daemon.RetrievalFirewall, d.logger).
+			WithMetrics(
+				d.metrics.FirewallFilteredTotal,
+				d.metrics.FirewallDeniedTotal,
+				d.metrics.FirewallLatency,
+			)
+		d.logger.Info("daemon: retrieval firewall enabled",
+			"component", "daemon",
+			"tier_order", cfg.Daemon.RetrievalFirewall.TierOrder,
+			"default_tier", cfg.Daemon.RetrievalFirewall.DefaultTier,
+		)
+	}
+
+	// Initialise audit logger and reader if enabled.
+	// Reference: Tech Spec Addendum Section A2.3, A2.5.
+	if cfg.Daemon.Audit.Enabled {
+		logFile := cfg.Daemon.Audit.LogFile
+		if logFile == "" {
+			return fmt.Errorf("daemon: audit enabled but log_file is empty after config load — this indicates a config loader bug")
+		}
+		// Expand ~ prefix to the user home directory.
+		if strings.HasPrefix(logFile, "~/") || strings.HasPrefix(logFile, "~\\") {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return fmt.Errorf("daemon: expand audit log_file: %w", homeErr)
+			}
+			logFile = filepath.Join(home, logFile[2:])
+		}
+
+		var auditOpts []audit.LoggerOption
+		auditOpts = append(auditOpts, audit.WithLogger(d.logger))
+
+		maxSize := int64(cfg.Daemon.Audit.MaxFileSizeMB) * 1024 * 1024
+		if maxSize > 0 {
+			auditOpts = append(auditOpts, audit.WithMaxFileSize(maxSize))
+		}
+		auditOpts = append(auditOpts, audit.WithDualWrite(cfg.Daemon.Audit.AuditDualWriteEnabled()))
+
+		// Audit integrity: SEPARATE key from WAL.
+		if cfg.Daemon.Audit.Integrity.Mode == "mac" {
+			if cfg.Daemon.Audit.Integrity.MacKeyFile == "" {
+				return fmt.Errorf("daemon: audit integrity mode %q requires mac_key_file", "mac")
+			}
+			resolved, resolveErr := config.ResolveEnv(cfg.Daemon.Audit.Integrity.MacKeyFile, d.logger)
+			if resolveErr != nil {
+				return fmt.Errorf("daemon: resolve audit mac_key_file: %w", resolveErr)
+			}
+			auditOpts = append(auditOpts, audit.WithIntegrityMode("mac", []byte(resolved)))
+		}
+
+		// Audit encryption: SEPARATE key from WAL.
+		if cfg.Daemon.Audit.Encryption.Enabled {
+			if cfg.Daemon.Audit.Encryption.KeyFile == "" {
+				return fmt.Errorf("daemon: audit encryption enabled but key_file is missing")
+			}
+			resolved, resolveErr := config.ResolveEnv(cfg.Daemon.Audit.Encryption.KeyFile, d.logger)
+			if resolveErr != nil {
+				return fmt.Errorf("daemon: resolve audit encryption key_file: %w", resolveErr)
+			}
+			auditOpts = append(auditOpts, audit.WithEncryption([]byte(resolved)))
+		}
+
+		al, alErr := audit.NewAuditLogger(logFile, auditOpts...)
+		if alErr != nil {
+			return fmt.Errorf("daemon: open audit logger: %w", alErr)
+		}
+		d.auditLogger = al
+
+		// Build reader options mirroring the logger config.
+		var readerOpts []audit.ReaderOption
+		readerOpts = append(readerOpts, audit.WithReaderLogger(d.logger))
+		readerOpts = append(readerOpts, audit.WithReaderDualWrite(cfg.Daemon.Audit.AuditDualWriteEnabled()))
+		if cfg.Daemon.Audit.Integrity.Mode == "mac" {
+			resolved, _ := config.ResolveEnv(cfg.Daemon.Audit.Integrity.MacKeyFile, d.logger)
+			readerOpts = append(readerOpts, audit.WithReaderIntegrity("mac", []byte(resolved)))
+		}
+		if cfg.Daemon.Audit.Encryption.Enabled {
+			resolved, _ := config.ResolveEnv(cfg.Daemon.Audit.Encryption.KeyFile, d.logger)
+			readerOpts = append(readerOpts, audit.WithReaderEncryption([]byte(resolved)))
+		}
+		d.auditReader = audit.NewAuditReader(logFile, readerOpts...)
+		d.auditRateLimiter = newRateLimiter()
+
+		d.logger.Info("daemon: audit interaction log enabled",
+			"component", "daemon",
+			"log_file", logFile,
+			"max_file_size_mb", cfg.Daemon.Audit.MaxFileSizeMB,
+			"dual_write", cfg.Daemon.Audit.AuditDualWriteEnabled(),
+		)
+	}
+
+	// Initialise event sink (webhooks) if enabled.
+	// Reference: Tech Spec Section 10.
+	if cfg.Daemon.Events.Enabled && len(cfg.Daemon.Events.Sinks) > 0 {
+		sinks := make([]eventsink.SinkConfig, len(cfg.Daemon.Events.Sinks))
+		for i, s := range cfg.Daemon.Events.Sinks {
+			sinks[i] = eventsink.SinkConfig{
+				Name:           s.Name,
+				URL:            s.URL,
+				TimeoutSeconds: s.TimeoutSeconds,
+				MaxRetries:     s.MaxRetries,
+				Content:        s.Content,
+			}
+		}
+		d.eventSink = eventsink.New(eventsink.Config{
+			MaxInFlight:         cfg.Daemon.Events.MaxInFlight,
+			RetryBackoffSeconds: cfg.Daemon.Events.RetryBackoffSeconds,
+			Sinks:               sinks,
+			Metrics:             &eventSinkMetrics{m: d.metrics},
+			Logger:              d.logger,
+		})
+		d.eventSink.Start()
+		d.logger.Info("daemon: event sink started",
+			"component", "daemon",
+			"sinks", len(sinks),
+			"max_inflight", cfg.Daemon.Events.MaxInFlight,
+		)
+	}
+
+	// Start hot reload watcher.
+	d.startHotReload()
+
+	// Start MCP server if configured. Failure is non-fatal — the daemon MUST
+	// continue running even if MCP cannot bind.
+	// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
+	d.startMCPServer(cfg)
+
+	// Initialise JWT validator if enabled.
+	// Reference: Tech Spec Section 6.6.
+	if cfg.Daemon.JWT.Enabled {
+		if cfg.Daemon.JWT.JWKSUrl == "" {
+			return fmt.Errorf("daemon: JWT enabled but jwks_url is empty")
+		}
+		v := jwtauth.New(jwtauth.Config{
+			JWKSUrl:       cfg.Daemon.JWT.JWKSUrl,
+			ClaimToSource: cfg.Daemon.JWT.ClaimToSource,
+			Audience:      cfg.Daemon.JWT.Audience,
+			Logger:        d.logger,
+		})
+		if err := v.FetchJWKS(); err != nil {
+			// Non-fatal — log warning and continue. Keys will be refreshed on
+			// first request that fails validation.
+			d.logger.Warn("daemon: initial JWKS fetch failed — JWT auth may fail until refresh succeeds",
+				"component", "daemon",
+				"error", err,
+			)
+		}
+		d.jwtValidator = v
+		d.logger.Info("daemon: JWT authentication enabled",
+			"component", "daemon",
+			"jwks_url", cfg.Daemon.JWT.JWKSUrl,
+			"claim_to_source", cfg.Daemon.JWT.ClaimToSource,
+		)
+	}
+
+	// Parse trusted proxies for effective_client_ip resolution.
+	// Reference: Tech Spec Section 6.3.
+	proxies, err := parseTrustedProxies(cfg.Daemon.TrustedProxies)
+	if err != nil {
+		return fmt.Errorf("daemon: %w", err)
+	}
+	d.proxies = proxies
+	if len(proxies.networks) > 0 {
+		d.logger.Info("daemon: trusted proxies configured",
+			"component", "daemon",
+			"cidr_count", len(proxies.networks),
+		)
+	}
+
+	// Build TLS configuration if enabled.
+	// INVARIANT: If TLS enabled but certs missing/unreadable, refuse to start.
+	// Reference: Tech Spec Section 6.2.
+	resolve := func(ref string) (string, error) {
+		return config.ResolveEnv(ref, d.logger)
+	}
+	tlsCfg, err := buildTLSConfig(cfg.Daemon.TLS, resolve)
+	if err != nil {
+		return fmt.Errorf("daemon: %w", err)
+	}
+
+	// Build HTTP server.
+	router := d.buildRouter()
+	d.server = newHTTPServer(d.serverAddr(), router)
+
+	if tlsCfg != nil {
+		d.server.TLSConfig = tlsCfg
+		d.logger.Info("daemon: starting HTTPS server (TLS enabled)",
+			"component", "daemon",
+			"addr", d.serverAddr(),
+			"version", version.Version,
+			"tls_min", cfg.Daemon.TLS.MinVersion,
+			"tls_max", cfg.Daemon.TLS.MaxVersion,
+			"client_auth", cfg.Daemon.TLS.ClientAuth,
+		)
+		// ListenAndServeTLS with empty cert/key paths because the certificate
+		// is already loaded in TLSConfig.Certificates.
+		if err := d.server.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("daemon: HTTPS server: %w", err)
+		}
+	} else {
+		d.logger.Info("daemon: starting HTTP server",
+			"component", "daemon",
+			"addr", d.serverAddr(),
+			"version", version.Version,
+		)
+		// ListenAndServe blocks until the server is closed.
+		if err := d.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("daemon: HTTP server: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Stop gracefully shuts down the daemon in three budgeted stages. It is safe
+// to call multiple times; only the first call has any effect (sync.Once).
+//
+// Shutdown stages (reference: Tech Spec Section 14.2):
+//
+//	Stage 1 (stageTimeout): Stop accepting new HTTP requests.
+//	Stage 2 (stageTimeout): Drain queue workers.
+//	Stage 3 (stageTimeout): Stop reload watcher + close WAL + close destination.
+//
+// Total budget = drain_timeout_seconds (default 30s). Each stage gets 1/3.
+func (d *Daemon) Stop() error {
+	var firstErr error
+
+	d.stopOnce.Do(func() {
+		defer close(d.stopped)
+
+		cfg := d.getConfig()
+		drainTimeout := time.Duration(cfg.Daemon.Shutdown.DrainTimeoutSeconds) * time.Second
+		if drainTimeout <= 0 {
+			drainTimeout = 30 * time.Second
+		}
+		// Each stage gets an equal share of the total budget.
+		stageTimeout := drainTimeout / 3
+		if stageTimeout < 5*time.Second {
+			stageTimeout = 5 * time.Second
+		}
+
+		d.logger.Info("daemon: shutting down",
+			"component", "daemon",
+			"drain_timeout", drainTimeout,
+			"stage_timeout", stageTimeout,
+		)
+
+		// ── Stage 1: Stop accepting new HTTP requests ──────────────────────
+		if d.server != nil {
+			ctx1, cancel1 := context.WithTimeout(context.Background(), stageTimeout)
+			defer cancel1()
+			if err := d.server.Shutdown(ctx1); err != nil {
+				d.logger.Error("daemon: stage 1 HTTP shutdown error",
+					"component", "daemon",
+					"error", err,
+				)
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+
+		// Stop MCP server alongside HTTP (both are in stage 1 — client-facing).
+		if d.mcpServer != nil {
+			if err := d.mcpServer.Stop(); err != nil {
+				d.logger.Error("daemon: MCP server stop error",
+					"component", "daemon",
+					"error", err,
+				)
+			}
+		}
+
+		d.logger.Info("daemon: stage 1 complete — HTTP server stopped",
+			"component", "daemon",
+		)
+
+		// ── Stage 2: Drain queue workers ──────────────────────────────────
+		if d.queue != nil {
+			ctx2, cancel2 := context.WithTimeout(context.Background(), stageTimeout)
+			defer cancel2()
+			if !d.queue.DrainWithContext(ctx2) {
+				d.logger.Warn("daemon: stage 2 queue drain timed out — some entries may be replayed on restart",
+					"component", "daemon",
+				)
+			}
+		}
+		d.logger.Info("daemon: stage 2 complete — queue drained",
+			"component", "daemon",
+		)
+
+		// ── Stage 3: Stop reload watcher, close WAL and destination ───────
+		if d.reloadWatcher != nil {
+			d.reloadWatcher.Stop()
+		}
+
+		if d.dest != nil {
+			if err := d.dest.Close(); err != nil {
+				d.logger.Error("daemon: close destination",
+					"component", "daemon",
+					"error", err,
+				)
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+
+		if d.wal != nil {
+			if err := d.wal.Close(); err != nil {
+				d.logger.Error("daemon: close WAL",
+					"component", "daemon",
+					"error", err,
+				)
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+
+		// Stop visualization pipe.
+		if d.vizPipe != nil {
+			d.vizPipe.Stop()
+		}
+
+		// Drain event sink workers.
+		// Reference: Tech Spec Section 14.2 — drain in Stage 3.
+		if d.eventSink != nil {
+			d.eventSink.Stop()
+		}
+
+		// Close audit logger.
+		if d.auditLogger != nil {
+			if err := d.auditLogger.Close(); err != nil {
+				d.logger.Error("daemon: close audit logger",
+					"component", "daemon",
+					"error", err,
+				)
+			}
+		}
+
+		// Close security event log.
+		if d.securityLog != nil {
+			if err := d.securityLog.Close(); err != nil {
+				d.logger.Error("daemon: close security event log",
+					"component", "daemon",
+					"error", err,
+				)
+			}
+		}
+
+		d.logger.Info("daemon: stage 3 complete — daemon stopped",
+			"component", "daemon",
+		)
+	})
+
+	return firstErr
+}
+
+// Stopped returns a channel that is closed when the daemon has fully stopped.
+func (d *Daemon) Stopped() <-chan struct{} {
+	return d.stopped
+}
+
+// ShutdownRequested returns a channel that is closed when an API-initiated
+// shutdown has been requested (via POST /api/shutdown). The start command
+// selects on this alongside OS signals.
+func (d *Daemon) ShutdownRequested() <-chan struct{} {
+	return d.shutdownReq
+}
+
+// RequestShutdown signals that the daemon should begin graceful shutdown.
+// Safe to call multiple times; only the first close has any effect.
+func (d *Daemon) RequestShutdown() {
+	select {
+	case <-d.shutdownReq:
+		// already closed
+	default:
+		close(d.shutdownReq)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MCP server startup
+// ---------------------------------------------------------------------------
+
+// startMCPServer resolves the MCP API key and starts the MCP server if
+// MCPConfig.Enabled is true. Failure is non-fatal: on any error the daemon
+// logs a WARN and continues.
+//
+// INVARIANT: MCP MUST bind to 127.0.0.1. The Server constructor enforces this.
+// Reference: Tech Spec Section 14.3.
+func (d *Daemon) startMCPServer(cfg *config.Config) {
+	if !cfg.Daemon.MCP.Enabled {
+		return
+	}
+
+	if len(cfg.ResolvedMCPKey) == 0 {
+		d.logger.Warn("daemon: MCP enabled but api_key is empty or unresolved — MCP disabled",
+			"component", "daemon",
+		)
+		return
+	}
+
+	// Determine bind and port, with safe defaults.
+	bind := cfg.Daemon.MCP.Bind
+	if bind == "" {
+		bind = "127.0.0.1"
+	}
+	port := cfg.Daemon.MCP.Port
+	if port == 0 {
+		port = 7474
+	}
+
+	sourceName := cfg.Daemon.MCP.SourceName
+
+	// Daemon itself is the Pipeline implementation.
+	srv := mcp.New(bind, port, cfg.ResolvedMCPKey, sourceName, d, d.logger)
+
+	// Wire OAuth server if enabled — must happen before Start() so endpoints
+	// are registered on the mux.
+	d.setupOAuthServer(cfg, srv)
+
+	if err := srv.Start(); err != nil {
+		d.logger.Warn("daemon: MCP server start failed — MCP disabled, HTTP continues",
+			"component", "daemon",
+			"error", err,
+		)
+		return
+	}
+	d.mcpServer = srv
+
+	d.logger.Info("daemon: MCP server started",
+		"component", "daemon",
+		"addr", srv.Addr(),
+	)
+}
+
+// startOAuthServer loads or generates the RSA key and creates the OAuthServer
+// if [daemon.oauth] enabled = true. It registers OAuth endpoints on the MCP
+// server's HTTP mux and sets the JWT validator.
+//
+// Must be called BEFORE startMCPServer calls srv.Start() — but in practice the
+// daemon calls startMCPServer which creates and starts the MCP server, so we
+// wire OAuth before MCP start by modifying startMCPServer to call this first.
+//
+// Reference: Post-Build Add-On Update Technical Specification Section 6.
+func (d *Daemon) setupOAuthServer(cfg *config.Config, srv *mcp.Server) {
+	if !cfg.Daemon.OAuth.Enabled {
+		return
+	}
+
+	oauthCfg := cfg.Daemon.OAuth
+
+	// Resolve private key file path.
+	keyFileRef := oauthCfg.PrivateKeyFile
+	if keyFileRef == "" {
+		configDir, err := config.ConfigDir()
+		if err != nil {
+			d.logger.Warn("daemon: oauth: cannot resolve config dir for key file",
+				"component", "oauth",
+				"error", err,
+			)
+			return
+		}
+		keyFileRef = "file:" + filepath.Join(configDir, "oauth_private.key")
+	}
+
+	// Resolve the file: reference to get the actual path.
+	keyPath := keyFileRef
+	if strings.HasPrefix(keyPath, "file:") {
+		keyPath = strings.TrimPrefix(keyPath, "file:")
+	}
+
+	// Expand ~ to home directory.
+	if strings.HasPrefix(keyPath, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			d.logger.Warn("daemon: oauth: cannot resolve home dir",
+				"component", "oauth",
+				"error", err,
+			)
+			return
+		}
+		keyPath = filepath.Join(home, keyPath[1:])
+	}
+
+	// Load or generate RSA key.
+	var key *rsa.PrivateKey
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		var genErr error
+		key, genErr = oauth.GenerateRSAKey()
+		if genErr != nil {
+			d.logger.Warn("daemon: oauth: failed to generate RSA key",
+				"component", "oauth",
+				"error", genErr,
+			)
+			return
+		}
+		if saveErr := oauth.SaveRSAKey(key, keyPath); saveErr != nil {
+			d.logger.Warn("daemon: oauth: failed to save RSA key",
+				"component", "oauth",
+				"error", saveErr,
+			)
+			return
+		}
+		d.logger.Info("oauth: generated RSA-2048 key pair",
+			"component", "oauth",
+			"path", keyPath,
+		)
+	} else {
+		var loadErr error
+		key, loadErr = oauth.LoadRSAKey(keyPath)
+		if loadErr != nil {
+			d.logger.Warn("daemon: oauth: failed to load RSA key",
+				"component", "oauth",
+				"error", loadErr,
+			)
+			return
+		}
+		d.logger.Info("oauth: loaded RSA key pair",
+			"component", "oauth",
+			"path", keyPath,
+		)
+	}
+
+	// Build OAuth config.
+	accessTTL := time.Hour
+	if oauthCfg.AccessTokenTTLSecs > 0 {
+		accessTTL = time.Duration(oauthCfg.AccessTokenTTLSecs) * time.Second
+	}
+	codeTTL := 5 * time.Minute
+	if oauthCfg.AuthCodeTTLSecs > 0 {
+		codeTTL = time.Duration(oauthCfg.AuthCodeTTLSecs) * time.Second
+	}
+
+	clients := make([]oauth.OAuthClient, len(oauthCfg.Clients))
+	for i, c := range oauthCfg.Clients {
+		clients[i] = oauth.OAuthClient{
+			ClientID:        c.ClientID,
+			ClientName:      c.ClientName,
+			RedirectURIs:    c.RedirectURIs,
+			OAuthSourceName: c.OAuthSourceName,
+			AllowedScopes:   c.AllowedScopes,
+		}
+	}
+
+	oauthSrv := oauth.NewOAuthServer(oauth.OAuthConfig{
+		Enabled:        true,
+		IssuerURL:      oauthCfg.IssuerURL,
+		PrivateKeyFile: keyPath,
+		AccessTokenTTL: accessTTL,
+		AuthCodeTTL:    codeTTL,
+		Clients:        clients,
+	}, key, d.logger)
+
+	// Wire OAuth into the MCP server.
+	srv.SetOAuthServer(oauthSrv)
+	srv.SetOAuthHandlers(oauthSrv)
+	srv.SetOAuthIssuerURL(oauthCfg.IssuerURL)
+
+	d.logger.Info("oauth: server started",
+		"component", "oauth",
+		"issuer", oauthCfg.IssuerURL,
+	)
+}
+
+// ---------------------------------------------------------------------------
+// Hot reload
+// ---------------------------------------------------------------------------
+
+// startHotReload initialises and starts the hot reload watcher. A failure to
+// start (e.g. sources dir does not exist) is non-fatal — the daemon continues
+// without hot reload and logs a warning.
+func (d *Daemon) startHotReload() {
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		d.logger.Warn("daemon: cannot resolve config dir — hot reload disabled",
+			"component", "daemon",
+			"error", err,
+		)
+		return
+	}
+	sourcesDir := filepath.Join(configDir, "sources")
+
+	reloadFunc := func() (*config.Config, error) {
+		return config.Load(configDir, d.logger)
+	}
+
+	// Build signing event callback for hot reload (nil when signing disabled).
+	var signingEvent signing.SecurityEventFunc
+	if d.signingKey != nil {
+		signingEvent = func(eventType string, attrs ...slog.Attr) {
+			d.logger.LogAttrs(context.Background(), slog.LevelWarn, "daemon: security event",
+				append([]slog.Attr{
+					slog.String("component", "signing"),
+					slog.String("event_type", eventType),
+				}, attrs...)...,
+			)
+		}
+	}
+
+	w := hotreload.New(hotreload.Config{
+		SourcesDir:  sourcesDir,
+		ConfigDir:   configDir,
+		Mu:          &d.configMu,
+		Snapshot: func() *config.Config {
+			// Called by the watcher under RLock — do not acquire additional locks.
+			return d.cfg
+		},
+		Apply: func(c *config.Config) {
+			// Called by the watcher under Lock — do not acquire additional locks.
+			d.cfg = c
+			d.metrics.ConfigLintWarnings.Set(0) // reset on successful reload
+		},
+		Reload:       reloadFunc,
+		SigningKey:   d.signingKey,
+		SigningEvent: signingEvent,
+		Logger:       d.logger,
+	})
+
+	if err := w.Start(); err != nil {
+		d.logger.Warn("daemon: hot reload watcher start failed — hot reload disabled",
+			"component", "daemon",
+			"error", err,
+		)
+		return
+	}
+	d.reloadWatcher = w
+}
+
+// ---------------------------------------------------------------------------
+// WAL watchdog
+// ---------------------------------------------------------------------------
+
+// walWatchdog is a background goroutine that periodically checks WAL health:
+// directory writeability, disk space, and pending entry count. Interval is
+// configurable via [daemon.wal.watchdog] interval_seconds (default 30).
+// Reference: Tech Spec Section 4.4.
+func (d *Daemon) walWatchdog(walDir string) {
+	cfg := d.getConfig()
+	interval := cfg.Daemon.WAL.Watchdog.IntervalSeconds
+	if interval <= 0 {
+		interval = 30
+	}
+	ticker := time.NewTicker(time.Duration(interval) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stopped:
+			return
+		case <-ticker.C:
+			d.runWatchdogCheck(walDir)
+		}
+	}
+}
+
+// runWatchdogCheck performs a single watchdog iteration: probe WAL writeability,
+// check disk space, update pending count, and set Prometheus metrics + atomic
+// health flag for /ready. NEVER writes WAL entries — read-only.
+// Reference: Tech Spec Section 4.4.
+func (d *Daemon) runWatchdogCheck(walDir string) {
+	cfg := d.getConfig()
+	minDisk := uint64(cfg.Daemon.WAL.Watchdog.MinDiskBytes)
+	if minDisk == 0 {
+		minDisk = 100 << 20 // 100MB default per spec
+	}
+
+	res := doctor.Check(walDir, nil, minDisk) // no destination checks in watchdog
+
+	healthy := true
+
+	// Check WAL directory writeability.
+	if res.WALWritable {
+		d.metrics.WALHealthy.Set(1)
+	} else {
+		d.metrics.WALHealthy.Set(0)
+		healthy = false
+		d.logger.Error("daemon: WAL watchdog: WAL directory not writable",
+			"component", "daemon",
+			"wal_dir", walDir,
+		)
+	}
+
+	// Check disk space threshold.
+	d.metrics.WALDiskBytesFree.Set(float64(res.DiskFreeBytes))
+	if !res.DiskSpaceOK {
+		healthy = false
+		d.logger.Error("daemon: WAL watchdog: disk space below threshold",
+			"component", "daemon",
+			"wal_dir", walDir,
+			"free_bytes", res.DiskFreeBytes,
+			"min_bytes", minDisk,
+		)
+	}
+
+	// Update WAL pending entries count.
+	if d.wal != nil {
+		pending := d.wal.PendingCount()
+		d.metrics.WALPendingEntries.Set(float64(pending))
+	}
+
+	// Update queue depth.
+	if d.queue != nil {
+		d.metrics.QueueDepth.Set(float64(d.queue.Len()))
+	}
+
+	// Set atomic health flag for /ready endpoint.
+	if healthy {
+		d.walHealthy.Store(1)
+	} else {
+		d.walHealthy.Store(0)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WAL replay
+// ---------------------------------------------------------------------------
+
+// replayWAL scans the WAL for PENDING entries, re-registers their idempotency
+// keys, and re-enqueues them for delivery to the destination. Replay duration
+// and entry count are recorded in metrics.
+func (d *Daemon) replayWAL() error {
+	replayStart := time.Now()
+	pending := 0
+
+	err := d.wal.Replay(func(entry wal.Entry) {
+		if entry.IdempotencyKey != "" {
+			d.idem.Register(entry.IdempotencyKey, entry.PayloadID)
+		}
+		if err := d.queue.Enqueue(entry); err != nil {
+			d.logger.Warn("daemon: WAL replay: queue full during replay",
+				"component", "daemon",
+				"payload_id", entry.PayloadID,
+			)
+		}
+		pending++
+		d.metrics.ReplayEntriesTotal.Inc()
+	})
+	if err != nil {
+		return err
+	}
+
+	replayDuration := time.Since(replayStart)
+	d.metrics.ReplayDurationSeconds.Set(replayDuration.Seconds())
+	d.metrics.WALPendingEntries.Set(float64(pending))
+
+	d.logger.Info("daemon: WAL replay complete",
+		"component", "daemon",
+		"pending_entries", pending,
+		"duration", replayDuration,
+	)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Path resolution helpers
+// ---------------------------------------------------------------------------
+
+// resolveWALPath expands the configured WAL path (which may contain ~).
+// os.UserHomeDir failure is fatal per Phase 0C Behavioral Contract item 17.
+func (d *Daemon) resolveWALPath() (string, error) {
+	return expandPath(d.getConfig().Daemon.WAL.Path)
+}
+
+// resolveSQLitePath returns the SQLite database path.
+// Checks configured destinations first, then falls back to the default.
+func (d *Daemon) resolveSQLitePath() (string, error) {
+	for _, dst := range d.getConfig().Destinations {
+		if dst.Type == "sqlite" && dst.DBPath != "" {
+			return expandPath(dst.DBPath)
+		}
+	}
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "memories.db"), nil
+}
+
+// expandPath expands a leading ~ to the user's home directory.
+// Returns an error if os.UserHomeDir fails — callers must treat this as fatal.
+func expandPath(p string) (string, error) {
+	if !strings.HasPrefix(p, "~") {
+		return filepath.Clean(p), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("os.UserHomeDir: %w", err)
+	}
+	return filepath.Join(home, p[1:]), nil
+}
+
+// ---------------------------------------------------------------------------
+// Event sink metrics adapter
+// ---------------------------------------------------------------------------
+
+// vizDropAdapter adapts a prometheus.Counter to the vizpipe.DropMetric interface.
+type vizDropAdapter struct {
+	c prometheus.Counter
+}
+
+func (a *vizDropAdapter) Inc() { a.c.Inc() }
+
+// eventSinkMetrics adapts the Metrics struct to the eventsink.Metrics interface.
+type eventSinkMetrics struct {
+	m *metrics.Metrics
+}
+
+func (a *eventSinkMetrics) IncDropped()   { a.m.EventsDroppedTotal.Inc() }
+func (a *eventSinkMetrics) IncDelivered() { a.m.EventsDeliveredTotal.Inc() }
+func (a *eventSinkMetrics) IncFailed()    { a.m.EventsFailedTotal.Inc() }

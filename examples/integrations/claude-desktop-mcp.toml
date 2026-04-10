@@ -1,0 +1,77 @@
+# BubbleFish Nexus — Blessed Config: Claude Desktop (MCP)
+#
+# Conservative, security-reviewed config for Claude Desktop via MCP.
+# Single source, read+write, conservative limits.
+#
+# Reference: Tech Spec Section 13.5.
+
+[daemon]
+port       = 8000
+bind       = "127.0.0.1"
+admin_token = "env:BUBBLEFISH_ADMIN_TOKEN"
+log_level  = "info"
+log_format = "text"
+mode       = "balanced"
+queue_size = 256
+
+[daemon.shutdown]
+drain_timeout_seconds = 30
+
+[daemon.wal]
+path               = ""  # defaults to ~/.bubblefish/Nexus/wal/
+max_segment_size_mb = 10
+
+[daemon.wal.integrity]
+mode = "crc32"
+
+[daemon.rate_limit]
+global_requests_per_minute = 120
+
+[daemon.mcp]
+enabled     = true
+port        = 8002
+bind        = "127.0.0.1"
+source_name = "claude-desktop"
+api_key     = "env:BUBBLEFISH_MCP_KEY"
+
+[daemon.web]
+port         = 8081
+require_auth = true
+
+# ---------------------------------------------------------------------------
+# Source: Claude Desktop
+# ---------------------------------------------------------------------------
+
+[source]
+name               = "claude-desktop"
+api_key            = "env:BUBBLEFISH_CLAUDE_DESKTOP_KEY"
+namespace          = "personal"
+can_read           = true
+can_write          = true
+target_destination = "sqlite-local"
+default_actor_type = "human"
+default_profile    = "balanced"
+
+[source.rate_limit]
+requests_per_minute = 60
+
+[source.payload_limits]
+max_bytes = 65536
+
+[source.idempotency]
+enabled              = true
+dedup_window_seconds = 3600
+
+[source.policy]
+allowed_destinations    = ["sqlite-local"]
+allowed_operations      = ["read", "write"]
+allowed_retrieval_modes = ["exact", "semantic", "hybrid"]
+allowed_profiles        = ["fast", "balanced"]
+max_results             = 20
+max_response_bytes      = 16384
+
+[source.policy.cache]
+read_from_cache               = true
+write_to_cache                = true
+max_ttl_seconds               = 300
+semantic_similarity_threshold = 0.85

@@ -1,0 +1,11 @@
+{
+  "name": "bubblefish-nexus-mcpb-server",
+  "version": "0.1.0",
+  "description": "Stdio MCP proxy that bridges Claude Desktop to the local BubbleFish Nexus daemon.",
+  "private": true,
+  "license": "AGPL-3.0",
+  "main": "index.js",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
