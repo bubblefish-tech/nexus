@@ -136,7 +136,7 @@ bubblefish start
 
 ### OpenClaw
 
-Install the **bubblefish-nexus** plugin. See [OPENCLAW_SKILL.md](docs/OPENCLAW_SKILL.md).
+Use the repo-distributed OpenClaw integration example. See [OPENCLAW_SKILL.md](docs/OPENCLAW_SKILL.md) for manual setup and current availability details.
 
 Full setup for all clients: [MCP_CLIENTS.md](docs/MCP_CLIENTS.md)
 

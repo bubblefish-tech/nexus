@@ -135,16 +135,13 @@ ollama pull nomic-embed-text   # One-time download
 
 OpenClaw is a separate tool from Open WebUI. It's a Node.js-based AI gateway that runs in WSL 2 (or native Linux/macOS).
 
-Nexus connects to OpenClaw via the **bubblefish-nexus** TypeScript ESM plugin.
+Nexus includes an OpenClaw integration example implemented as a TypeScript ESM plugin.
 
-### Install the plugin
+### Install
 
-```bash
-# In your OpenClaw plugins directory
-npm install bubblefish-nexus
-```
+The OpenClaw integration is currently distributed from this repository and is not listed on ClawHub.
 
-Or copy the plugin files from `examples/integrations/openclaw/` in the Nexus repo.
+Copy the plugin files from `examples/integrations/openclaw/` in the Nexus repo into your OpenClaw plugins directory.
 
 ### Configure
 
