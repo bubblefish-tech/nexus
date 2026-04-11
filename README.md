@@ -1,6 +1,8 @@
 # BubbleFish Nexus
 [![CI](https://github.com/bubblefish-tech/Nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/bubblefish-tech/Nexus/actions/workflows/ci.yml)
 
+> **v0.1.2 released** — binaries are now available under [Releases](https://github.com/bubblefish-tech/nexus/releases/latest). Install instructions below.
+
 **THE Underlying AI Memory Infrastructure. Connects the memory of your AI apps and agents. Survives `kill -9`.**
 
 One daemon. Shared memory across Claude Desktop, ChatGPT, Perplexity, OpenWebUI, OpenClaw, LM Studio, and Cursor — all at once. Stored on your machine. Zero data loss.
