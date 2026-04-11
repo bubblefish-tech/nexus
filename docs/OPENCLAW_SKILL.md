@@ -2,7 +2,7 @@
 
 **Crash-proof persistent memory for OpenClaw. Survives compaction. Works across Claude Desktop, ChatGPT, Perplexity, and more.**
 
-Install via npm, then connect it to a running Nexus daemon.
+Set up the integration from this repository, then connect it to a running Nexus daemon.
 
 ---
 
@@ -26,13 +26,7 @@ The other thing Nexus gives you: the same memory store works across every AI cli
 
 ## Install
 
-### From npm
-
-```bash
-npm install bubblefish-nexus
-```
-
-### Manual install
+This OpenClaw integration is currently distributed from the Nexus repository and is not listed on ClawHub.
 
 Copy the plugin files from the Nexus repo to your OpenClaw plugins directory:
 
