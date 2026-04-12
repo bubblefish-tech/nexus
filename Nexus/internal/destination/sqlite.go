@@ -110,6 +110,28 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 	// createSubjectIndex covers subject-filtered queries:
 	// WHERE subject = ? ORDER BY timestamp DESC.
 	createSubjectIndex = `CREATE INDEX IF NOT EXISTS idx_memories_subject ON memories(subject, timestamp DESC)`
+
+	// addLSHBucketColumn stores the 16-bit SimHash bucket ID for cluster prefiltering.
+	// NULL for entries without embeddings or pre-Phase 3 entries.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	addLSHBucketColumn = `ALTER TABLE memories ADD COLUMN lsh_bucket INTEGER DEFAULT NULL`
+
+	// addClusterIDColumn stores the cluster ID for semantically similar memory grouping.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	addClusterIDColumn = `ALTER TABLE memories ADD COLUMN cluster_id TEXT NOT NULL DEFAULT ''`
+
+	// addClusterRoleColumn stores the role within a cluster: primary, member, superseded.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	addClusterRoleColumn = `ALTER TABLE memories ADD COLUMN cluster_role TEXT NOT NULL DEFAULT ''`
+
+	// createClusterIndex covers cluster-aware retrieval queries.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	createClusterIndex = `CREATE INDEX IF NOT EXISTS idx_memories_cluster ON memories(cluster_id, cluster_role)`
+
+	// createLSHBucketIndex covers the (tier, lsh_bucket) prefilter used by
+	// cluster assignment to find candidate entries in the same bucket.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	createLSHBucketIndex = `CREATE INDEX IF NOT EXISTS idx_memories_lsh_bucket ON memories(tier, lsh_bucket)`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -235,6 +257,23 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 	if _, err := d.db.Exec(createSubjectIndex); err != nil {
 		return fmt.Errorf("destination: sqlite: create subject index: %w", err)
 	}
+	// Idempotent migration: add cluster columns for Phase 3.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	if _, err := d.db.Exec(addLSHBucketColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addClusterIDColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addClusterRoleColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(createClusterIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create cluster index: %w", err)
+	}
+	if _, err := d.db.Exec(createLSHBucketIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create lsh_bucket index: %w", err)
+	}
 	return nil
 }
 
@@ -259,13 +298,21 @@ func (d *SQLiteDestination) Write(p TranslatedPayload) error {
 		classificationTier = "public"
 	}
 
+	// Encode lsh_bucket: use sql.NullInt64 so entries without embeddings
+	// store NULL rather than 0 (which is a valid bucket ID).
+	var lshBucket interface{}
+	if len(p.Embedding) > 0 {
+		lshBucket = p.LSHBucket
+	}
+
 	const query = `
 INSERT OR IGNORE INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
     collection, content, model, role, timestamp, idempotency_key,
     schema_version, transform_version, actor_type, actor_id, metadata, embedding,
-    sensitivity_labels, classification_tier, tier
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    sensitivity_labels, classification_tier, tier,
+    lsh_bucket, cluster_id, cluster_role
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = d.db.Exec(query,
 		p.PayloadID,
@@ -289,6 +336,9 @@ INSERT OR IGNORE INTO memories (
 		sensitivityLabelsStr,
 		classificationTier,
 		p.Tier,
+		lshBucket,
+		p.ClusterID,
+		p.ClusterRole,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
@@ -361,7 +411,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 	args = append(args, candidateLimit)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier, tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
+	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
 
 	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -379,6 +429,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 		var timestampStr, metadataStr string
 		var embeddingBlob []byte
 		var sensitivityLabelsStr string
+		var lshBucket sql.NullInt64
 
 		if err := rows.Scan(
 			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
@@ -386,8 +437,12 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 			&timestampStr, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
 			&tp.ActorType, &tp.ActorID, &metadataStr, &embeddingBlob,
 			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
+			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: semantic search: scan row: %w", err)
+		}
+		if lshBucket.Valid {
+			tp.LSHBucket = int(lshBucket.Int64)
 		}
 		if sensitivityLabelsStr != "" {
 			tp.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
@@ -577,7 +632,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -595,6 +650,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 		var timestampStr string
 		var metadataStr string
 		var sensitivityLabelsStr string
+		var lshBucket sql.NullInt64
 		if err := rows.Scan(
 			&tp.PayloadID,
 			&tp.RequestID,
@@ -616,8 +672,14 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 			&sensitivityLabelsStr,
 			&tp.ClassificationTier,
 			&tp.Tier,
+			&lshBucket,
+			&tp.ClusterID,
+			&tp.ClusterRole,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: query: scan row: %w", err)
+		}
+		if lshBucket.Valid {
+			tp.LSHBucket = int(lshBucket.Int64)
 		}
 
 		// Parse sensitivity_labels from comma-separated TEXT.
@@ -690,6 +752,144 @@ func (d *SQLiteDestination) Close() error {
 		return fmt.Errorf("destination: sqlite: close: %w", err)
 	}
 	return nil
+}
+
+// QueryClusterMembers returns all members of the given cluster. Results are
+// ordered by cluster_role (primary first) then timestamp descending.
+// Implements ClusterQuerier.
+// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+func (d *SQLiteDestination) QueryClusterMembers(params ClusterQueryParams) ([]TranslatedPayload, error) {
+	if params.ClusterID == "" {
+		return nil, nil
+	}
+
+	args := []interface{}{params.ClusterID}
+	tierClause := ""
+	if params.TierFilter {
+		tierClause = " AND tier <= ?"
+		args = append(args, params.SourceTier)
+	}
+
+	//nolint:gosec // tierClause is a fixed condition — no user input.
+	q := `SELECT payload_id, request_id, source, subject, namespace, destination,
+		collection, content, model, role, timestamp, idempotency_key,
+		schema_version, transform_version, actor_type, actor_id, metadata,
+		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role
+		FROM memories WHERE cluster_id = ?` + tierClause + `
+		ORDER BY CASE cluster_role WHEN 'primary' THEN 0 WHEN 'member' THEN 1 ELSE 2 END,
+		timestamp DESC`
+
+	rows, err := d.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("destination: sqlite: query cluster members: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	return d.scanClusterRows(rows)
+}
+
+// QueryBucketCandidates returns entries in the same (tier, lsh_bucket) that
+// have an embedding, for cluster assignment. Implements ClusterQuerier.
+// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.3.
+func (d *SQLiteDestination) QueryBucketCandidates(tier, bucket, candidateLimit int) ([]TranslatedPayload, error) {
+	const q = `SELECT payload_id, request_id, source, subject, namespace, destination,
+		collection, content, model, role, timestamp, idempotency_key,
+		schema_version, transform_version, actor_type, actor_id, metadata, embedding,
+		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role
+		FROM memories
+		WHERE tier = ? AND lsh_bucket = ? AND embedding IS NOT NULL AND length(embedding) > 0
+		ORDER BY timestamp DESC LIMIT ?`
+
+	rows, err := d.db.Query(q, tier, bucket, candidateLimit)
+	if err != nil {
+		return nil, fmt.Errorf("destination: sqlite: query bucket candidates: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	records := make([]TranslatedPayload, 0, candidateLimit)
+	for rows.Next() {
+		var tp TranslatedPayload
+		var timestampStr, metadataStr, sensitivityLabelsStr string
+		var embeddingBlob []byte
+		var lshBucket sql.NullInt64
+		if err := rows.Scan(
+			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
+			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
+			&timestampStr, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
+			&tp.ActorType, &tp.ActorID, &metadataStr, &embeddingBlob,
+			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
+			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
+		); err != nil {
+			return nil, fmt.Errorf("destination: sqlite: bucket candidates scan: %w", err)
+		}
+		if lshBucket.Valid {
+			tp.LSHBucket = int(lshBucket.Int64)
+		}
+		if sensitivityLabelsStr != "" {
+			tp.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
+		}
+		if t, parseErr := parseTimestamp(timestampStr); parseErr == nil {
+			tp.Timestamp = t
+		}
+		if metadataStr != "" && metadataStr != "{}" {
+			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
+		}
+		tp.Embedding = decodeEmbedding(embeddingBlob)
+		records = append(records, tp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("destination: sqlite: bucket candidates rows: %w", err)
+	}
+	return records, nil
+}
+
+// UpdateCluster sets the cluster_id and cluster_role for a given payload_id.
+// Implements ClusterQuerier.
+// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.3.
+func (d *SQLiteDestination) UpdateCluster(payloadID, clusterID, clusterRole string) error {
+	const q = `UPDATE memories SET cluster_id = ?, cluster_role = ? WHERE payload_id = ?`
+	_, err := d.db.Exec(q, clusterID, clusterRole, payloadID)
+	if err != nil {
+		return fmt.Errorf("destination: sqlite: update cluster: %w", err)
+	}
+	return nil
+}
+
+// scanClusterRows scans rows from a cluster query into TranslatedPayload slices.
+func (d *SQLiteDestination) scanClusterRows(rows *sql.Rows) ([]TranslatedPayload, error) {
+	records := make([]TranslatedPayload, 0, 16)
+	for rows.Next() {
+		var tp TranslatedPayload
+		var timestampStr, metadataStr, sensitivityLabelsStr string
+		var lshBucket sql.NullInt64
+		if err := rows.Scan(
+			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
+			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
+			&timestampStr, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
+			&tp.ActorType, &tp.ActorID, &metadataStr,
+			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
+			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
+		); err != nil {
+			return nil, fmt.Errorf("destination: sqlite: scan cluster row: %w", err)
+		}
+		if lshBucket.Valid {
+			tp.LSHBucket = int(lshBucket.Int64)
+		}
+		if sensitivityLabelsStr != "" {
+			tp.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
+		}
+		if t, parseErr := parseTimestamp(timestampStr); parseErr == nil {
+			tp.Timestamp = t
+		}
+		if metadataStr != "" && metadataStr != "{}" {
+			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
+		}
+		records = append(records, tp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("destination: sqlite: cluster rows: %w", err)
+	}
+	return records, nil
 }
 
 // marshalMetadata serialises metadata to JSON. Returns "{}" for nil maps.
@@ -849,7 +1049,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause from fixed conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -865,6 +1065,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	for rows.Next() {
 		var rec TranslatedPayload
 		var ts, metaStr, sensitivityLabelsStr string
+		var lshBucket sql.NullInt64
 		if err := rows.Scan(
 			&rec.PayloadID, &rec.RequestID, &rec.Source, &rec.Subject,
 			&rec.Namespace, &rec.Destination, &rec.Collection, &rec.Content,
@@ -872,8 +1073,12 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 			&rec.SchemaVersion, &rec.TransformVersion, &rec.ActorType,
 			&rec.ActorID, &metaStr, &sensitivityLabelsStr, &rec.ClassificationTier,
 			&rec.Tier,
+			&lshBucket, &rec.ClusterID, &rec.ClusterRole,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: time travel scan: %w", err)
+		}
+		if lshBucket.Valid {
+			rec.LSHBucket = int(lshBucket.Int64)
 		}
 		if sensitivityLabelsStr != "" {
 			rec.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
