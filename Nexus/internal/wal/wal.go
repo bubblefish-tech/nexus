@@ -75,6 +75,12 @@ type Entry struct {
 	// EntryType discriminates entry kinds. Empty string (zero value) means
 	// data entry, preserving backward compatibility with v0.1.2 WAL files.
 	EntryType string `json:"entry_type,omitempty"`
+	// MonotonicSeq is a strictly increasing sequence number assigned on
+	// append, independent of wall-clock time. Used for ordering WAL entries
+	// correctly even when the system clock jumps (NTP, VM migration).
+	// Zero for v0.1.2 entries; Replay assigns synthetic sequences from
+	// file offset for backward compatibility.
+	MonotonicSeq int64 `json:"monotonic_seq,omitempty"`
 }
 
 // WAL is the write-ahead log engine. All state is held in struct fields;
@@ -114,6 +120,11 @@ type WAL struct {
 	// directly. The durability guarantee is preserved: Append blocks
 	// until the batch containing the entry has been fsynced.
 	gc *groupCommitter
+
+	// seqFn returns the next monotonic sequence value. Set via
+	// WithSequence option. When nil, MonotonicSeq is left at 0
+	// (backward compatible with v0.1.2 consumers).
+	seqFn func() int64
 }
 
 // WithIntegrity configures WAL integrity mode. When mode is "mac", key
@@ -148,6 +159,15 @@ func WithGroupCommit(cfg GroupCommitConfig) Option {
 		if cfg.Enabled {
 			w.gc = newGroupCommitter(cfg, w.logger)
 		}
+	}
+}
+
+// WithSequence configures the monotonic sequence function. When set, every
+// Append assigns entry.MonotonicSeq = seqFn(). The seqFn must return
+// strictly increasing values. Typically backed by a seq.Counter.
+func WithSequence(seqFn func() int64) Option {
+	return func(w *WAL) {
+		w.seqFn = seqFn
 	}
 }
 
@@ -256,8 +276,14 @@ func (w *WAL) segments() ([]string, error) {
 func (w *WAL) Append(entry Entry) error {
 	entry.Version = walVersion
 	entry.Status = StatusPending
+	// TODO(monotonic): Timestamp is wall-clock for display/forensics only.
+	// Ordering uses MonotonicSeq (below). Phases 2-4 MUST compare
+	// MonotonicSeq, never Timestamp, for sequencing decisions.
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = time.Now().UTC()
+	}
+	if w.seqFn != nil {
+		entry.MonotonicSeq = w.seqFn()
 	}
 
 	data, err := json.Marshal(entry)
@@ -539,6 +565,58 @@ func (w *WAL) CRCFailures() int64 {
 // Prometheus via bubblefish_wal_integrity_failures_total.
 func (w *WAL) IntegrityFailures() int64 {
 	return w.integrityFailures.Load()
+}
+
+// HighestSeq scans all WAL segments and returns the highest MonotonicSeq
+// value found. Returns 0 if no entries have a MonotonicSeq. Used during
+// startup to initialize the sequence counter from WAL state when the
+// persisted seq.state file is missing or stale.
+func (w *WAL) HighestSeq() (int64, error) {
+	segs, err := w.segments()
+	if err != nil {
+		return 0, err
+	}
+	var highest int64
+	for _, seg := range segs {
+		h, err := w.scanHighestSeq(seg)
+		if err != nil {
+			return 0, err
+		}
+		if h > highest {
+			highest = h
+		}
+	}
+	return highest, nil
+}
+
+func (w *WAL) scanHighestSeq(path string) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, fmt.Errorf("wal: open segment for seq scan %q: %w", path, err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
+
+	var highest int64
+	for scanner.Scan() {
+		wl := parseWALLine(scanner.Text())
+		if wl == nil {
+			continue
+		}
+		if wl.HasSentinels && wl.SentinelErr != nil {
+			continue
+		}
+		var entry Entry
+		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
+			continue
+		}
+		if entry.MonotonicSeq > highest {
+			highest = entry.MonotonicSeq
+		}
+	}
+	return highest, scanner.Err()
 }
 
 // SentinelFailures returns the total number of sentinel corruption events

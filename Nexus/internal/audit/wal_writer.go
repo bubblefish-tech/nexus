@@ -51,6 +51,8 @@ func (aw *WALWriter) Submit(record InteractionRecord) error {
 		return fmt.Errorf("audit: marshal record for WAL: %w", err)
 	}
 
+	// TODO(monotonic): Timestamp is wall-clock for display. Ordering uses
+	// MonotonicSeq assigned by WAL.Append when WithSequence is configured.
 	entry := wal.Entry{
 		PayloadID: fmt.Sprintf("audit-%s", record.RecordID),
 		Status:    wal.StatusDelivered, // audit entries are not queued for delivery

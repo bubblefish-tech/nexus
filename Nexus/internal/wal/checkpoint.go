@@ -77,6 +77,9 @@ func (w *WAL) WriteCheckpoint(appliedCount int64, stateHash string) error {
 		EntryType: EntryTypeCheckpoint,
 		Payload:   payload,
 	}
+	if w.seqFn != nil {
+		entry.MonotonicSeq = w.seqFn()
+	}
 
 	data, merr := json.Marshal(entry)
 	if merr != nil {
