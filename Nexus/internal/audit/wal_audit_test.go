@@ -139,12 +139,17 @@ func TestWALWriter_AuditEntryPayloadRoundtrip(t *testing.T) {
 
 	var found bool
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		parts := strings.SplitN(line, "\t", 3)
+		parts := strings.SplitN(line, "\t", 6)
 		if len(parts) < 2 {
 			continue
 		}
+		// Detect sentinel format: first field is the start sentinel.
+		jsonField := parts[0]
+		if jsonField == wal.StartSentinel && len(parts) >= 4 {
+			jsonField = parts[1] // JSON is the second field in sentinel format
+		}
 		var entry wal.Entry
-		if err := json.Unmarshal([]byte(parts[0]), &entry); err != nil {
+		if err := json.Unmarshal([]byte(jsonField), &entry); err != nil {
 			continue
 		}
 		if entry.EntryType == wal.EntryTypeAudit {

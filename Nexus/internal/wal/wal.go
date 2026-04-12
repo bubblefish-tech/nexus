@@ -33,7 +33,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,7 +87,8 @@ type WAL struct {
 	currentPath string
 	currentSize int64        // protected by mu
 	logger      *slog.Logger
-	crcFailures atomic.Int64 // read without mu via CRCFailures()
+	crcFailures      atomic.Int64 // read without mu via CRCFailures()
+	sentinelFailures atomic.Int64 // read without mu via SentinelFailures()
 
 	// Integrity mode: IntegrityModeCRC32 (default) or IntegrityModeMAC.
 	// When mode=mac, HMAC-SHA256 is computed over JSON bytes on every write
@@ -265,14 +265,7 @@ func (w *WAL) Append(entry Entry) error {
 		return fmt.Errorf("wal: marshal entry: %w", err)
 	}
 
-	checksum := crc32.ChecksumIEEE(data)
-	var line string
-	if w.integrityMode == IntegrityModeMAC {
-		mac := computeHMAC(data, w.macKey)
-		line = fmt.Sprintf("%s\t%08x\t%s\n", data, checksum, mac)
-	} else {
-		line = fmt.Sprintf("%s\t%08x\n", data, checksum)
-	}
+	line := formatWALContent(data, w.integrityMode, w.macKey) + "\n"
 
 	if w.gc != nil {
 		// Group commit path: submit to the consumer goroutine and block
@@ -425,17 +418,27 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 		lineNum++
 		line := scanner.Text()
 
-		// Split into up to 3 fields: JSON, CRC32, optional HMAC.
-		// 2 fields = CRC-only (default or pre-upgrade entries).
-		// 3 fields = CRC + HMAC (integrity=mac entries).
-		// <2 fields = partial write (crash mid-write). Skip silently.
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+		wl := parseWALLine(line)
+		if wl == nil {
+			continue // partial write — fewer than 2 tab fields
+		}
+
+		// Sentinel validation: fail closed on sentinel errors.
+		// If the start sentinel is present but the end sentinel is missing
+		// or corrupt, the entry may be a torn write. Reject unconditionally.
+		if wl.HasSentinels && wl.SentinelErr != nil {
+			w.sentinelFailures.Add(1)
+			w.logger.Error("wal: sentinel corruption detected — entry rejected",
+				"component", "wal",
+				"segment", path,
+				"line_number", lineNum,
+				"error", wl.SentinelErr,
+			)
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
+		jsonBytes := wl.JSONBytes
+		storedCRC := wl.StoredCRC
 
 		// CRC32 validated first (cheap). Reference: Tech Spec Section 4.1.
 		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
@@ -453,11 +456,10 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 
 		// HMAC validated second (more expensive). Reference: Tech Spec Section 4.1.
 		// Only checked when integrity=mac AND the line has an HMAC field.
-		// Pre-upgrade entries (2-field lines) are treated as valid when mode=mac
+		// Pre-upgrade entries without HMAC are treated as valid when mode=mac
 		// because no tamper check is possible for entries written before upgrade.
-		if w.integrityMode == IntegrityModeMAC && len(parts) == 3 {
-			storedHMAC := parts[2]
-			if !validateHMAC(jsonBytes, w.macKey, storedHMAC) {
+		if w.integrityMode == IntegrityModeMAC && wl.StoredHMAC != "" {
+			if !validateHMAC(jsonBytes, w.macKey, wl.StoredHMAC) {
 				w.integrityFailures.Add(1)
 				w.logger.Warn("wal: HMAC mismatch — entry skipped (possible tampering)",
 					"component", "wal",
@@ -539,6 +541,15 @@ func (w *WAL) IntegrityFailures() int64 {
 	return w.integrityFailures.Load()
 }
 
+// SentinelFailures returns the total number of sentinel corruption events
+// detected during Replay calls. A sentinel failure indicates the start
+// sentinel was present but the end sentinel was missing or corrupt,
+// suggesting a torn sector write. Exposed to Prometheus via
+// bubblefish_wal_sentinel_failures_total.
+func (w *WAL) SentinelFailures() int64 {
+	return w.sentinelFailures.Load()
+}
+
 // SampleDelivered scans all WAL segments and returns up to count randomly
 // sampled entries with status DELIVERED. This is a read-only operation used
 // by the consistency checker to verify that delivered payloads exist in the
@@ -588,21 +599,24 @@ func (w *WAL) scanDelivered(path string, out *[]Entry) error {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+
+		wl := parseWALLine(line)
+		if wl == nil {
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
+		// Skip sentinel-corrupt entries silently (same as CRC failures here).
+		if wl.HasSentinels && wl.SentinelErr != nil {
+			continue
+		}
 
-		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if computed != storedCRC {
+		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(wl.JSONBytes))
+		if computed != wl.StoredCRC {
 			continue // skip corrupt entries silently
 		}
 
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
 			continue
 		}
 

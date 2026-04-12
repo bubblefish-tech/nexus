@@ -70,7 +70,7 @@ func reopenWithMAC(t *testing.T, dir string) *WAL {
 // ── HMAC write format ────────────────────────────────────────────────────────
 
 // TestIntegrityMACWriteFormat verifies that when integrity=mac, each WAL line
-// has exactly 3 tab-separated fields: JSON, CRC32 hex, HMAC hex.
+// is in sentinel format with JSON, CRC32, and HMAC fields.
 func TestIntegrityMACWriteFormat(t *testing.T) {
 	w, dir := openTestWALWithMAC(t)
 	appendN(t, w, 10)
@@ -90,31 +90,37 @@ func TestIntegrityMACWriteFormat(t *testing.T) {
 	}
 
 	for i, line := range lines {
-		parts := strings.SplitN(line, "\t", 4) // split into at most 4 to detect extras
-		if len(parts) != 3 {
-			t.Errorf("line %d: want 3 tab-separated fields, got %d", i, len(parts))
+		wl := parseWALLine(line)
+		if wl == nil {
+			t.Errorf("line %d: could not parse", i)
+			continue
+		}
+		if !wl.HasSentinels {
+			t.Errorf("line %d: missing sentinels", i)
+		}
+		if wl.SentinelErr != nil {
+			t.Errorf("line %d: sentinel error: %v", i, wl.SentinelErr)
+		}
+		if wl.StoredHMAC == "" {
+			t.Errorf("line %d: missing HMAC in MAC mode", i)
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
-		storedHMAC := parts[2]
-
 		// Verify CRC32.
-		wantCRC := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if storedCRC != wantCRC {
-			t.Errorf("line %d: CRC mismatch: stored=%s want=%s", i, storedCRC, wantCRC)
+		wantCRC := fmt.Sprintf("%08x", crc32.ChecksumIEEE(wl.JSONBytes))
+		if wl.StoredCRC != wantCRC {
+			t.Errorf("line %d: CRC mismatch: stored=%s want=%s", i, wl.StoredCRC, wantCRC)
 		}
 
 		// Verify HMAC.
-		wantHMAC := computeHMAC(jsonBytes, testMACKey)
-		if storedHMAC != wantHMAC {
-			t.Errorf("line %d: HMAC mismatch: stored=%s want=%s", i, storedHMAC, wantHMAC)
+		wantHMAC := computeHMAC(wl.JSONBytes, testMACKey)
+		if wl.StoredHMAC != wantHMAC {
+			t.Errorf("line %d: HMAC mismatch: stored=%s want=%s", i, wl.StoredHMAC, wantHMAC)
 		}
 
 		// HMAC hex should be 64 chars (SHA-256 = 32 bytes = 64 hex chars).
-		if len(storedHMAC) != 64 {
-			t.Errorf("line %d: HMAC not 64 chars: %q (len=%d)", i, storedHMAC, len(storedHMAC))
+		if len(wl.StoredHMAC) != 64 {
+			t.Errorf("line %d: HMAC not 64 chars: %q (len=%d)", i, wl.StoredHMAC, len(wl.StoredHMAC))
 		}
 	}
 }
@@ -140,16 +146,17 @@ func TestIntegrityMACTamperDetected(t *testing.T) {
 	// Tamper with line 5 (0-indexed=4): change a byte in JSON, recompute CRC
 	// so CRC passes but HMAC fails. This simulates intentional tampering.
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	parts := strings.SplitN(lines[4], "\t", 3)
-	if len(parts) != 3 {
-		t.Fatalf("expected 3 fields on line 4, got %d", len(parts))
+	wl := parseWALLine(lines[4])
+	if wl == nil || !wl.HasSentinels {
+		t.Fatalf("expected sentinel format on line 4")
 	}
-	tampered := []byte(parts[0])
+	tampered := make([]byte, len(wl.JSONBytes))
+	copy(tampered, wl.JSONBytes)
 	tampered[10] ^= 0xFF // flip a byte
 	// Recompute CRC over tampered data (attacker can do this).
 	newCRC := fmt.Sprintf("%08x", crc32.ChecksumIEEE(tampered))
 	// Keep old HMAC — it won't match the tampered data.
-	lines[4] = string(tampered) + "\t" + newCRC + "\t" + parts[2]
+	lines[4] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s", StartSentinel, tampered, newCRC, wl.StoredHMAC, EndSentinel)
 	if err := os.WriteFile(seg, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -224,13 +231,14 @@ func TestIntegrityMACCRCFailsBeforeHMAC(t *testing.T) {
 	// Corrupt line 3 (0-indexed=2): change JSON but do NOT recompute CRC.
 	// This means CRC will fail, and HMAC should never be checked.
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	parts := strings.SplitN(lines[2], "\t", 3)
-	if len(parts) != 3 {
-		t.Fatalf("expected 3 fields, got %d", len(parts))
+	wl := parseWALLine(lines[2])
+	if wl == nil || !wl.HasSentinels {
+		t.Fatalf("expected sentinel format on line 2")
 	}
-	corrupted := []byte(parts[0])
+	corrupted := make([]byte, len(wl.JSONBytes))
+	copy(corrupted, wl.JSONBytes)
 	corrupted[5] ^= 0xFF
-	lines[2] = string(corrupted) + "\t" + parts[1] + "\t" + parts[2]
+	lines[2] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s", StartSentinel, corrupted, wl.StoredCRC, wl.StoredHMAC, EndSentinel)
 	if err := os.WriteFile(seg, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -300,7 +308,7 @@ func TestIntegrityMACEmptyKey(t *testing.T) {
 // ── CRC-only mode (default): no HMAC overhead ──────────────────────────────
 
 // TestIntegrityCRC32OnlyFormat verifies that when integrity=crc32 (default),
-// WAL lines have exactly 2 tab-separated fields: JSON and CRC32. No HMAC.
+// WAL lines are in sentinel format with JSON and CRC32 but no HMAC.
 func TestIntegrityCRC32OnlyFormat(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 5)
@@ -314,9 +322,16 @@ func TestIntegrityCRC32OnlyFormat(t *testing.T) {
 
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	for i, line := range lines {
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) != 2 {
-			t.Errorf("line %d: want 2 fields (CRC-only), got %d", i, len(parts))
+		wl := parseWALLine(line)
+		if wl == nil {
+			t.Errorf("line %d: could not parse", i)
+			continue
+		}
+		if !wl.HasSentinels {
+			t.Errorf("line %d: missing sentinels", i)
+		}
+		if wl.StoredHMAC != "" {
+			t.Errorf("line %d: unexpected HMAC in CRC-only mode", i)
 		}
 	}
 }
@@ -350,15 +365,14 @@ func TestIntegrityMACMarkDelivered(t *testing.T) {
 
 	// Find the DELIVERED line and verify its CRC and HMAC.
 	for i, line := range lines {
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) != 3 {
-			t.Errorf("line %d: want 3 fields, got %d", i, len(parts))
+		wl := parseWALLine(line)
+		if wl == nil {
+			t.Errorf("line %d: could not parse", i)
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
 			t.Errorf("line %d: unmarshal: %v", i, err)
 			continue
 		}
@@ -368,21 +382,18 @@ func TestIntegrityMACMarkDelivered(t *testing.T) {
 		}
 
 		// Found the DELIVERED entry. Verify CRC and HMAC over new JSON.
-		storedCRC := parts[1]
-		storedHMAC := parts[2]
-
-		wantCRC := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if storedCRC != wantCRC {
-			t.Errorf("DELIVERED entry CRC mismatch: stored=%s want=%s", storedCRC, wantCRC)
+		wantCRC := fmt.Sprintf("%08x", crc32.ChecksumIEEE(wl.JSONBytes))
+		if wl.StoredCRC != wantCRC {
+			t.Errorf("DELIVERED entry CRC mismatch: stored=%s want=%s", wl.StoredCRC, wantCRC)
 		}
 
-		wantHMAC := computeHMAC(jsonBytes, testMACKey)
-		if storedHMAC != wantHMAC {
-			t.Errorf("DELIVERED entry HMAC mismatch: stored=%s want=%s", storedHMAC, wantHMAC)
+		wantHMAC := computeHMAC(wl.JSONBytes, testMACKey)
+		if wl.StoredHMAC != wantHMAC {
+			t.Errorf("DELIVERED entry HMAC mismatch: stored=%s want=%s", wl.StoredHMAC, wantHMAC)
 		}
 
 		// Verify the HMAC is valid.
-		if !validateHMAC(jsonBytes, testMACKey, storedHMAC) {
+		if !validateHMAC(wl.JSONBytes, testMACKey, wl.StoredHMAC) {
 			t.Error("DELIVERED entry HMAC validation failed")
 		}
 
@@ -545,16 +556,18 @@ func TestIntegrityMACMarkPermanentFailure(t *testing.T) {
 	}
 
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	for _, line := range lines {
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) != 3 {
-			t.Errorf("want 3 fields, got %d", len(parts))
+	for i, line := range lines {
+		wl := parseWALLine(line)
+		if wl == nil {
+			t.Errorf("line %d: could not parse", i)
 			continue
 		}
-		jsonBytes := []byte(parts[0])
-		storedHMAC := parts[2]
-		if !validateHMAC(jsonBytes, testMACKey, storedHMAC) {
-			t.Errorf("HMAC validation failed for line: %s", parts[0][:50])
+		if wl.StoredHMAC == "" {
+			t.Errorf("line %d: missing HMAC", i)
+			continue
+		}
+		if !validateHMAC(wl.JSONBytes, testMACKey, wl.StoredHMAC) {
+			t.Errorf("HMAC validation failed for line %d", i)
 		}
 	}
 }
@@ -607,9 +620,16 @@ func TestIntegrityMACSegmentRotation(t *testing.T) {
 			if line == "" {
 				continue
 			}
-			parts := strings.SplitN(line, "\t", 3)
-			if len(parts) != 3 {
-				t.Errorf("segment %s: want 3 fields, got %d", seg, len(parts))
+			wl := parseWALLine(line)
+			if wl == nil {
+				t.Errorf("segment %s: could not parse line", seg)
+				continue
+			}
+			if !wl.HasSentinels {
+				t.Errorf("segment %s: missing sentinels", seg)
+			}
+			if wl.StoredHMAC == "" {
+				t.Errorf("segment %s: missing HMAC in MAC mode", seg)
 			}
 		}
 	}

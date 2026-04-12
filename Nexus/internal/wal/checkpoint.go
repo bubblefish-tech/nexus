@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -84,14 +83,7 @@ func (w *WAL) WriteCheckpoint(appliedCount int64, stateHash string) error {
 		return fmt.Errorf("wal: marshal checkpoint entry: %w", merr)
 	}
 
-	checksum := crc32.ChecksumIEEE(data)
-	var line string
-	if w.integrityMode == IntegrityModeMAC {
-		mac := computeHMAC(data, w.macKey)
-		line = fmt.Sprintf("%s\t%08x\t%s\n", data, checksum, mac)
-	} else {
-		line = fmt.Sprintf("%s\t%08x\n", data, checksum)
-	}
+	line := formatWALContent(data, w.integrityMode, w.macKey) + "\n"
 
 	if w.gc != nil {
 		return w.gc.submit(line)
@@ -146,21 +138,21 @@ func (w *WAL) scanCheckpoints(path string) (*Checkpoint, error) {
 		lineNum++
 		line := scanner.Text()
 
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+		wl := parseWALLine(line)
+		if wl == nil {
+			continue
+		}
+		if wl.HasSentinels && wl.SentinelErr != nil {
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
-
-		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if computed != storedCRC {
+		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(wl.JSONBytes))
+		if computed != wl.StoredCRC {
 			continue
 		}
 
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
 			continue
 		}
 
@@ -242,16 +234,25 @@ func (w *WAL) replaySegmentFrom(path string, skipLines int, seen map[string]bool
 		}
 
 		line := scanner.Text()
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+
+		wl := parseWALLine(line)
+		if wl == nil {
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
+		if wl.HasSentinels && wl.SentinelErr != nil {
+			w.sentinelFailures.Add(1)
+			w.logger.Error("wal: sentinel corruption detected — entry rejected",
+				"component", "wal",
+				"segment", path,
+				"line_number", lineNum,
+				"error", wl.SentinelErr,
+			)
+			continue
+		}
 
-		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if computed != storedCRC {
+		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(wl.JSONBytes))
+		if computed != wl.StoredCRC {
 			w.crcFailures.Add(1)
 			w.logger.Warn("wal: CRC mismatch — entry skipped",
 				"component", "wal",
@@ -261,9 +262,8 @@ func (w *WAL) replaySegmentFrom(path string, skipLines int, seen map[string]bool
 			continue
 		}
 
-		if w.integrityMode == IntegrityModeMAC && len(parts) == 3 {
-			storedHMAC := parts[2]
-			if !validateHMAC(jsonBytes, w.macKey, storedHMAC) {
+		if w.integrityMode == IntegrityModeMAC && wl.StoredHMAC != "" {
+			if !validateHMAC(wl.JSONBytes, w.macKey, wl.StoredHMAC) {
 				w.integrityFailures.Add(1)
 				w.logger.Warn("wal: HMAC mismatch — entry skipped",
 					"component", "wal",
@@ -275,7 +275,7 @@ func (w *WAL) replaySegmentFrom(path string, skipLines int, seen map[string]bool
 		}
 
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
 			w.logger.Warn("wal: malformed JSON — entry skipped",
 				"component", "wal",
 				"segment", path,
