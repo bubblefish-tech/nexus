@@ -363,7 +363,8 @@ type Source struct {
 
 // SourceRateLimitConfig models [source.rate_limit].
 type SourceRateLimitConfig struct {
-	RequestsPerMinute int `toml:"requests_per_minute"`
+	RequestsPerMinute int   `toml:"requests_per_minute"`
+	BytesPerSecond    int64 `toml:"bytes_per_second"` // 0 = unlimited
 }
 
 // PayloadLimitsConfig models [source.payload_limits].

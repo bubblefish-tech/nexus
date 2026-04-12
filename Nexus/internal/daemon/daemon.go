@@ -90,6 +90,7 @@ type Daemon struct {
 	semanticCache   *cache.SemanticCache      // Stage 2 — Phase 6
 	server          *http.Server
 	rl              *rateLimiter
+	bytesRL         *bytesRateLimiter
 
 	reloadWatcher *hotreload.Watcher
 	mcpServer     *mcp.Server // nil when MCP is disabled or failed to start
@@ -184,6 +185,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		logger:  logger,
 		metrics: m,
 		rl:      newRateLimiter(),
+		bytesRL: newBytesRateLimiter(),
 		vizPipe: vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
 		stopped:     make(chan struct{}),
 		shutdownReq: make(chan struct{}),

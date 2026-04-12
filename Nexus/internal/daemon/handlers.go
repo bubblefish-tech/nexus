@@ -37,6 +37,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tidwall/gjson"
+	"golang.org/x/time/rate"
 
 	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/config"
@@ -204,6 +205,52 @@ func (rl *rateLimiter) Allow(sourceName string, rpm int) (bool, int) {
 
 	w.count++
 	return true, 0
+}
+
+// bytesRateLimiter implements per-source bytes/sec rate limiting using
+// token bucket (golang.org/x/time/rate). Each source gets its own limiter.
+// A zero or negative limit means unlimited (no limiter is created).
+type bytesRateLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+}
+
+func newBytesRateLimiter() *bytesRateLimiter {
+	return &bytesRateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+	}
+}
+
+// Allow checks whether n bytes are allowed for the given source. Returns
+// true if allowed. When rejected, retryAfter is the estimated seconds
+// until enough tokens are available.
+func (bl *bytesRateLimiter) Allow(sourceName string, bytesPerSecond int64, n int) (bool, int) {
+	if bytesPerSecond <= 0 {
+		return true, 0
+	}
+
+	bl.mu.Lock()
+	lim, ok := bl.limiters[sourceName]
+	if !ok {
+		lim = rate.NewLimiter(rate.Limit(bytesPerSecond), int(bytesPerSecond))
+		bl.limiters[sourceName] = lim
+	}
+	bl.mu.Unlock()
+
+	if lim.AllowN(time.Now(), n) {
+		return true, 0
+	}
+
+	// Estimate retry-after from the token refill rate.
+	tokensNeeded := float64(n) - float64(lim.Burst())
+	if tokensNeeded < 0 {
+		tokensNeeded = float64(n)
+	}
+	retryAfter := int(tokensNeeded/float64(bytesPerSecond)) + 1
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+	return false, retryAfter
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +482,25 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
 		return
+	}
+
+	// Step 6b — Bytes/sec rate limit check.
+	if src.RateLimit.BytesPerSecond > 0 {
+		if allowed, retryAfter := d.bytesRL.Allow(src.Name, src.RateLimit.BytesPerSecond, len(bodyStr)); !allowed {
+			d.logger.Warn("daemon: bytes rate limit exceeded",
+				"component", "daemon",
+				"source", src.Name,
+				"bytes_per_second", src.RateLimit.BytesPerSecond,
+				"body_bytes", len(bodyStr),
+				"request_id", middleware.GetReqID(r.Context()),
+			)
+			d.metrics.RateLimitBytesRejectedTotal.WithLabelValues(src.Name).Inc()
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			d.writeErrorResponse(w, r, http.StatusTooManyRequests, "bytes_rate_limit_exceeded",
+				"bytes/sec rate limit exceeded; back off and retry", retryAfter)
+			return
+		}
+		d.metrics.RateLimitBytesTotal.WithLabelValues(src.Name).Add(float64(len(bodyStr)))
 	}
 
 	// Step 7 — Field mapping via gjson dot-path.
