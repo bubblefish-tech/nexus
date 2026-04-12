@@ -254,6 +254,44 @@ func (bl *bytesRateLimiter) Allow(sourceName string, bytesPerSecond int64, n int
 }
 
 // ---------------------------------------------------------------------------
+// Tier-aware rate limit resolution
+// ---------------------------------------------------------------------------
+
+// effectiveRPM returns the effective requests-per-minute for src, following
+// the precedence chain: source config → tier config → global config.
+//
+// Per-source overrides per-tier; per-tier overrides global.
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+func effectiveRPM(cfg *config.Config, src *config.Source) int {
+	if src.RateLimit.RequestsPerMinute > 0 {
+		return src.RateLimit.RequestsPerMinute
+	}
+	// Check tier-level override.
+	for _, tc := range cfg.Daemon.Tiers {
+		if tc.Level == src.Tier && tc.RequestsPerMinute > 0 {
+			return tc.RequestsPerMinute
+		}
+	}
+	return cfg.Daemon.RateLimit.GlobalRequestsPerMinute
+}
+
+// effectiveBPS returns the effective bytes-per-second limit for src,
+// following the same precedence chain as effectiveRPM.
+// Returns 0 (unlimited) if no limit is configured at any level.
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+func effectiveBPS(cfg *config.Config, src *config.Source) int64 {
+	if src.RateLimit.BytesPerSecond > 0 {
+		return src.RateLimit.BytesPerSecond
+	}
+	for _, tc := range cfg.Daemon.Tiers {
+		if tc.Level == src.Tier && tc.BytesPerSecond > 0 {
+			return tc.BytesPerSecond
+		}
+	}
+	return 0 // unlimited
+}
+
+// ---------------------------------------------------------------------------
 // ID generation
 // ---------------------------------------------------------------------------
 
@@ -449,12 +487,11 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 6 — Rate limit check AFTER idempotency.
+	// Effective RPM follows precedence: source config → tier config → global.
 	// Reference: Phase 0C Behavioral Contract item 11, Invariant 4.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
 	cfg := d.getConfig()
-	rpm := src.RateLimit.RequestsPerMinute
-	if rpm <= 0 {
-		rpm = cfg.Daemon.RateLimit.GlobalRequestsPerMinute
-	}
+	rpm := effectiveRPM(cfg, src)
 	if allowed, retryAfter := d.rl.Allow(src.Name, rpm); !allowed {
 		d.logger.Warn("daemon: rate limit exceeded",
 			"component", "daemon",
@@ -484,13 +521,15 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 6b — Bytes/sec rate limit check.
-	if src.RateLimit.BytesPerSecond > 0 {
-		if allowed, retryAfter := d.bytesRL.Allow(src.Name, src.RateLimit.BytesPerSecond, len(bodyStr)); !allowed {
+	// Step 6b — Bytes/sec rate limit check (tier-aware).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+	bps := effectiveBPS(cfg, src)
+	if bps > 0 {
+		if allowed, retryAfter := d.bytesRL.Allow(src.Name, bps, len(bodyStr)); !allowed {
 			d.logger.Warn("daemon: bytes rate limit exceeded",
 				"component", "daemon",
 				"source", src.Name,
-				"bytes_per_second", src.RateLimit.BytesPerSecond,
+				"bytes_per_second", bps,
 				"body_bytes", len(bodyStr),
 				"request_id", middleware.GetReqID(r.Context()),
 			)
@@ -816,13 +855,11 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit — applies to reads too.
+	// Rate limit — applies to reads too (tier-aware).
 	// Reference: Phase 0C Behavioral Contract item 11.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
 	qcfg := d.getConfig()
-	rpm := src.RateLimit.RequestsPerMinute
-	if rpm <= 0 {
-		rpm = qcfg.Daemon.RateLimit.GlobalRequestsPerMinute
-	}
+	rpm := effectiveRPM(qcfg, src)
 	if allowed, retryAfter := d.rl.Allow(src.Name+":read", rpm); !allowed {
 		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
 		d.emitRateLimitHit(r, src.Name, rpm)

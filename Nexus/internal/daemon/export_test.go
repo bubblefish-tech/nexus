@@ -301,6 +301,18 @@ func NewTestRateLimiter() *rateLimiter {
 	return newRateLimiter()
 }
 
+// EffectiveRPM exposes effectiveRPM for testing.
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+func EffectiveRPM(cfg *config.Config, src *config.Source) int {
+	return effectiveRPM(cfg, src)
+}
+
+// EffectiveBPS exposes effectiveBPS for testing.
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+func EffectiveBPS(cfg *config.Config, src *config.Source) int64 {
+	return effectiveBPS(cfg, src)
+}
+
 // RateLimiterWindowCount returns the number of keys in the rate limiter's windows map.
 func RateLimiterWindowCount(rl *rateLimiter) int {
 	rl.mu.Lock()
