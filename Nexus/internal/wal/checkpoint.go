@@ -154,8 +154,12 @@ func (w *WAL) scanCheckpoints(path string) (*Checkpoint, error) {
 			continue
 		}
 
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			continue
 		}
 
@@ -277,8 +281,12 @@ func (w *WAL) replaySegmentFrom(path string, skipLines int, seen map[string]bool
 			}
 		}
 
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			w.logger.Warn("wal: malformed JSON — entry skipped",
 				"component", "wal",
 				"segment", path,

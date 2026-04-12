@@ -4,6 +4,61 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.1.3 — Moat Release (2026-04-12)
+
+Four moat phases + extreme durability hardening + viral differentiators.
+
+### Phase 1 — Foundation Layer (Hardened)
+- **Group commit ring buffer** — single-consumer goroutine batches WAL writes with one fsync per batch. Configurable max_batch (256) and max_delay (500us).
+- **Dual integrity sentinels** — 8-byte start/end sentinels (BF/FB) on every WAL entry for torn-sector-write detection, in addition to CRC32.
+- **Incremental replay with consistent checkpoints** — checkpoint validation (CRC32 + state_hash + applied_count); any failure triggers full genesis replay.
+- **Audit log as WAL entry type** — `EntryTypeAudit` with group commit durability. `bubblefish audit export --format jsonl --since --until`.
+- **Bytes/sec rate limiting** — per-source token bucket with distinct 429 code `bytes_rate_limit_exceeded`.
+- **fsync verification on startup** — write/fsync/read-back test detects broken fsync (network storage, consumer SSDs). `bubblefish doctor --fsync-test`.
+- **Disk-full pre-batch reservation** — verifies (batch_size x max_entry_size) bytes available before every group commit. Pre-allocates next segment at 80% fill.
+- **Goroutine heartbeat supervisor** — 30s stall detection, stack dump to `logs/deadlock-*.log`, exit code 3.
+- **Monotonic sequence counter** — ordering independent of wall-clock time. Persisted across restarts.
+- **WAL zstd compression** — `github.com/klauspost/compress/zstd`. 3-5x size reduction. Auto-detected on replay; mixed segments work. Config: `compress_enabled = true`.
+
+### Phase 2 — Trust Boundary Layer
+- **Tier partitions** — `tier` column (0-3) with SQL-layer `AND tier <= ?` enforcement.
+- **LSH tier-scoped buckets** — per-tier seeds, cross-tier collision impossible.
+- **Review token classes** — `bfn_review_list_` and `bfn_review_read_` with constant-time comparison.
+- **Per-tier rate limiting** — `[[daemon.tiers]]` config with source > tier > global precedence.
+- **Embedding validation envelope** — shape check, content-hash, provider stamping, 3-sigma drift detection, fresh baseline rule (1000 warmup).
+- **Secrets directory** — `~/.bubblefish/Nexus/secrets/` (0700), atomic writes (0600), path traversal guard.
+
+### Phase 3 — Cluster Mechanism
+- **SimHash LSH prefilter** — 16 hyperplanes per tier, bucket ID as 16-bit integer.
+- **Cluster columns** — `cluster_id`, `cluster_role` (primary/member/superseded), `lsh_bucket` with indexes.
+- **Async cluster assignment** — cosine similarity >= 0.92, cluster cap 16, deterministic overflow by timestamp, never spans tiers.
+- **Cluster-aware retrieval** — `cluster-aware` profile with `_nexus.conflict` and `_nexus.cluster_expanded` metadata fields.
+
+### Phase 4 — Cryptographic Provenance
+- **Per-source Ed25519 keys** — `[source.signing] mode = "local"`, key rotation chain. CLIs: `bubblefish source rotate-key`, `bubblefish source pubkey`.
+- **Signed write envelopes** — Ed25519 signature over `{source_name, timestamp, idempotency_key, content_hash}`. Daemon signs on write path.
+- **Hash-chained audit log** — genesis entry with daemon identity, `prev_audit_hash` chain, fail-closed on mismatch (exit code 2).
+- **`bubblefish audit recover`** — forensic inspection of corrupted chain, truncate-or-abort operator choice.
+- **Automatic MCP idempotency** — `SHA-256(session_id || content || timestamp_second)` auto-generated for `nexus_write` calls without explicit key.
+- **Verify endpoint + CLI** — `GET /verify/{memory_id}` returns proof bundle. `bubblefish verify <proof.json>` with parallel chain verification.
+- **Python verifier** — `tools/verify-python/verify.py`, independent implementation proving the proof format is spec, not trick.
+- **Daily Merkle root** — midnight UTC computation, daemon-signed, persisted to `data/merkle-roots/`. `bubblefish anchor setup --gist` for external anchoring.
+- **Query attestation** — `POST /api/prove` returns daemon-signed proof of query result set.
+- **Timeline command** — `bubblefish timeline <memory_id>` for forensic audit history.
+- **Dashboard Proofs tab** — live chain status, verification, proof export.
+- **60-second cross-vendor demo** — `examples/cryptographic-provenance/` with demo.sh, demo.ps1, agent configs.
+
+### Viral Features + Testing Infrastructure
+- **`bubblefish chaos`** — fault injection tool. Concurrent writers + random faults (network timeout, connection reset, write burst). Measures data loss. Machine-readable JSON report.
+- **`bubblefish simulate`** — FoundationDB-style deterministic testing. Real WAL + real SQLite in temp dirs. Seeded fault injection (crash recovery, write delays). `--seed N` for reproduction.
+- **`bubblefish sentinel`** — continuous drift detection. Samples delivered entries, verifies existence in destination. Prometheus metrics. Wirable as daemon goroutine.
+- **Pluggable audit sinks** — syslog (RFC 5424 over UDP/TCP), Fluent Bit (JSON forward protocol), OpenTelemetry (OTLP/HTTP JSON). No new dependencies.
+- **`bubblefish backup verify`** — full checksum verification against manifest without restoring.
+- **`bubblefish destination rebuild`** — replays WAL into fresh destination. Documented recovery for destination corruption.
+- **OAuth routes unregistered when disabled** — zero disabled-code attack surface.
+
+---
+
 ## v0.1.3 — Phase 2: Trust Boundary Layer
 
 ### Added — Phase 2.1 (Tier Partitions with SQL-layer Enforcement)

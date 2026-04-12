@@ -192,6 +192,11 @@ type WALDaemonConfig struct {
 	Watchdog         WALWatchdogConfig   `toml:"watchdog"`
 	GroupCommit      WALGroupCommitConfig  `toml:"group_commit"`
 	Checkpoint       WALCheckpointConfig   `toml:"checkpoint"`
+	// CompressEnabled enables zstd compression for new WAL entries. 3-5x size
+	// reduction, fewer bytes to fsync, smaller backups. Replay auto-detects
+	// compressed entries regardless of this flag, so mixed segments work.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	CompressEnabled bool `toml:"compress_enabled"`
 }
 
 // WALGroupCommitConfig models [daemon.wal.group_commit].
@@ -299,11 +304,15 @@ type EventsConfig struct {
 
 // EventSink models [[daemon.events.sinks]].
 type EventSink struct {
-	Name           string `toml:"name"`
-	URL            string `toml:"url"`
-	TimeoutSeconds int    `toml:"timeout_seconds"`
-	MaxRetries     int    `toml:"max_retries"`
-	Content        string `toml:"content"` // "summary" or "full"
+	Name           string            `toml:"name"`
+	Type           string            `toml:"type"` // "webhook", "syslog", "fluentd", "otlp"
+	URL            string            `toml:"url"`
+	TimeoutSeconds int               `toml:"timeout_seconds"`
+	MaxRetries     int               `toml:"max_retries"`
+	Content        string            `toml:"content"`  // "summary" or "full"
+	Facility       string            `toml:"facility"` // syslog facility
+	Tag            string            `toml:"tag"`      // syslog/fluentd tag
+	Headers        map[string]string `toml:"headers"`  // OTLP custom headers
 }
 
 // RetrievalConfig models the top-level [retrieval] section.

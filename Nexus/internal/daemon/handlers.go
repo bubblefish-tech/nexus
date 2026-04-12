@@ -133,6 +133,8 @@ type nexusMetadata struct {
 	SemanticUnavailable        bool             `json:"semantic_unavailable,omitempty"`
 	SemanticUnavailableReason  string           `json:"semantic_unavailable_reason,omitempty"`
 	RetrievalFirewallFiltered  bool             `json:"retrieval_firewall_filtered,omitempty"`
+	ClusterExpanded            bool             `json:"cluster_expanded,omitempty"`
+	Conflict                   bool             `json:"conflict,omitempty"`
 	Debug                      *query.DebugInfo `json:"debug,omitempty"`
 }
 
@@ -666,6 +668,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	tp.Embedding = d.embedContent(r.Context(), payloadID, tp.Content)
 
+	// Sign write envelope if source has signing enabled.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	d.signWriteEnvelope(&tp)
+
 	// Build WAL entry payload.
 	payloadBytes, err := json.Marshal(tp)
 	if err != nil {
@@ -967,6 +973,12 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		WithDecayCounter(d.metrics.TemporalDecayApplied).
 		WithDebug(debugStages).
 		WithFirewall(d.retrievalFirewall)
+
+	// Wire cluster querier for cluster-aware retrieval profile.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	if clusterQ, ok := d.querier.(destination.ClusterQuerier); ok {
+		runner = runner.WithClusterQuerier(clusterQ)
+	}
 	cascResult, err := runner.Run(r.Context(), src, cq)
 	if err != nil {
 		d.logger.Error("daemon: cascade failed",
@@ -1064,6 +1076,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		RetrievalStage:            cascResult.RetrievalStage,
 		SemanticUnavailable:       cascResult.SemanticUnavailable,
 		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
+		ClusterExpanded:           cascResult.ClusterExpanded,
+		Conflict:                  cascResult.Conflict,
 		Debug:                     cascResult.Debug,
 	}
 
@@ -2168,8 +2182,14 @@ func (d *Daemon) handleVerify(w http.ResponseWriter, r *http.Request) {
 		},
 		Signature:    memory.Signature,
 		SignatureAlg: memory.SignatureAlg,
+		SourcePubKey: d.sourcePublicKeyHex(memory.Source),
 		SigningKeyID: memory.SigningKeyID,
 		GeneratedAt:  time.Now().UTC(),
+	}
+
+	// Include daemon pubkey and genesis entry if available.
+	if d.daemonKeyPair != nil {
+		bundle.DaemonPubKey = hex.EncodeToString(d.daemonKeyPair.PublicKey)
 	}
 
 	d.writeJSON(w, http.StatusOK, bundle)
@@ -2196,6 +2216,57 @@ func (d *Daemon) handleProve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d.writeErrorResponse(w, r, http.StatusNotImplemented, "not_implemented",
-		"POST /api/prove requires daemon key wiring (Phase 4 daemon integration pending)", 0)
+	if d.daemonKeyPair == nil {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "no_daemon_key",
+			"daemon Ed25519 key not available — cannot sign attestation", 0)
+		return
+	}
+
+	q, ok := d.querier.(destination.Querier)
+	if !ok || q == nil {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "no_querier",
+			"destination does not support queries", 0)
+		return
+	}
+
+	// Extract query text from the JSON body for destination query.
+	var qParams struct {
+		Q     string `json:"q"`
+		Limit int    `json:"limit"`
+	}
+	_ = json.Unmarshal(body.Query, &qParams)
+	if qParams.Limit <= 0 {
+		qParams.Limit = 50
+	}
+
+	result, err := q.Query(destination.QueryParams{
+		Q:     qParams.Q,
+		Limit: qParams.Limit,
+	})
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "query_failed",
+			"failed to query destination: "+err.Error(), 0)
+		return
+	}
+
+	// Serialize each result record for hashing.
+	resultPayloads := make([][]byte, len(result.Records))
+	for i, rec := range result.Records {
+		b, mErr := json.Marshal(rec)
+		if mErr != nil {
+			d.writeErrorResponse(w, r, http.StatusInternalServerError, "marshal_failed",
+				"failed to marshal result record", 0)
+			return
+		}
+		resultPayloads[i] = b
+	}
+
+	att, err := provenance.BuildQueryAttestation(body.Query, resultPayloads, d.daemonKeyPair)
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "attestation_failed",
+			"failed to build query attestation: "+err.Error(), 0)
+		return
+	}
+
+	d.writeJSON(w, http.StatusOK, att)
 }

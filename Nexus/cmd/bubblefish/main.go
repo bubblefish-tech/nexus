@@ -62,6 +62,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  timeline     show full audit history of a memory (no daemon required)")
 		fmt.Fprintln(os.Stderr, "  verify       verify a cryptographic proof bundle (no daemon required)")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
+		fmt.Fprintln(os.Stderr, "  chaos        fault injection and recovery verification")
+		fmt.Fprintln(os.Stderr, "  simulate     deterministic testing harness (FoundationDB-style)")
+		fmt.Fprintln(os.Stderr, "  sentinel     continuous drift detection between WAL and destinations")
+		fmt.Fprintln(os.Stderr, "  destination  manage destinations (rebuild)")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
 	}
@@ -120,6 +124,14 @@ func main() {
 		runVerify(os.Args[2:])
 	case "sign-config":
 		runSignConfig()
+	case "chaos":
+		runChaos(os.Args[2:])
+	case "simulate":
+		runSimulate(os.Args[2:])
+	case "sentinel":
+		runSentinel(os.Args[2:])
+	case "destination":
+		runDestination(os.Args[2:])
 	case "version", "--version":
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:

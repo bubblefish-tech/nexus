@@ -55,6 +55,15 @@ const (
 	// scannerBufSize is 10MB. The default bufio.Scanner buffer (64KB) is too small
 	// for large AI payloads. NEVER reduce this value.
 	scannerBufSize = 10 << 20
+
+	// maxEntrySize is the maximum expected size of a single WAL entry line
+	// (JSON + sentinels + CRC + newline). Used for disk reservation checks.
+	// Set conservatively to 1MB; most entries are well under this.
+	maxEntrySize = 1 << 20
+
+	// preAllocThresholdPct is the segment fill percentage at which the next
+	// segment is pre-allocated. At 80% fill, a new empty segment is created.
+	preAllocThresholdPct = 80
 )
 
 // Entry is a single WAL record. All fields except Payload are indexed at the
@@ -125,6 +134,12 @@ type WAL struct {
 	// WithSequence option. When nil, MonotonicSeq is left at 0
 	// (backward compatible with v0.1.2 consumers).
 	seqFn func() int64
+
+	// compress enables zstd compression on new WAL entries. Compressed
+	// entries use the "zstd:" prefix in the payload field. Replay
+	// auto-detects and decompresses regardless of this flag.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	compress bool
 }
 
 // WithIntegrity configures WAL integrity mode. When mode is "mac", key
@@ -177,6 +192,18 @@ func WithSequence(seqFn func() int64) Option {
 func WithSecurityEvent(fn SecurityEventFunc) Option {
 	return func(w *WAL) {
 		w.onSecurityEvent = fn
+	}
+}
+
+// WithCompression enables zstd compression for new WAL entries. Compressed
+// entries are 3-5x smaller, resulting in fewer bytes to fsync and smaller
+// backups. Replay auto-detects and decompresses regardless of this flag,
+// so compressed and uncompressed segments can coexist.
+//
+// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+func WithCompression() Option {
+	return func(w *WAL) {
+		w.compress = true
 	}
 }
 
@@ -291,7 +318,17 @@ func (w *WAL) Append(entry Entry) error {
 		return fmt.Errorf("wal: marshal entry: %w", err)
 	}
 
-	line := formatWALContent(data, w.integrityMode, w.macKey) + "\n"
+	// Optionally compress the JSON payload before CRC computation.
+	// Compression happens before CRC32, so the CRC covers compressed bytes.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	var payloadBytes []byte
+	if w.compress {
+		payloadBytes = []byte(compressPayload(data))
+	} else {
+		payloadBytes = data
+	}
+
+	line := formatWALContent(payloadBytes, w.integrityMode, w.macKey) + "\n"
 
 	if w.gc != nil {
 		// Group commit path: submit to the consumer goroutine and block
@@ -308,6 +345,11 @@ func (w *WAL) Append(entry Entry) error {
 func (w *WAL) appendDirect(line string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// Disk-full reservation check for legacy (non-group-commit) path.
+	if free, dErr := diskFreeBytes(w.dir); dErr == nil && free < uint64(maxEntrySize) {
+		return fmt.Errorf("wal: disk full — need %d bytes, only %d available", maxEntrySize, free)
+	}
 
 	n, err := fmt.Fprint(w.current, line)
 	if err != nil {
@@ -338,6 +380,24 @@ func (w *WAL) appendDirect(line string) error {
 func (w *WAL) writeBatch(batch []*pendingEntry) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// Disk-full reservation check: verify enough space for (batch_size × maxEntrySize).
+	// Reject the entire batch if insufficient — data is better refused than
+	// partially written and corrupted. Reference: v0.1.3 Build Plan Subtask 1.7.
+	requiredBytes := uint64(len(batch)) * uint64(maxEntrySize)
+	if free, err := diskFreeBytes(w.dir); err == nil && free < requiredBytes {
+		diskErr := fmt.Errorf("wal: disk full — need %d bytes for batch, only %d available", requiredBytes, free)
+		w.logger.Error("wal: disk-full reservation check failed",
+			"component", "wal",
+			"required_bytes", requiredBytes,
+			"free_bytes", free,
+			"batch_size", len(batch),
+		)
+		for _, pe := range batch {
+			pe.done <- diskErr
+		}
+		return
+	}
 
 	var totalBytes int64
 	var writeErr error
@@ -376,6 +436,10 @@ func (w *WAL) writeBatch(batch []*pendingEntry) {
 					"error", rotErr,
 				)
 			}
+		} else if w.currentSize*100/w.maxSize >= preAllocThresholdPct {
+			// Pre-allocate next segment at 80% fill so rotation is instant.
+			// Reference: v0.1.3 Build Plan Subtask 1.7.
+			w.preAllocateNextSegment()
 		}
 	}
 }
@@ -397,6 +461,24 @@ func (w *WAL) rotate() error {
 	w.currentPath = newPath
 	w.currentSize = 0
 	return nil
+}
+
+// preAllocateNextSegment creates the next segment file so that rotation just
+// does close+open rather than create. Called when current segment reaches 80%
+// fill. Idempotent — no-op if the next segment already exists or on any error.
+// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.7.
+func (w *WAL) preAllocateNextSegment() {
+	nextPath := w.newSegmentPath()
+	f, err := os.OpenFile(nextPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	if err != nil {
+		// Already exists or disk error — ignore silently.
+		return
+	}
+	_ = f.Close()
+	w.logger.Debug("wal: pre-allocated next segment",
+		"component", "wal",
+		"path", nextPath,
+	)
 }
 
 // Replay reads all WAL segments oldest-first, calling fn for each PENDING entry.
@@ -502,8 +584,22 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 			}
 		}
 
+		// Decompress if the payload is zstd-compressed.
+		entryBytes := jsonBytes
+		if decompressed, wasCompressed, dErr := decompressPayload(jsonBytes); dErr != nil {
+			w.logger.Warn("wal: zstd decompression failed — entry skipped",
+				"component", "wal",
+				"segment", path,
+				"line_number", lineNum,
+				"error", dErr,
+			)
+			continue
+		} else if wasCompressed {
+			entryBytes = decompressed
+		}
+
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			w.logger.Warn("wal: malformed JSON — entry skipped",
 				"component", "wal",
 				"segment", path,
@@ -608,8 +704,12 @@ func (w *WAL) scanHighestSeq(path string) (int64, error) {
 		if wl.HasSentinels && wl.SentinelErr != nil {
 			continue
 		}
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			continue
 		}
 		if entry.MonotonicSeq > highest {
@@ -693,8 +793,12 @@ func (w *WAL) scanDelivered(path string, out *[]Entry) error {
 			continue // skip corrupt entries silently
 		}
 
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			continue
 		}
 

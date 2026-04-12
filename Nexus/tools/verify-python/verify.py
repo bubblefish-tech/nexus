@@ -76,16 +76,19 @@ def verify_signature(bundle: dict) -> tuple[bool | None, str]:
     if len(pub_bytes) != 32:
         return False, f"invalid public key size: {len(pub_bytes)} (expected 32)"
 
-    # Reconstruct the signable envelope with sorted keys (Go's json.Marshal default).
+    # Reconstruct the signable envelope in Go struct field declaration order.
+    # Go's json.Marshal serializes fields in the order they appear in the struct,
+    # NOT alphabetically. The SignableEnvelope struct order is:
+    #   SourceName, Timestamp, IdempotencyKey, ContentHash
     memory = bundle.get("memory", {})
+    # Use a list of tuples to preserve insertion order (Python 3.7+ dicts are ordered).
     envelope = {
-        "content_hash": memory.get("content_hash", ""),
-        "idempotency_key": memory.get("idempotency_key", ""),
         "source_name": memory.get("source", ""),
         "timestamp": memory.get("timestamp", ""),
+        "idempotency_key": memory.get("idempotency_key", ""),
+        "content_hash": memory.get("content_hash", ""),
     }
-    # json.dumps with sort_keys matches Go's json.Marshal canonical ordering.
-    envelope_json = json.dumps(envelope, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    envelope_json = json.dumps(envelope, separators=(",", ":")).encode("utf-8")
 
     try:
         pub = Ed25519PublicKey.from_public_bytes(pub_bytes)
@@ -121,16 +124,19 @@ def verify_daemon_identity(bundle: dict) -> tuple[bool, str]:
 
 
 def verify_chain(bundle: dict) -> tuple[bool, str]:
-    """Verify the audit hash chain from genesis to tip."""
+    """Verify the audit hash chain from genesis to tip.
+
+    IMPORTANT: Payload hashes must match Go's original serialization byte-for-byte.
+    Go's json.Marshal serializes struct fields in declaration order, NOT alphabetically.
+    Python 3.7+ dicts preserve insertion order from JSON parsing, so we serialize
+    WITHOUT sort_keys to reproduce Go's original bytes.
+    """
     chain = bundle.get("audit_chain", [])
     if not chain:
         return True, ""
 
     # Verify genesis hash.
-    genesis_payload = json.dumps(chain[0]["payload"], separators=(",", ":"), sort_keys=True).encode("utf-8") \
-        if isinstance(chain[0]["payload"], dict) else chain[0]["payload"]
-    if isinstance(genesis_payload, str):
-        genesis_payload = genesis_payload.encode("utf-8")
+    genesis_payload = _payload_bytes(chain[0].get("payload"))
 
     genesis_hash = sha256_hex(genesis_payload)
     declared_hash = chain[0].get("hash", "")
@@ -149,19 +155,26 @@ def verify_chain(bundle: dict) -> tuple[bool, str]:
             )
 
         # Check payload hash.
-        payload = entry.get("payload")
-        if isinstance(payload, dict):
-            payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-        elif isinstance(payload, str):
-            payload_bytes = payload.encode("utf-8")
-        else:
-            payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-
+        payload_bytes = _payload_bytes(entry.get("payload"))
         computed = sha256_hex(payload_bytes)
         if computed != entry.get("hash", ""):
             return False, f"hash mismatch at entry {i}: computed {computed}, declared {entry.get('hash', '')}"
 
     return True, ""
+
+
+def _payload_bytes(payload) -> bytes:
+    """Serialize a chain payload to bytes matching Go's json.Marshal output.
+
+    Go uses struct field declaration order (not sorted). Python 3.7+ dicts
+    preserve insertion order from JSON parsing, so we serialize without
+    sort_keys to match Go's original byte sequence.
+    """
+    if isinstance(payload, dict):
+        return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    if isinstance(payload, str):
+        return payload.encode("utf-8")
+    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
 
 
 def verify_bundle(bundle: dict) -> dict:

@@ -212,8 +212,12 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 			continue
 		}
 
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			// Unparseable line — preserve as-is.
 			lines = append(lines, line)
 			continue
@@ -324,8 +328,12 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 			continue
 		}
 
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(wl.JSONBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			lines = append(lines, line)
 			continue
 		}

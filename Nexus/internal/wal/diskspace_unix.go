@@ -15,9 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
-// Package version holds the single source of truth for the public version string.
-// Build tooling may override Version at link time via -ldflags.
-package version
+//go:build !windows
 
-// Version is the public release version of BubbleFish Nexus.
-const Version = "0.1.3"
+package wal
+
+import (
+	"syscall"
+)
+
+func diskFreeBytes(path string) (uint64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, err
+	}
+	return stat.Bavail * uint64(stat.Bsize), nil //nolint:unconvert
+}

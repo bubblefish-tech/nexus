@@ -50,13 +50,20 @@ type Event struct {
 	Content     json.RawMessage `json:"content,omitempty"` // only when sink content="full"
 }
 
-// SinkConfig describes a single webhook sink.
+// SinkConfig describes a single event sink.
+// Type determines the delivery protocol: "webhook" (default), "syslog",
+// "fluentd", or "otlp".
+// Reference: v0.1.3 Build Plan Section 6.4.
 type SinkConfig struct {
 	Name           string
+	Type           string // "webhook", "syslog", "fluentd", "otlp"
 	URL            string
 	TimeoutSeconds int
 	MaxRetries     int
 	Content        string // "summary" or "full"
+	Facility       string // syslog facility (e.g. "local0")
+	Tag            string // syslog/fluentd tag
+	Headers        map[string]string // OTLP custom headers
 }
 
 // Metrics is the interface for event sink Prometheus counters.
@@ -186,8 +193,28 @@ func (s *Sink) deliver(e Event) {
 	}
 }
 
-// deliverToSink sends an event to a single sink with retry.
+// deliverToSink sends an event to a single sink, dispatching by Type.
+// Reference: v0.1.3 Build Plan Section 6.4.
 func (s *Sink) deliverToSink(sink *SinkConfig, e Event) {
+	switch sink.Type {
+	case "syslog":
+		s.deliverSyslog(sink, e)
+		return
+	case "fluentd":
+		s.deliverFluentd(sink, e)
+		return
+	case "otlp":
+		s.deliverOTLP(sink, e)
+		return
+	default:
+		// "webhook" or empty — default behavior.
+	}
+
+	s.deliverWebhook(sink, e)
+}
+
+// deliverWebhook sends an event as an HTTP POST (original webhook behavior).
+func (s *Sink) deliverWebhook(sink *SinkConfig, e Event) {
 	// Build the payload. In summary mode, strip content.
 	payload := e
 	if sink.Content != "full" {

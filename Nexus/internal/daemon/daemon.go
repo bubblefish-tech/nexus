@@ -60,6 +60,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/firewall"
 	"github.com/BubbleFish-Nexus/internal/jwtauth"
 	"github.com/BubbleFish-Nexus/internal/oauth"
+	"github.com/BubbleFish-Nexus/internal/provenance"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
@@ -171,6 +172,20 @@ type Daemon struct {
 	// embeddingValidator validates embedding envelopes and tracks quarantine state.
 	// Nil when embedding is disabled. Reference: v0.1.3 Build Plan Phase 2 Subtask 2.5.
 	embeddingValidator *embeddingValidator
+
+	// chainState maintains the hash-chained audit log. Nil when audit is disabled.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.3.
+	chainState *provenance.ChainState
+
+	// daemonKeyPair is the daemon's Ed25519 keypair for signing genesis entries,
+	// Merkle roots, and query attestations. Nil when secrets dir unavailable.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+	daemonKeyPair *provenance.KeyPair
+
+	// sourceKeys maps source name → loaded Ed25519 keypair for sources with
+	// [source.signing] mode = "local". Nil entries mean signing disabled.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+	sourceKeys map[string]*provenance.KeyPair
 
 	stopOnce    sync.Once
 	stopped     chan struct{}
@@ -355,6 +370,15 @@ func (d *Daemon) Start() error {
 		LogsDir: logsDir,
 	}, d.logger)
 
+	// Enable zstd compression for new WAL entries when configured.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	if cfg.Daemon.WAL.CompressEnabled {
+		walOpts = append(walOpts, wal.WithCompression())
+		d.logger.Info("daemon: WAL zstd compression enabled",
+			"component", "daemon",
+		)
+	}
+
 	if cfg.Daemon.WAL.GroupCommit.Enabled {
 		d.supervisor.Register("groupcommit")
 		gcCfg := wal.GroupCommitConfig{
@@ -368,6 +392,24 @@ func (d *Daemon) Start() error {
 			"component", "daemon",
 			"max_batch", gcCfg.MaxBatch,
 			"max_delay_us", cfg.Daemon.WAL.GroupCommit.MaxDelayUS,
+		)
+	}
+
+	// Startup fsync verification: write+sync+read-back test on the WAL
+	// filesystem. Logs a warning if fsync appears to be a no-op (broken on
+	// network storage, some consumer SSDs). Non-fatal — daemon continues.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.6.
+	fsyncResult := doctor.FsyncTest(filepath.Dir(walPath))
+	if !fsyncResult.OK {
+		d.logger.Warn("daemon: fsync verification FAILED — data durability may be compromised",
+			"component", "daemon",
+			"error", fsyncResult.Error,
+			"wal_dir", filepath.Dir(walPath),
+		)
+	} else {
+		d.logger.Info("daemon: fsync verification passed",
+			"component", "daemon",
+			"duration", fsyncResult.Duration,
 		)
 	}
 
@@ -481,6 +523,12 @@ func (d *Daemon) Start() error {
 	// Start visualization pipe.
 	d.vizPipe.Start()
 
+	// Initialise provenance: daemon Ed25519 key, source signing keys, and
+	// audit hash chain state. Non-fatal — the daemon runs without provenance
+	// if secrets directory is inaccessible (e.g. first install).
+	// Reference: v0.1.3 Build Plan Phase 4 Subtasks 4.1–4.3.
+	d.initProvenance(cfg)
+
 	// Initialise structured security event logger if enabled.
 	// Reference: Tech Spec Section 11.2, Section 9.2.18.
 	if cfg.SecurityEvents.Enabled && cfg.SecurityEvents.LogFile != "" {
@@ -574,7 +622,7 @@ func (d *Daemon) Start() error {
 			return fmt.Errorf("daemon: open audit logger: %w", alErr)
 		}
 		d.auditLogger = al
-		d.auditWAL = audit.NewWALWriter(d.wal, nil) // TODO(phase4): wire ChainState here
+		d.auditWAL = audit.NewWALWriter(d.wal, d.chainState)
 
 		// Build reader options mirroring the logger config.
 		var readerOpts []audit.ReaderOption
@@ -606,10 +654,14 @@ func (d *Daemon) Start() error {
 		for i, s := range cfg.Daemon.Events.Sinks {
 			sinks[i] = eventsink.SinkConfig{
 				Name:           s.Name,
+				Type:           s.Type,
 				URL:            s.URL,
 				TimeoutSeconds: s.TimeoutSeconds,
 				MaxRetries:     s.MaxRetries,
 				Content:        s.Content,
+				Facility:       s.Facility,
+				Tag:            s.Tag,
+				Headers:        s.Headers,
 			}
 		}
 		d.eventSink = eventsink.New(eventsink.Config{
