@@ -248,6 +248,17 @@ func loadSourceFile(path string, logger *slog.Logger) (*Source, error) {
 		b.Policy.RetrievalFirewall.DefaultClassificationTier = "public"
 	}
 
+	// Apply tier defaults.
+	// Tier 3 = unrestricted read access (backward compat for sources that
+	// predate tier partitioning). DefaultWriteTier 1 = "internal" sensitivity
+	// for new memories. Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if b.Tier == 0 {
+		b.Tier = 3 // full clearance by default
+	}
+	if b.DefaultWriteTier == 0 {
+		b.DefaultWriteTier = 1 // internal sensitivity by default
+	}
+
 	src := &Source{
 		Name:             b.Name,
 		APIKey:           b.APIKey,
@@ -258,6 +269,8 @@ func loadSourceFile(path string, logger *slog.Logger) (*Source, error) {
 		DefaultActorType: b.DefaultActorType,
 		DefaultActorID:   b.DefaultActorID,
 		DefaultProfile:   b.DefaultProfile,
+		Tier:             b.Tier,
+		DefaultWriteTier: b.DefaultWriteTier,
 		RateLimit:        b.RateLimit,
 		PayloadLimits:    b.PayloadLimits,
 		Mapping:          b.Mapping,

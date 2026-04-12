@@ -66,6 +66,12 @@ type TranslatedPayload struct {
 	// Reference: Tech Spec Addendum Section A3.2.
 	SensitivityLabels  []string `json:"sensitivity_labels,omitempty"`
 	ClassificationTier string   `json:"classification_tier,omitempty"`
+
+	// Tier is the numeric access tier of this entry (0-3, default 1).
+	// Sources may only read entries where entry.Tier <= source.Tier.
+	// Enforcement is in the SQL WHERE clause, not post-filter.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	Tier int `json:"tier,omitempty"`
 }
 
 // DestinationWriter is the interface satisfied by every memory backend
@@ -115,6 +121,17 @@ type QueryParams struct {
 	//
 	// Reference: Tech Spec Section 7.1.
 	ActorType string
+
+	// TierFilter, when true, adds `AND tier <= SourceTier` to the WHERE clause.
+	// Enforcement happens in the SQL layer — not as a post-filter — so the
+	// database engine never touches rows the caller is not authorised to see.
+	// This eliminates timing side-channels from row-count variations.
+	// Set to false for admin queries that must see all tiers.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	TierFilter bool
+	// SourceTier is the requesting source's tier level (0-3). Only meaningful
+	// when TierFilter = true.
+	SourceTier int
 }
 
 // QueryResult holds one page of query results and pagination state.

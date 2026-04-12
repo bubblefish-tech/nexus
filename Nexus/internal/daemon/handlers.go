@@ -593,6 +593,15 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Determine the numeric tier for this entry from the source's default.
+	// Callers can override via the "tier" field in the request body in future;
+	// for now the source's DefaultWriteTier is authoritative.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	writeTier := src.DefaultWriteTier
+	if writeTier == 0 {
+		writeTier = 1 // internal
+	}
+
 	tp := destination.TranslatedPayload{
 		PayloadID:          payloadID,
 		RequestID:          requestID,
@@ -613,6 +622,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		Metadata:           metadata,
 		SensitivityLabels:  sensitivityLabels,
 		ClassificationTier: classificationTier,
+		Tier:               writeTier,
 	}
 	tp.Embedding = d.embedContent(r.Context(), payloadID, tp.Content)
 
@@ -872,6 +882,13 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Normalize query params into a CanonicalQuery. Invalid cursors → 400.
+	// TierFilter is enabled for source tokens; admin tokens see all tiers.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	tierFilter := !isAdmin
+	sourceTier := src.Tier
+	if isAdmin || src.Tier == 0 {
+		sourceTier = 3 // admin and synthesized sources get unrestricted access
+	}
 	cq, err := query.Normalize(destination.QueryParams{
 		Destination: destName,
 		Namespace:   src.Namespace,
@@ -881,6 +898,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Cursor:      r.URL.Query().Get("cursor"),
 		Profile:     profile,
 		ActorType:   actorTypeFilter,
+		TierFilter:  tierFilter,
+		SourceTier:  sourceTier,
 	})
 	if err != nil {
 		// Distinguish profile validation errors from cursor decode errors.

@@ -94,6 +94,15 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 	// Reference: Tech Spec Addendum Section A4.3.
 	createClassificationTierIndex = `CREATE INDEX IF NOT EXISTS idx_memories_classification ON memories(classification_tier)`
 
+	// addTierColumn adds the numeric access tier column.
+	// Default 1 (internal) for backward compat with pre-v0.1.3 entries.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	addTierColumn = `ALTER TABLE memories ADD COLUMN tier INTEGER NOT NULL DEFAULT 1`
+
+	// createTierIndex covers the tier <= ? WHERE condition used in every query
+	// that enforces source-level access control.
+	createTierIndex = `CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(tier)`
+
 	// createQueryIndex covers the primary Query() WHERE clause and ORDER BY:
 	// WHERE namespace = ? AND destination = ? ORDER BY timestamp DESC.
 	createQueryIndex = `CREATE INDEX IF NOT EXISTS idx_memories_query ON memories(namespace, destination, timestamp DESC)`
@@ -212,6 +221,14 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 	if _, err := d.db.Exec(createClassificationTierIndex); err != nil {
 		return fmt.Errorf("destination: sqlite: create classification_tier index: %w", err)
 	}
+	// Idempotent migration: add numeric tier column for access control.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if _, err := d.db.Exec(addTierColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(createTierIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create tier index: %w", err)
+	}
 	if _, err := d.db.Exec(createQueryIndex); err != nil {
 		return fmt.Errorf("destination: sqlite: create query index: %w", err)
 	}
@@ -247,8 +264,8 @@ INSERT OR IGNORE INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
     collection, content, model, role, timestamp, idempotency_key,
     schema_version, transform_version, actor_type, actor_id, metadata, embedding,
-    sensitivity_labels, classification_tier
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    sensitivity_labels, classification_tier, tier
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = d.db.Exec(query,
 		p.PayloadID,
@@ -271,6 +288,7 @@ INSERT OR IGNORE INTO memories (
 		embeddingBlob,
 		sensitivityLabelsStr,
 		classificationTier,
+		p.Tier,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
@@ -332,12 +350,18 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 		conditions = append(conditions, "destination = ?")
 		args = append(args, params.Destination)
 	}
+	// SQL-layer tier enforcement mirrors the Query() implementation.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if params.TierFilter {
+		conditions = append(conditions, "tier <= ?")
+		args = append(args, params.SourceTier)
+	}
 
 	whereClause := "WHERE " + joinConditions(conditions)
 	args = append(args, candidateLimit)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
+	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier, tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
 
 	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -361,7 +385,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
 			&timestampStr, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
 			&tp.ActorType, &tp.ActorID, &metadataStr, &embeddingBlob,
-			&sensitivityLabelsStr, &tp.ClassificationTier,
+			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: semantic search: scan row: %w", err)
 		}
@@ -534,6 +558,14 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 		conditions = append(conditions, "actor_type = ?")
 		args = append(args, params.ActorType)
 	}
+	// SQL-layer tier enforcement: source can only read entries at tier <= its own
+	// tier level. Applied in the WHERE clause so the DB never touches unauthorised
+	// rows — closes timing side-channels from row-count variation.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if params.TierFilter {
+		conditions = append(conditions, "tier <= ?")
+		args = append(args, params.SourceTier)
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
@@ -545,7 +577,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -583,6 +615,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 			&metadataStr,
 			&sensitivityLabelsStr,
 			&tp.ClassificationTier,
+			&tp.Tier,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: query: scan row: %w", err)
 		}
@@ -816,7 +849,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause from fixed conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -838,6 +871,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 			&rec.Model, &rec.Role, &ts, &rec.IdempotencyKey,
 			&rec.SchemaVersion, &rec.TransformVersion, &rec.ActorType,
 			&rec.ActorID, &metaStr, &sensitivityLabelsStr, &rec.ClassificationTier,
+			&rec.Tier,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: time travel scan: %w", err)
 		}

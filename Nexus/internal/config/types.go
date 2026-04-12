@@ -333,6 +333,14 @@ type sourceBody struct {
 	DefaultActorType string                     `toml:"default_actor_type"`
 	DefaultActorID   string                     `toml:"default_actor_id"`
 	DefaultProfile   string                     `toml:"default_profile"`
+	// Tier is the access level of this source (0-3). Sources can only read
+	// memory entries whose tier is <= this value. Tier 3 = unrestricted.
+	// Default 3 preserves backward compatibility with sources that predate
+	// tier partitioning. Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	Tier             int                        `toml:"tier"`
+	// DefaultWriteTier is the tier assigned to entries written by this source
+	// when the request does not specify a tier. Default 1 (internal).
+	DefaultWriteTier int                        `toml:"default_write_tier"`
 	RateLimit        SourceRateLimitConfig      `toml:"rate_limit"`
 	PayloadLimits    PayloadLimitsConfig        `toml:"payload_limits"`
 	Mapping          map[string]string          `toml:"mapping"`
@@ -353,6 +361,13 @@ type Source struct {
 	DefaultActorType string
 	DefaultActorID   string
 	DefaultProfile   string
+	// Tier is the access level of this source (0-3). Sources can only read
+	// entries at tier <= Tier. Default 3 = unrestricted (backward compat).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	Tier             int
+	// DefaultWriteTier is the tier stamped on entries written by this source
+	// when the request does not specify a tier. Default 1 (internal).
+	DefaultWriteTier int
 	RateLimit        SourceRateLimitConfig
 	PayloadLimits    PayloadLimitsConfig
 	Mapping          map[string]string   // output field → gjson dot-path

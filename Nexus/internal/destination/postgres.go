@@ -79,6 +79,13 @@ const addPostgresSensitivityLabelsColumn = `ALTER TABLE memories ADD COLUMN IF N
 // Reference: Tech Spec Addendum Section A4.3.
 const addPostgresClassificationTierColumn = `ALTER TABLE memories ADD COLUMN IF NOT EXISTS classification_tier TEXT DEFAULT 'public'`
 
+// addPostgresTierColumn adds the numeric access tier column.
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+const addPostgresTierColumn = `ALTER TABLE memories ADD COLUMN IF NOT EXISTS tier INTEGER NOT NULL DEFAULT 1`
+
+// createPostgresIdxTier adds an index for the tier <= ? access control clause.
+const createPostgresIdxTier = `CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(tier)`
+
 // createPostgresIdxClassification adds a B-tree index on classification_tier.
 const createPostgresIdxClassification = `CREATE INDEX IF NOT EXISTS idx_memories_classification ON memories(classification_tier)`
 
@@ -175,6 +182,14 @@ func (d *PostgresDestination) applySchema() error {
 	if _, err := d.db.Exec(createPostgresIdxSensitivity); err != nil {
 		return fmt.Errorf("destination: postgres: create sensitivity GIN index: %w", err)
 	}
+	// Idempotent migration: add numeric tier column for access control.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if _, err := d.db.Exec(addPostgresTierColumn); err != nil {
+		return fmt.Errorf("destination: postgres: add tier column: %w", err)
+	}
+	if _, err := d.db.Exec(createPostgresIdxTier); err != nil {
+		return fmt.Errorf("destination: postgres: create tier index: %w", err)
+	}
 
 	return nil
 }
@@ -200,14 +215,13 @@ func (d *PostgresDestination) Write(p TranslatedPayload) error {
 	if classificationTier == "" {
 		classificationTier = "public"
 	}
-
 	const query = `
 INSERT INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
     collection, content, model, role, timestamp, idempotency_key,
     schema_version, transform_version, actor_type, actor_id, metadata, embedding,
-    sensitivity_labels, classification_tier
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+    sensitivity_labels, classification_tier, tier
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 ON CONFLICT (payload_id) DO NOTHING`
 
 	_, err = d.db.Exec(query,
@@ -231,6 +245,7 @@ ON CONFLICT (payload_id) DO NOTHING`
 		embeddingVal,
 		sensitivityLabelsArr,
 		classificationTier,
+		p.Tier,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: postgres: write payload_id %q: %w", p.PayloadID, err)
@@ -302,6 +317,13 @@ func (d *PostgresDestination) Query(params QueryParams) (QueryResult, error) {
 		args = append(args, params.ActorType)
 		idx++
 	}
+	// SQL-layer tier enforcement mirrors the SQLite implementation.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if params.TierFilter {
+		conditions = append(conditions, fmt.Sprintf("tier <= $%d", idx))
+		args = append(args, params.SourceTier)
+		idx++
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
@@ -313,7 +335,7 @@ func (d *PostgresDestination) Query(params QueryParams) (QueryResult, error) {
 
 	//nolint:gosec // whereClause built from fixed condition strings, no user input.
 	q := fmt.Sprintf(
-		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier FROM memories %s ORDER BY timestamp DESC LIMIT $%d OFFSET $%d",
+		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier FROM memories %s ORDER BY timestamp DESC LIMIT $%d OFFSET $%d",
 		whereClause, idx, idx+1,
 	)
 
@@ -338,7 +360,7 @@ func (d *PostgresDestination) Query(params QueryParams) (QueryResult, error) {
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
 			&tp.Timestamp, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
 			&tp.ActorType, &tp.ActorID, &metadataStr,
-			&sensitivityLabelsStr, &tp.ClassificationTier,
+			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: postgres: query: scan: %w", err)
 		}
@@ -398,13 +420,20 @@ func (d *PostgresDestination) SemanticSearch(ctx context.Context, vec []float32,
 		args = append(args, params.Destination)
 		idx++
 	}
+	// SQL-layer tier enforcement.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if params.TierFilter {
+		conditions = append(conditions, fmt.Sprintf("tier <= $%d", idx))
+		args = append(args, params.SourceTier)
+		idx++
+	}
 
 	whereClause := "WHERE " + strings.Join(conditions, " AND ")
 	args = append(args, limit)
 
 	//nolint:gosec // whereClause built from fixed condition strings.
 	q := fmt.Sprintf(
-		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, 1 - (embedding <=> $1) AS score FROM memories %s ORDER BY embedding <=> $1 LIMIT $%d",
+		"SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, 1 - (embedding <=> $1) AS score FROM memories %s ORDER BY embedding <=> $1 LIMIT $%d",
 		whereClause, idx,
 	)
 
@@ -430,7 +459,7 @@ func (d *PostgresDestination) SemanticSearch(ctx context.Context, vec []float32,
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
 			&tp.Timestamp, &tp.IdempotencyKey, &tp.SchemaVersion, &tp.TransformVersion,
 			&tp.ActorType, &tp.ActorID, &metadataStr,
-			&sensitivityLabelsStr, &tp.ClassificationTier, &score,
+			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier, &score,
 		); err != nil {
 			return nil, fmt.Errorf("destination: postgres: semantic search: scan: %w", err)
 		}
