@@ -1,0 +1,42 @@
+========================================================
+.GITIGNORE COVERAGE
+D:\Bubblefish\Nexus\.gitignore
+Scan date: 2026-04-10
+========================================================
+
+== PRESENT PATTERNS ==
+  *.exe          — covers bubblefish.exe
+  *.log          — present
+  .env           — present
+  .env.*         — present (covers .env.local, .env.production, etc.)
+  *.key          — covers oauth_private.key
+  .DS_Store      — present
+  Thumbs.db      — present
+
+== MISSING PATTERNS ==
+  daemon.toml              — NOT in .gitignore
+  *.db                     — NOT in .gitignore (only Thumbs.db is listed explicitly)
+  *.wal                    — NOT in .gitignore
+  *.sig                    — NOT in .gitignore
+  bubblefish-nexus.mcpb    — NOT in .gitignore
+  /audit/                  — NOT in .gitignore
+  /security/               — NOT in .gitignore
+  /data/                   — NOT in .gitignore
+  Test/                    — NOT in .gitignore
+  v010-dogfood/            — NOT in .gitignore
+  /tmp/                    — NOT in .gitignore
+  /scratch/                — NOT in .gitignore
+  *.env                    — NOT in .gitignore (.env and .env.* are present but
+                             *.env pattern for files like "production.env" is not)
+
+Total missing: 13 patterns
+
+== TRACKED DESPITE PATTERN ==
+  bubblefish-nexus.mcpb    — This file IS tracked by git. It should be untracked
+                             and added to .gitignore. It is a binary MCP bundle
+                             that should not be in the public repo.
+
+No other tracked files match the required ignore patterns (no .db, .wal, .sig,
+.log, daemon.toml, or .env files are currently tracked).
+
+========================================================

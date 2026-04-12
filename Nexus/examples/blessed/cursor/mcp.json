@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "bubblefish-nexus": {
+      "url": "http://localhost:7474/mcp",
+      "headers": {
+        "Authorization": "Bearer bfn_mcp_473a2b20795677cab8015b0cf384e7d5c40a48bc47cf276bed586c27db18a057"
+      }
+    }
+  }
+}

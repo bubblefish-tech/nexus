@@ -1,4 +1,4 @@
-// Copyright © 2026 Shawn Sammartano. All rights reserved.
+// Copyright © 2026 BubbleFish Technologies, Inc.
 
 // Package supervisor implements a goroutine heartbeat supervisor with
 // deadlock self-kill. It monitors registered goroutines via periodic

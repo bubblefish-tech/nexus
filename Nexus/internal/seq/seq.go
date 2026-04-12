@@ -1,4 +1,4 @@
-// Copyright © 2026 Shawn Sammartano. All rights reserved.
+// Copyright © 2026 BubbleFish Technologies, Inc.
 
 // Package seq provides a global monotonic sequence counter for ordering
 // WAL entries and audit log entries independently of wall-clock time.

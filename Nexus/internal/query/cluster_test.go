@@ -1,4 +1,4 @@
-// Copyright © 2026 Shawn Sammartano. All rights reserved.
+// Copyright © 2026 BubbleFish Technologies, Inc.
 //
 // This file is part of BubbleFish Nexus.
 //

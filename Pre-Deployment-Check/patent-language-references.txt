@@ -1,0 +1,32 @@
+========================================================
+PATENT LANGUAGE REFERENCES
+D:\Bubblefish\Nexus
+Scan date: 2026-04-10
+========================================================
+
+Total files with matches: 2
+
+--- File 1 ---
+File: D:\Bubblefish\Nexus\LICENSE
+Occurrences: ~23 (lines 400, 456-526)
+Context: Section 11 ("Patents") of the GNU AGPL v3 license text.
+  This is the verbatim FSF license boilerplate containing standard
+  patent grant-back and non-aggression language.
+Category: ALLOWED — patent language in the license file itself is expected and required.
+
+--- File 2 ---
+File: D:\Bubblefish\Nexus\mcpb\server\node_modules\mime-db\db.json
+Occurrences: 1 (line 5337)
+Context: "application/vnd.patentdive" — an IANA-registered MIME type name.
+Category: ALLOWED — this is a vendored npm dependency, not project-authored text.
+  The substring "patent" appears only as part of the MIME type identifier.
+
+========================================================
+PROBLEM matches: 0
+ALLOWED matches: 2 files
+
+No patent language found in README.md, CONTRIBUTING.md, SECURITY.md,
+docs/, or source code headers.
+
+RESULT: Clean. All patent references are in allowed locations.
+========================================================

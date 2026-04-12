@@ -45,7 +45,15 @@
       "Bash(go get:*)",
       "Bash(BUBBLEFISH_HOME=\"D:/Test/BubbleFish/v010-dogfood/home\" ./bubblefish.exe stop)",
       "Bash(BUBBLEFISH_HOME=\"D:/Test/BubbleFish/v010-dogfood/home\" ./bubblefish.exe start)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:7474/mcp)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:7474/mcp)",
+      "Bash(git -C D:/Bubblefish/Nexus log --all --oneline)",
+      "Bash([ -f \"D:/Bubblefish/Nexus/$f\" ])",
+      "Bash([ -f \"D:/Bubblefish/Nexus/docs/$f\" ])",
+      "Bash(awk '{print $NF}')",
+      "Bash(wc -l /d/bubblefish/nexus/cmd/bubblefish/*.go)",
+      "Bash(git log:*)",
+      "Bash(cat internal/signing/*.go)",
+      "Bash(head -50 internal/fsutil/*.go)"
     ]
   },
   "disabledMcpjsonServers": [

@@ -1,0 +1,11 @@
+goos: windows
+goarch: amd64
+pkg: github.com/BubbleFish-Nexus/internal/firewall
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics
+BenchmarkPostFilter_1000Records-16    	   14382	     74708 ns/op	  335875 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   16270	    106526 ns/op	  335874 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   10000	    117295 ns/op	  335874 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   10000	    116407 ns/op	  335874 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   10000	    129215 ns/op	  335874 B/op	       1 allocs/op
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/firewall	8.233s

@@ -1,0 +1,163 @@
+﻿{
+    "final":  {
+                  "resources":  {
+                                    "cpu_sec":  128.94,
+                                    "threads":  23,
+                                    "handles":  321,
+                                    "ws_mb":  42.01
+                                }
+              },
+    "baseline":  {
+                     "resources":  {
+                                       "cpu_sec":  28.55,
+                                       "threads":  18,
+                                       "handles":  273,
+                                       "ws_mb":  38.58
+                                   }
+                 },
+    "run_id":  "20260409-043123",
+    "cold_warm":  {
+                      "cold_ms":  12.39,
+                      "warm":  {
+                                   "avg":  2.4,
+                                   "p50":  1.98,
+                                   "min":  1.75,
+                                   "p95":  4.65,
+                                   "max":  4.65,
+                                   "count":  20,
+                                   "p99":  4.65
+                               }
+                  },
+    "mix":  {
+                "reads":  {
+                              "avg":  5,
+                              "p50":  4.93,
+                              "min":  2.63,
+                              "p95":  7.48,
+                              "max":  16.05,
+                              "count":  8463,
+                              "p99":  9.08
+                          },
+                "total_ops":  17292,
+                "total_qps":  144.09,
+                "duration_s":  120,
+                "writes":  {
+                               "avg":  19.23,
+                               "p50":  3.36,
+                               "min":  1.74,
+                               "p95":  71.94,
+                               "max":  98.26,
+                               "count":  3441,
+                               "p99":  81.9
+                           },
+                "fails":  5388
+            },
+    "destination":  "sqlite",
+    "write_throughput":  {
+                             "count":  500,
+                             "duration_s":  2.4,
+                             "p99":  38.79,
+                             "p95":  6.29,
+                             "fails":  0,
+                             "avg":  4.54,
+                             "max":  46.35,
+                             "min":  1.92,
+                             "qps":  207.72,
+                             "p50":  3.04
+                         },
+    "source":  "default",
+    "query_sweep":  {
+                        "count":  900,
+                        "duration_s":  2.9,
+                        "p99":  5.13,
+                        "p95":  4.67,
+                        "fails":  0,
+                        "avg":  3.09,
+                        "max":  7.05,
+                        "min":  2.33,
+                        "qps":  306.82,
+                        "p50":  2.78
+                    },
+    "concurrency":  {
+                        "p1":  {
+                                   "count":  1,
+                                   "parallel":  1,
+                                   "p99":  113.61,
+                                   "p95":  113.61,
+                                   "fails":  0,
+                                   "avg":  113.61,
+                                   "effective_qps":  1.64,
+                                   "max":  113.61,
+                                   "min":  113.61,
+                                   "wallclock_s":  0.61,
+                                   "p50":  113.61
+                               },
+                        "p10":  {
+                                    "count":  10,
+                                    "parallel":  10,
+                                    "p99":  135.66,
+                                    "p95":  135.66,
+                                    "fails":  0,
+                                    "avg":  130.42,
+                                    "effective_qps":  10.55,
+                                    "max":  135.66,
+                                    "min":  116.55,
+                                    "wallclock_s":  0.95,
+                                    "p50":  133.56
+                                },
+                        "p50":  {
+                                    "count":  50,
+                                    "parallel":  50,
+                                    "p99":  164.27,
+                                    "p95":  159.86,
+                                    "fails":  0,
+                                    "avg":  137.46,
+                                    "effective_qps":  12,
+                                    "max":  164.27,
+                                    "min":  119.79,
+                                    "wallclock_s":  4.17,
+                                    "p50":  134.47
+                                },
+                        "p100":  {
+                                     "count":  100,
+                                     "parallel":  100,
+                                     "p99":  144.3,
+                                     "p95":  140.67,
+                                     "fails":  0,
+                                     "avg":  133.74,
+                                     "effective_qps":  12.42,
+                                     "max":  144.3,
+                                     "min":  116.33,
+                                     "wallclock_s":  8.05,
+                                     "p50":  133.59
+                                 },
+                        "p200":  {
+                                     "count":  200,
+                                     "parallel":  200,
+                                     "p99":  141.84,
+                                     "p95":  139.76,
+                                     "fails":  0,
+                                     "avg":  134.48,
+                                     "effective_qps":  12.52,
+                                     "max":  146.07,
+                                     "min":  116.41,
+                                     "wallclock_s":  15.98,
+                                     "p50":  134.32
+                                 }
+                    },
+    "nexus_version":  "0.1.2",
+    "seed":  {
+                 "duration_s":  0.9,
+                 "stats":  {
+                               "avg":  4.23,
+                               "p50":  3.07,
+                               "min":  1.86,
+                               "p95":  6.26,
+                               "max":  33.95,
+                               "count":  200,
+                               "p99":  32.83
+                           },
+                 "fails":  0
+             },
+    "base_url":  "http://localhost:8080"
+}
