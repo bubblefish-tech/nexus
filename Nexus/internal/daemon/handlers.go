@@ -45,6 +45,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/lint"
+	"github.com/BubbleFish-Nexus/internal/provenance"
 	"github.com/BubbleFish-Nexus/internal/vizpipe"
 	"github.com/BubbleFish-Nexus/internal/query"
 	"github.com/BubbleFish-Nexus/internal/version"
@@ -2107,5 +2108,70 @@ func (d *Daemon) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(75 * time.Millisecond)
 		d.RequestShutdown()
 	}()
+}
+
+// handleVerify returns a cryptographic proof bundle for the given memory_id.
+// The bundle contains the memory, its signature (if signed), the audit chain
+// from genesis, and the daemon's public key — everything needed for
+// standalone offline verification.
+//
+// GET /verify/{memory_id}  (admin token required)
+//
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.6.
+func (d *Daemon) handleVerify(w http.ResponseWriter, r *http.Request) {
+	memoryID := chi.URLParam(r, "memory_id")
+	if memoryID == "" {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "missing_memory_id", "memory_id path parameter is required", 0)
+		return
+	}
+
+	// Query the destination for the memory.
+	q, ok := d.querier.(destination.Querier)
+	if !ok || q == nil {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "no_querier", "destination does not support queries", 0)
+		return
+	}
+
+	result, err := q.Query(destination.QueryParams{
+		Limit: 200,
+	})
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "query_failed", "failed to query destination: "+err.Error(), 0)
+		return
+	}
+
+	// Find the specific memory by payload_id.
+	var memory *destination.TranslatedPayload
+	for i := range result.Records {
+		if result.Records[i].PayloadID == memoryID {
+			memory = &result.Records[i]
+			break
+		}
+	}
+
+	if memory == nil {
+		d.writeErrorResponse(w, r, http.StatusNotFound, "memory_not_found", "no memory found with payload_id "+memoryID, 0)
+		return
+	}
+
+	// Build proof bundle.
+	bundle := provenance.ProofBundle{
+		Version: 1,
+		Memory: provenance.ProofMemory{
+			PayloadID:      memory.PayloadID,
+			Source:         memory.Source,
+			Subject:        memory.Subject,
+			Content:        memory.Content,
+			Timestamp:      memory.Timestamp.UTC().Format(time.RFC3339Nano),
+			IdempotencyKey: memory.IdempotencyKey,
+			ContentHash:    provenance.ContentHash(memory.Content),
+		},
+		Signature:    memory.Signature,
+		SignatureAlg: memory.SignatureAlg,
+		SigningKeyID: memory.SigningKeyID,
+		GeneratedAt:  time.Now().UTC(),
+	}
+
+	d.writeJSON(w, http.StatusOK, bundle)
 }
 

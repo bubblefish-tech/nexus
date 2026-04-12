@@ -58,6 +58,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  tui          interactive terminal dashboard (Bubble Tea)")
 		fmt.Fprintln(os.Stderr, "  doctor       run configuration and connectivity health checks")
 		fmt.Fprintln(os.Stderr, "  source       manage source signing keys (rotate-key, pubkey)")
+		fmt.Fprintln(os.Stderr, "  verify       verify a cryptographic proof bundle (no daemon required)")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
@@ -109,6 +110,8 @@ func main() {
 		runDemo(os.Args[2:])
 	case "source":
 		runSource(os.Args[2:])
+	case "verify":
+		runVerify(os.Args[2:])
 	case "sign-config":
 		runSignConfig()
 	case "version", "--version":
