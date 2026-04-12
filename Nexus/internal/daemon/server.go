@@ -101,8 +101,9 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/audit/stats", d.handleAuditStats)
 		r.Get("/api/audit/export", d.handleAuditExport)
 		// Cryptographic provenance — admin only.
-		// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.6.
+		// Reference: v0.1.3 Build Plan Phase 4 Subtasks 4.6, 4.9.
 		r.Get("/verify/{memory_id}", d.handleVerify)
+		r.Post("/api/prove", d.handleProve)
 		// Shutdown — admin only.
 		r.Post("/api/shutdown", d.handleShutdown)
 		// /metrics serves Prometheus text format from the private registry.

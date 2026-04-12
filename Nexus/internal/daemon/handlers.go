@@ -2175,3 +2175,27 @@ func (d *Daemon) handleVerify(w http.ResponseWriter, r *http.Request) {
 	d.writeJSON(w, http.StatusOK, bundle)
 }
 
+// handleProve creates a cryptographic attestation for a query and its results.
+// The daemon signs a proof that the query produced the exact result set.
+//
+// POST /api/prove  (admin token required)
+// Body: {"query": {...}, "destination": "..."}
+//
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.9.
+func (d *Daemon) handleProve(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query       json.RawMessage `json:"query"`
+		Destination string          `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_body", "cannot parse request body: "+err.Error(), 0)
+		return
+	}
+	if len(body.Query) == 0 {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "missing_query", "query field is required", 0)
+		return
+	}
+
+	d.writeErrorResponse(w, r, http.StatusNotImplemented, "not_implemented",
+		"POST /api/prove requires daemon key wiring (Phase 4 daemon integration pending)", 0)
+}
