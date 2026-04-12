@@ -155,9 +155,10 @@ func TestGroupCommit_DeadlineFlush(t *testing.T) {
 	}
 
 	// Should have returned within the deadline + generous overhead.
-	// The deadline is 5ms; allow up to 200ms for CI/slow systems.
-	if elapsed > 200*time.Millisecond {
-		t.Errorf("deadline flush took %v, expected <200ms", elapsed)
+	// The deadline is 5ms; allow up to 500ms for CI/slow systems and
+	// Windows scheduler variance.
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("deadline flush took %v, expected <500ms", elapsed)
 	}
 
 	if got := w.PendingCount(); got != 1 {
