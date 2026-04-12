@@ -73,6 +73,9 @@ type Entry struct {
 	ActorType      string          `json:"actor_type"`
 	ActorID        string          `json:"actor_id"`
 	Payload        json.RawMessage `json:"payload"`
+	// EntryType discriminates entry kinds. Empty string (zero value) means
+	// data entry, preserving backward compatibility with v0.1.2 WAL files.
+	EntryType string `json:"entry_type,omitempty"`
 }
 
 // WAL is the write-ahead log engine. All state is held in struct fields;
@@ -479,6 +482,11 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 				"line_number", lineNum,
 				"error", err,
 			)
+			continue
+		}
+
+		// Skip non-data entries (checkpoints, audit, etc.).
+		if entry.EntryType != EntryTypeData {
 			continue
 		}
 

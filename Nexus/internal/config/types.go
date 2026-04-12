@@ -174,7 +174,8 @@ type WALDaemonConfig struct {
 	Integrity        WALIntegrityConfig  `toml:"integrity"`
 	Encryption       WALEncryptionConfig `toml:"encryption"`
 	Watchdog         WALWatchdogConfig   `toml:"watchdog"`
-	GroupCommit      WALGroupCommitConfig `toml:"group_commit"`
+	GroupCommit      WALGroupCommitConfig  `toml:"group_commit"`
+	Checkpoint       WALCheckpointConfig   `toml:"checkpoint"`
 }
 
 // WALGroupCommitConfig models [daemon.wal.group_commit].
@@ -184,6 +185,11 @@ type WALGroupCommitConfig struct {
 	Enabled    bool `toml:"enabled"`
 	MaxBatch   int  `toml:"max_batch"`    // max entries per batch (default 256)
 	MaxDelayUS int  `toml:"max_delay_us"` // max wait in microseconds (default 500)
+}
+
+// WALCheckpointConfig models [daemon.wal.checkpoint].
+type WALCheckpointConfig struct {
+	IntervalEntries int `toml:"interval_entries"` // checkpoint every N entries (default 10000)
 }
 
 // WALIntegrityConfig models [daemon.wal.integrity].
