@@ -174,6 +174,16 @@ type WALDaemonConfig struct {
 	Integrity        WALIntegrityConfig  `toml:"integrity"`
 	Encryption       WALEncryptionConfig `toml:"encryption"`
 	Watchdog         WALWatchdogConfig   `toml:"watchdog"`
+	GroupCommit      WALGroupCommitConfig `toml:"group_commit"`
+}
+
+// WALGroupCommitConfig models [daemon.wal.group_commit].
+// When enabled, WAL writes are batched with a single fsync per batch.
+// Disabled by default (preserves exact v0.1.2 behaviour on upgrade).
+type WALGroupCommitConfig struct {
+	Enabled    bool `toml:"enabled"`
+	MaxBatch   int  `toml:"max_batch"`    // max entries per batch (default 256)
+	MaxDelayUS int  `toml:"max_delay_us"` // max wait in microseconds (default 500)
 }
 
 // WALIntegrityConfig models [daemon.wal.integrity].

@@ -105,6 +105,12 @@ type WAL struct {
 	// on MarkDelivered/MarkPermanentFailure, initialised during Replay.
 	// Read without lock via PendingCount(). Reference: Tech Spec Section 4.4.
 	pendingCount atomic.Int64
+
+	// gc is the optional group committer. When non-nil, Append routes
+	// through the group commit goroutine instead of writing+fsyncing
+	// directly. The durability guarantee is preserved: Append blocks
+	// until the batch containing the entry has been fsynced.
+	gc *groupCommitter
 }
 
 // WithIntegrity configures WAL integrity mode. When mode is "mac", key
@@ -127,6 +133,18 @@ func WithEncryption(key []byte) Option {
 		// Accepting the option now allows the daemon startup code to be
 		// written ahead of the WAL encryption implementation.
 		_ = key
+	}
+}
+
+// WithGroupCommit enables the group commit write path. When enabled, Append
+// routes entries through a single consumer goroutine that batches writes and
+// performs one fsync per batch. Per-request durability is preserved: Append
+// blocks until the batch is fsynced.
+func WithGroupCommit(cfg GroupCommitConfig) Option {
+	return func(w *WAL) {
+		if cfg.Enabled {
+			w.gc = newGroupCommitter(cfg, w.logger)
+		}
 	}
 }
 
@@ -171,6 +189,9 @@ func Open(dir string, maxSizeMB int64, logger *slog.Logger, opts ...Option) (*WA
 	}
 	if err := w.openCurrentSegment(); err != nil {
 		return nil, err
+	}
+	if w.gc != nil {
+		go w.gc.run(w.writeBatch)
 	}
 	return w, nil
 }
@@ -220,10 +241,15 @@ func (w *WAL) segments() ([]string, error) {
 
 // Append writes entry to the WAL. The entry status is forced to PENDING and
 // version is set to walVersion. CRC32 is computed over the JSON bytes and
-// appended after a tab before the newline. fsync is called before returning.
+// appended after a tab before the newline.
 //
-// On any failure the caller must return a 500 to the client. The WAL invariant
-// is: if Append returns nil, the entry is durable on disk.
+// When group commit is enabled, the entry is sent to a consumer goroutine
+// that batches writes and calls fsync once per batch. When group commit is
+// disabled (legacy mode), fsync is called per entry.
+//
+// In both modes the durability guarantee is the same: if Append returns nil,
+// the entry is on disk. On any failure the caller must return a 500 to the
+// client.
 func (w *WAL) Append(entry Entry) error {
 	entry.Version = walVersion
 	entry.Status = StatusPending
@@ -245,6 +271,19 @@ func (w *WAL) Append(entry Entry) error {
 		line = fmt.Sprintf("%s\t%08x\n", data, checksum)
 	}
 
+	if w.gc != nil {
+		// Group commit path: submit to the consumer goroutine and block
+		// until the batch is fsynced. pendingCount is incremented inside
+		// writeBatch after the successful fsync.
+		return w.gc.submit(line)
+	}
+
+	return w.appendDirect(line)
+}
+
+// appendDirect writes a single line to the current segment with fsync.
+// Used when group commit is disabled (legacy mode).
+func (w *WAL) appendDirect(line string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -252,11 +291,8 @@ func (w *WAL) Append(entry Entry) error {
 	if err != nil {
 		return fmt.Errorf("wal: write: %w", err)
 	}
-	// fsync per entry is REQUIRED for the durability guarantee. Each WAL
-	// append must be on disk before the handler returns 200 to the client.
-	// Do NOT "optimize" this with batched fsyncs or group commit without
-	// reviewing the durability contract. The "survives kill -9 with zero
-	// data loss" claim depends on this line.
+	// fsync per entry is REQUIRED for the legacy durability guarantee.
+	// When group commit is enabled, fsync is batched in writeBatch instead.
 	if err := w.current.Sync(); err != nil {
 		return fmt.Errorf("wal: fsync: %w", err)
 	}
@@ -272,6 +308,54 @@ func (w *WAL) Append(entry Entry) error {
 		}
 	}
 	return nil
+}
+
+// writeBatch is called by the group committer goroutine. It writes all
+// entries in the batch sequentially, calls fsync once, then signals every
+// waiter. On failure, all waiters receive the error.
+func (w *WAL) writeBatch(batch []*pendingEntry) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	var totalBytes int64
+	var writeErr error
+	for _, pe := range batch {
+		n, err := fmt.Fprint(w.current, pe.line)
+		if err != nil {
+			writeErr = fmt.Errorf("wal: write: %w", err)
+			break
+		}
+		totalBytes += int64(n)
+	}
+
+	if writeErr == nil {
+		if err := w.current.Sync(); err != nil {
+			writeErr = fmt.Errorf("wal: fsync: %w", err)
+		}
+	}
+
+	// Signal all waiters. On success, increment pendingCount for each
+	// entry and check segment rotation.
+	for _, pe := range batch {
+		if writeErr != nil {
+			pe.done <- writeErr
+		} else {
+			w.pendingCount.Add(1)
+			pe.done <- nil
+		}
+	}
+
+	if writeErr == nil {
+		w.currentSize += totalBytes
+		if w.currentSize >= w.maxSize {
+			if rotErr := w.rotate(); rotErr != nil {
+				w.logger.Warn("wal: segment rotation failed",
+					"component", "wal",
+					"error", rotErr,
+				)
+			}
+		}
+	}
 }
 
 func (w *WAL) rotate() error {
@@ -521,8 +605,14 @@ func (w *WAL) scanDelivered(path string, out *[]Entry) error {
 	return scanner.Err()
 }
 
-// Close closes the current WAL segment. Safe to call multiple times.
+// Close flushes any pending group commit entries and closes the current
+// WAL segment. Safe to call multiple times.
 func (w *WAL) Close() error {
+	// Stop the group committer first so it flushes its buffer and exits.
+	// This must happen before we close the file handle.
+	if w.gc != nil {
+		w.gc.stop()
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.current != nil {

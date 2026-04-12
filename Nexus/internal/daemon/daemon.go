@@ -330,6 +330,20 @@ func (d *Daemon) Start() error {
 		}
 	}))
 
+	if cfg.Daemon.WAL.GroupCommit.Enabled {
+		gcCfg := wal.GroupCommitConfig{
+			Enabled:  true,
+			MaxBatch: cfg.Daemon.WAL.GroupCommit.MaxBatch,
+			MaxDelay: time.Duration(cfg.Daemon.WAL.GroupCommit.MaxDelayUS) * time.Microsecond,
+		}
+		walOpts = append(walOpts, wal.WithGroupCommit(gcCfg))
+		d.logger.Info("daemon: WAL group commit enabled",
+			"component", "daemon",
+			"max_batch", gcCfg.MaxBatch,
+			"max_delay_us", cfg.Daemon.WAL.GroupCommit.MaxDelayUS,
+		)
+	}
+
 	w, err := wal.Open(walPath, cfg.Daemon.WAL.MaxSegmentSizeMB, d.logger, walOpts...)
 	if err != nil {
 		return fmt.Errorf("daemon: open WAL: %w", err)
