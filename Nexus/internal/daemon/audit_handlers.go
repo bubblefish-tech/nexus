@@ -364,7 +364,8 @@ func (d *Daemon) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 // Audit record emission helper
 // ---------------------------------------------------------------------------
 
-// emitAuditRecord appends an interaction record to the audit log.
+// emitAuditRecord appends an interaction record to both the WAL (for
+// kill-9 durability) and the JSONL audit log (for SIEM compatibility).
 // Failure MUST NOT cause request failure — logs WARN and increments metric.
 //
 // Reference: Tech Spec Addendum Section A2.4.
@@ -373,6 +374,19 @@ func (d *Daemon) emitAuditRecord(rec audit.InteractionRecord) {
 		return
 	}
 	d.metrics.AuditRecordsTotal.WithLabelValues(rec.OperationType, rec.PolicyDecision).Inc()
+
+	// Write to WAL first (durability source of truth).
+	if d.auditWAL != nil {
+		if err := d.auditWAL.Submit(rec); err != nil {
+			d.logger.Warn("daemon: audit WAL write failed",
+				"component", "daemon",
+				"error", err,
+				"record_id", rec.RecordID,
+			)
+		}
+	}
+
+	// Write to JSONL (tail-follower for SIEM integrations).
 	if err := d.auditLogger.Log(rec); err != nil {
 		d.logger.Warn("daemon: audit log write failed",
 			"component", "daemon",

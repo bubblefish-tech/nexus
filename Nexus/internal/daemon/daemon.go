@@ -126,10 +126,14 @@ type Daemon struct {
 	// Reference: Tech Spec Addendum Section A3.1.
 	retrievalFirewall *firewall.RetrievalFirewall
 
-	// auditLogger is the interaction log writer. Nil when
+	// auditLogger is the interaction log writer (JSONL files). Nil when
 	// [daemon.audit] enabled = false.
 	// Reference: Tech Spec Addendum Section A2.3.
 	auditLogger *audit.AuditLogger
+
+	// auditWAL writes audit records to the WAL for kill-9 durability.
+	// Nil when [daemon.audit] enabled = false.
+	auditWAL *audit.WALWriter
 
 	// auditReader reads and queries the interaction log. Nil when
 	// [daemon.audit] enabled = false.
@@ -540,6 +544,7 @@ func (d *Daemon) Start() error {
 			return fmt.Errorf("daemon: open audit logger: %w", alErr)
 		}
 		d.auditLogger = al
+		d.auditWAL = audit.NewWALWriter(d.wal)
 
 		// Build reader options mirroring the logger config.
 		var readerOpts []audit.ReaderOption

@@ -33,6 +33,7 @@ import (
 const (
 	EntryTypeData       = ""           // default — regular data entries
 	EntryTypeCheckpoint = "checkpoint" // checkpoint marker
+	EntryTypeAudit      = "audit"      // audit/interaction log entry
 )
 
 // CheckpointData is the payload stored inside a checkpoint WAL entry.
