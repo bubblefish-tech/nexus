@@ -132,6 +132,19 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 	// cluster assignment to find candidate entries in the same bucket.
 	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
 	createLSHBucketIndex = `CREATE INDEX IF NOT EXISTS idx_memories_lsh_bucket ON memories(tier, lsh_bucket)`
+
+	// addSignatureColumn stores the hex-encoded Ed25519 signature over the
+	// signable envelope. Empty for unsigned entries.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	addSignatureColumn = `ALTER TABLE memories ADD COLUMN signature TEXT NOT NULL DEFAULT ''`
+
+	// addSigningKeyIDColumn stores the fingerprint of the signing public key.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	addSigningKeyIDColumn = `ALTER TABLE memories ADD COLUMN signing_key_id TEXT NOT NULL DEFAULT ''`
+
+	// addSignatureAlgColumn stores the algorithm identifier (e.g. "ed25519").
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	addSignatureAlgColumn = `ALTER TABLE memories ADD COLUMN signature_alg TEXT NOT NULL DEFAULT ''`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -274,6 +287,17 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 	if _, err := d.db.Exec(createLSHBucketIndex); err != nil {
 		return fmt.Errorf("destination: sqlite: create lsh_bucket index: %w", err)
 	}
+	// Idempotent migration: add provenance signature columns for Phase 4.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	if _, err := d.db.Exec(addSignatureColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addSigningKeyIDColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addSignatureAlgColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
 	return nil
 }
 
@@ -311,8 +335,9 @@ INSERT OR IGNORE INTO memories (
     collection, content, model, role, timestamp, idempotency_key,
     schema_version, transform_version, actor_type, actor_id, metadata, embedding,
     sensitivity_labels, classification_tier, tier,
-    lsh_bucket, cluster_id, cluster_role
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    lsh_bucket, cluster_id, cluster_role,
+    signature, signing_key_id, signature_alg
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = d.db.Exec(query,
 		p.PayloadID,
@@ -339,6 +364,9 @@ INSERT OR IGNORE INTO memories (
 		lshBucket,
 		p.ClusterID,
 		p.ClusterRole,
+		p.Signature,
+		p.SigningKeyID,
+		p.SignatureAlg,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
@@ -411,7 +439,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 	args = append(args, candidateLimit)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
+	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
 
 	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -438,6 +466,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 			&tp.ActorType, &tp.ActorID, &metadataStr, &embeddingBlob,
 			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
+			&tp.Signature, &tp.SigningKeyID, &tp.SignatureAlg,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: semantic search: scan row: %w", err)
 		}
@@ -632,7 +661,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -675,6 +704,9 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 			&lshBucket,
 			&tp.ClusterID,
 			&tp.ClusterRole,
+			&tp.Signature,
+			&tp.SigningKeyID,
+			&tp.SignatureAlg,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: query: scan row: %w", err)
 		}
@@ -774,7 +806,8 @@ func (d *SQLiteDestination) QueryClusterMembers(params ClusterQueryParams) ([]Tr
 	q := `SELECT payload_id, request_id, source, subject, namespace, destination,
 		collection, content, model, role, timestamp, idempotency_key,
 		schema_version, transform_version, actor_type, actor_id, metadata,
-		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role
+		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role,
+		signature, signing_key_id, signature_alg
 		FROM memories WHERE cluster_id = ?` + tierClause + `
 		ORDER BY CASE cluster_role WHEN 'primary' THEN 0 WHEN 'member' THEN 1 ELSE 2 END,
 		timestamp DESC`
@@ -795,7 +828,8 @@ func (d *SQLiteDestination) QueryBucketCandidates(tier, bucket, candidateLimit i
 	const q = `SELECT payload_id, request_id, source, subject, namespace, destination,
 		collection, content, model, role, timestamp, idempotency_key,
 		schema_version, transform_version, actor_type, actor_id, metadata, embedding,
-		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role
+		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role,
+		signature, signing_key_id, signature_alg
 		FROM memories
 		WHERE tier = ? AND lsh_bucket = ? AND embedding IS NOT NULL AND length(embedding) > 0
 		ORDER BY timestamp DESC LIMIT ?`
@@ -819,6 +853,7 @@ func (d *SQLiteDestination) QueryBucketCandidates(tier, bucket, candidateLimit i
 			&tp.ActorType, &tp.ActorID, &metadataStr, &embeddingBlob,
 			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
+			&tp.Signature, &tp.SigningKeyID, &tp.SignatureAlg,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: bucket candidates scan: %w", err)
 		}
@@ -869,6 +904,7 @@ func (d *SQLiteDestination) scanClusterRows(rows *sql.Rows) ([]TranslatedPayload
 			&tp.ActorType, &tp.ActorID, &metadataStr,
 			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
+			&tp.Signature, &tp.SigningKeyID, &tp.SignatureAlg,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: scan cluster row: %w", err)
 		}
@@ -1049,7 +1085,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause from fixed conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -1074,6 +1110,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 			&rec.ActorID, &metaStr, &sensitivityLabelsStr, &rec.ClassificationTier,
 			&rec.Tier,
 			&lshBucket, &rec.ClusterID, &rec.ClusterRole,
+			&rec.Signature, &rec.SigningKeyID, &rec.SignatureAlg,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: time travel scan: %w", err)
 		}

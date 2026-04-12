@@ -90,6 +90,23 @@ type TranslatedPayload struct {
 	// Empty when not yet clustered.
 	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
 	ClusterRole string `json:"cluster_role,omitempty"`
+
+	// Signature is the hex-encoded Ed25519 signature over the signable
+	// envelope {source_name, timestamp, idempotency_key, content_hash}.
+	// Empty for unsigned entries (sources without [source.signing]).
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	Signature string `json:"signature,omitempty"`
+
+	// SigningKeyID is the fingerprint (hex SHA256[:16]) of the Ed25519
+	// public key used to produce the Signature. Empty for unsigned entries.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	SigningKeyID string `json:"signing_key_id,omitempty"`
+
+	// SignatureAlg identifies the signature algorithm. Currently always
+	// "ed25519" for signed entries, empty for unsigned. Future post-quantum
+	// algorithms are pluggable via this field.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	SignatureAlg string `json:"signature_alg,omitempty"`
 }
 
 // DestinationWriter is the interface satisfied by every memory backend
