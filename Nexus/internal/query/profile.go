@@ -21,9 +21,10 @@ package query
 //
 // Reference: Tech Spec Section 3.5.
 const (
-	ProfileFast     = "fast"
-	ProfileBalanced = "balanced"
-	ProfileDeep     = "deep"
+	ProfileFast         = "fast"
+	ProfileBalanced     = "balanced"
+	ProfileDeep         = "deep"
+	ProfileClusterAware = "cluster-aware"
 )
 
 // profileStages maps each profile to its set of enabled cascade stages.
@@ -54,6 +55,17 @@ var profileStages = map[string]map[int]bool{
 		4: true,
 		5: true,
 	},
+	// cluster-aware inherits balanced stages plus cluster expansion.
+	// The cluster expansion happens as a post-retrieval step, not a separate stage.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	ProfileClusterAware: {
+		0: true,
+		1: true,
+		2: true,
+		3: true,
+		4: true,
+		5: true,
+	},
 }
 
 // ProfileEnabled reports whether the given cascade stage is enabled for the
@@ -74,7 +86,7 @@ func ProfileEnabled(stage int, profile string) bool {
 // ValidProfile reports whether p is a recognised retrieval profile name.
 func ValidProfile(p string) bool {
 	switch p {
-	case ProfileFast, ProfileBalanced, ProfileDeep:
+	case ProfileFast, ProfileBalanced, ProfileDeep, ProfileClusterAware:
 		return true
 	}
 	return false
