@@ -835,5 +835,5 @@ systemctl enable --now bubblefish-nexus
 ---
 
 *BubbleFish Nexus is AGPL-3.0 open source. Commercial licensing available for enterprise use.*
-*Contact: licensing@bubblefish.ai*
+*Contact: licensing@bubblefish.sh*
 *Docs: github.com/bubblefish-tech/nexus*

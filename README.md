@@ -1,5 +1,5 @@
 # BubbleFish Nexus
-[![CI](https://github.com/bubblefish-tech/Nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/bubblefish-tech/Nexus/actions/workflows/ci.yml)
+[![CI](https://github.com/bubblefish-tech/nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/bubblefish-tech/nexus/actions/workflows/ci.yml)
 
 > **v0.1.2 released** — binaries are now available under [Releases](https://github.com/bubblefish-tech/nexus/releases/latest). Install instructions below.
 
