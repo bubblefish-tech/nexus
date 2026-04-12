@@ -43,14 +43,21 @@ const (
 	// request was authenticated with the admin token on a data endpoint.
 	// Used by debug_stages. Reference: Tech Spec Section 7.3.
 	ctxIsAdmin
+
+	// ctxReviewTokenClass stores the review token class: "list" or "read".
+	// Set by requireReviewToken middleware.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	ctxReviewTokenClass
 )
 
 // authResult carries the outcome of authentication for a single request.
 type authResult struct {
-	source    *config.Source
-	isAdmin   bool
-	isMCP     bool
-	provided  []byte // the raw token bytes — never log
+	source          *config.Source
+	isAdmin         bool
+	isMCP           bool
+	isReviewList    bool // bfn_review_list_ token class
+	isReviewRead    bool // bfn_review_read_ token class
+	provided        []byte // the raw token bytes — never log
 }
 
 // authenticate extracts the Bearer token from the Authorization header and
@@ -101,6 +108,13 @@ func (d *Daemon) authenticate(r *http.Request) (authResult, bool) {
 	mcpMatch := len(cfg.ResolvedMCPKey) > 0 &&
 		subtle.ConstantTimeCompare(provided, cfg.ResolvedMCPKey) == 1
 
+	// Compare against review tokens. Both comparisons always run.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	reviewListMatch := len(cfg.ResolvedReviewListKey) > 0 &&
+		subtle.ConstantTimeCompare(provided, cfg.ResolvedReviewListKey) == 1
+	reviewReadMatch := len(cfg.ResolvedReviewReadKey) > 0 &&
+		subtle.ConstantTimeCompare(provided, cfg.ResolvedReviewReadKey) == 1
+
 	if matchedSource != nil {
 		return authResult{source: matchedSource, provided: provided}, true
 	}
@@ -109,6 +123,12 @@ func (d *Daemon) authenticate(r *http.Request) (authResult, bool) {
 	}
 	if mcpMatch {
 		return authResult{isMCP: true, provided: provided}, true
+	}
+	if reviewListMatch {
+		return authResult{isReviewList: true, provided: provided}, true
+	}
+	if reviewReadMatch {
+		return authResult{isReviewRead: true, provided: provided}, true
 	}
 	d.metrics.AuthFailuresTotal.WithLabelValues("unknown").Inc()
 	return authResult{}, false
@@ -164,6 +184,14 @@ func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
 				"wrong token class for this endpoint", 0)
 			return
 		}
+		// Review tokens are scoped to /api/review/* only. Reject on data endpoints.
+		// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+		if result.isReviewList || result.isReviewRead {
+			d.emitAuthFailure(r, "review")
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
+				"wrong token class for this endpoint", 0)
+			return
+		}
 		if result.isAdmin {
 			// Admin tokens are allowed on data endpoints with an admin flag.
 			// Handlers that need a source must check for nil and handle
@@ -179,7 +207,7 @@ func (d *Daemon) requireDataToken(next http.Handler) http.Handler {
 }
 
 // requireAdminToken is an HTTP middleware that requires the admin token.
-// Data-plane tokens are rejected with 401 wrong_token_class.
+// Data-plane, MCP, and review tokens are rejected with 401 wrong_token_class.
 //
 // Reference: Tech Spec Section 6.1, Phase 0C Behavioral Contract item 5.
 func (d *Daemon) requireAdminToken(next http.Handler) http.Handler {
@@ -192,7 +220,7 @@ func (d *Daemon) requireAdminToken(next http.Handler) http.Handler {
 			return
 		}
 		if !result.isAdmin {
-			// Data-plane and MCP tokens must not be used on admin endpoints.
+			// Data-plane, MCP, and review tokens must not be used on admin endpoints.
 			d.emitAuthFailure(r, "wrong_token_class")
 			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
 				"wrong token class for this endpoint", 0)
@@ -281,4 +309,57 @@ func (d *Daemon) authenticateJWT(r *http.Request) *config.Source {
 		"source", result.SourceName,
 	)
 	return nil
+}
+
+// requireReviewListToken is a middleware that allows only bfn_review_list_
+// tokens. Any other token class receives 401 wrong_token_class.
+//
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+func (d *Daemon) requireReviewListToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result, ok := d.authenticate(r)
+		if !ok {
+			d.emitAuthFailure(r, "unknown")
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
+				"invalid or missing review token", 0)
+			return
+		}
+		if !result.isReviewList {
+			d.emitAuthFailure(r, "wrong_token_class")
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
+				"wrong token class for this endpoint", 0)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxReviewTokenClass, "list")
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// requireReviewReadToken is a middleware that allows bfn_review_read_ tokens
+// (and also bfn_review_list_ tokens for list access). Any other token class
+// receives 401 wrong_token_class.
+//
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+func (d *Daemon) requireReviewReadToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result, ok := d.authenticate(r)
+		if !ok {
+			d.emitAuthFailure(r, "unknown")
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "unauthorized",
+				"invalid or missing review token", 0)
+			return
+		}
+		if !result.isReviewRead && !result.isReviewList {
+			d.emitAuthFailure(r, "wrong_token_class")
+			d.writeErrorResponse(w, r, http.StatusUnauthorized, "wrong_token_class",
+				"wrong token class for this endpoint", 0)
+			return
+		}
+		class := "read"
+		if result.isReviewList {
+			class = "list"
+		}
+		ctx := context.WithValue(r.Context(), ctxReviewTokenClass, class)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

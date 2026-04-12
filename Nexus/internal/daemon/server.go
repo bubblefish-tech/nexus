@@ -115,6 +115,18 @@ func (d *Daemon) buildRouter() http.Handler {
 	// Reference: dashboard-contract.md Authentication section.
 	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
 
+	// Review routes — require bfn_review_list_ or bfn_review_read_ tokens.
+	// Any other token class receives 401 wrong_token_class.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	r.Group(func(r chi.Router) {
+		r.Use(d.requireReviewListToken)
+		r.Get("/api/review/quarantine", d.handleReviewList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(d.requireReviewReadToken)
+		r.Get("/api/review/quarantine/{id}", d.handleReviewRead)
+	})
+
 	return r
 }
 

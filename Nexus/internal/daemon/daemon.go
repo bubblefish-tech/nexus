@@ -168,6 +168,10 @@ type Daemon struct {
 	// Nil when not started.
 	supervisor *supervisor.Supervisor
 
+	// embeddingValidator validates embedding envelopes and tracks quarantine state.
+	// Nil when embedding is disabled. Reference: v0.1.3 Build Plan Phase 2 Subtask 2.5.
+	embeddingValidator *embeddingValidator
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it

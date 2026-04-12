@@ -50,6 +50,16 @@ type Config struct {
 	// May be nil if MCP is disabled or api_key is empty.
 	// NEVER log this value.
 	ResolvedMCPKey []byte
+
+	// ResolvedReviewListKey is the resolved bfn_review_list_ token bytes.
+	// Nil if not configured. NEVER log.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	ResolvedReviewListKey []byte
+
+	// ResolvedReviewReadKey is the resolved bfn_review_read_ token bytes.
+	// Nil if not configured. NEVER log.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	ResolvedReviewReadKey []byte
 }
 
 // SourceByName returns the Source with the given name, or nil if not found.
@@ -96,6 +106,12 @@ type DaemonConfig struct {
 	Audit          AuditConfig          `toml:"audit"`
 	RetrievalFirewall DaemonRetrievalFirewallConfig `toml:"retrieval_firewall"`
 	OAuth          OAuthDaemonConfig    `toml:"oauth"`
+	// Review token configuration for the governance review UI (Phase 5).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	Review         ReviewTokensConfig   `toml:"review"`
+	// Tier-level rate limit overrides. Key is tier level (0-3).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+	Tiers          []TierRateLimitConfig `toml:"tiers"`
 }
 
 // OAuthDaemonConfig models [daemon.oauth].
@@ -493,4 +509,33 @@ type CollectionDecayConfig struct {
 	HalfLifeDays      float64 `toml:"half_life_days"`
 	DecayMode         string  `toml:"decay_mode"`
 	StepThresholdDays float64 `toml:"step_threshold_days"`
+}
+
+// ReviewTokensConfig models [daemon.review].
+// Review tokens are for the Phase 5 governance UI. Two classes:
+//   - bfn_review_list_ : list quarantined memory IDs (read-only)
+//   - bfn_review_read_ : read the content of specific quarantined IDs (read-only)
+//
+// Both classes are constant-time compared. Both return 401 on any endpoint
+// other than their designated review routes.
+//
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+type ReviewTokensConfig struct {
+	// ListToken is the env:/file:/literal reference for the bfn_review_list_ token.
+	ListToken string `toml:"list_token"`
+	// ReadToken is the env:/file:/literal reference for the bfn_review_read_ token.
+	ReadToken string `toml:"read_token"`
+}
+
+// TierRateLimitConfig models one [[daemon.tiers]] entry.
+// Per-source overrides take precedence over tier-level limits.
+//
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+type TierRateLimitConfig struct {
+	// Level is the tier number this config applies to (0-3).
+	Level             int   `toml:"level"`
+	// RequestsPerMinute is the rate limit for this tier. 0 = unlimited.
+	RequestsPerMinute int   `toml:"requests_per_minute"`
+	// BytesPerSecond is the byte-rate limit for this tier. 0 = unlimited.
+	BytesPerSecond    int64 `toml:"bytes_per_second"`
 }

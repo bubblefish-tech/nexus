@@ -417,6 +417,27 @@ func resolveAndValidate(cfg *Config, configDir string, logger *slog.Logger) erro
 		}
 	}
 
+	// Resolve review tokens if configured.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	if cfg.Daemon.Review.ListToken != "" {
+		listKey, err := ResolveEnv(cfg.Daemon.Review.ListToken, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: review.list_token: %w", err)
+		}
+		if listKey != "" {
+			cfg.ResolvedReviewListKey = []byte(listKey)
+		}
+	}
+	if cfg.Daemon.Review.ReadToken != "" {
+		readKey, err := ResolveEnv(cfg.Daemon.Review.ReadToken, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: review.read_token: %w", err)
+		}
+		if readKey != "" {
+			cfg.ResolvedReviewReadKey = []byte(readKey)
+		}
+	}
+
 	// Validate WAL path is set (default to config dir if empty).
 	if cfg.Daemon.WAL.Path == "" {
 		cfg.Daemon.WAL.Path = filepath.Join(configDir, "wal")
