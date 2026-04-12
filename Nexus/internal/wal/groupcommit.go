@@ -32,6 +32,7 @@ type GroupCommitConfig struct {
 	Enabled  bool
 	MaxBatch int           // max entries per batch before flush (default 256)
 	MaxDelay time.Duration // max time to wait for a full batch (default 500µs)
+	BeatFn   func()        // optional heartbeat callback, called each loop iteration
 }
 
 // pendingEntry is a single WAL entry waiting to be group-committed. The
@@ -55,6 +56,7 @@ type groupCommitter struct {
 
 	maxBatch int
 	maxDelay time.Duration
+	beatFn   func() // heartbeat callback for supervisor, may be nil
 }
 
 func newGroupCommitter(cfg GroupCommitConfig, logger *slog.Logger) *groupCommitter {
@@ -73,6 +75,7 @@ func newGroupCommitter(cfg GroupCommitConfig, logger *slog.Logger) *groupCommitt
 		logger:   logger,
 		maxBatch: maxBatch,
 		maxDelay: maxDelay,
+		beatFn:   cfg.BeatFn,
 	}
 }
 
@@ -115,6 +118,10 @@ func (gc *groupCommitter) run(writeBatch func(batch []*pendingEntry)) {
 	}
 
 	for {
+		if gc.beatFn != nil {
+			gc.beatFn()
+		}
+
 		select {
 		case pe := <-gc.submitCh:
 			batch = append(batch, pe)

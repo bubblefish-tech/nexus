@@ -93,6 +93,10 @@ type Config struct {
 	// so the caller can invalidate caches for the affected destination.
 	// Must be safe to call concurrently. If nil, no callback is made.
 	OnDelivered func(destination string)
+
+	// BeatFn is an optional heartbeat callback called each iteration of
+	// the worker loop. Used by the supervisor to detect stalled workers.
+	BeatFn func()
 }
 
 // Queue is a bounded, concurrency-safe message queue. All state is held in
@@ -107,6 +111,7 @@ type Queue struct {
 	updater     wal.WALUpdater
 	onProcessed func()             // optional; called after each successful write
 	onDelivered func(dest string)  // optional; called with destination name after successful write
+	beatFn      func()             // optional; supervisor heartbeat
 }
 
 // New creates a Queue with the given configuration and starts the worker
@@ -142,6 +147,7 @@ func New(cfg Config, logger *slog.Logger, dest destination.DestinationWriter, up
 		updater:     updater,
 		onProcessed: cfg.OnProcessed,
 		onDelivered: cfg.OnDelivered,
+		beatFn:      cfg.BeatFn,
 	}
 
 	for i := 0; i < workers; i++ {
@@ -239,6 +245,10 @@ func (q *Queue) worker() {
 	}
 
 	for {
+		if q.beatFn != nil {
+			q.beatFn()
+		}
+
 		select {
 		case entry, ok := <-q.ch:
 			if !ok {

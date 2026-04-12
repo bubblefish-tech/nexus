@@ -63,6 +63,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
+	"github.com/BubbleFish-Nexus/internal/supervisor"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/vizpipe"
 	"github.com/BubbleFish-Nexus/internal/wal"
@@ -162,6 +163,10 @@ type Daemon struct {
 	// /api/status and /api/cache admin endpoints.
 	exactStats    *cache.Stats
 	semanticStats *cache.SemanticStats
+
+	// supervisor monitors goroutine heartbeats and kills the process on stall.
+	// Nil when not started.
+	supervisor *supervisor.Supervisor
 
 	stopOnce    sync.Once
 	stopped     chan struct{}
@@ -336,11 +341,23 @@ func (d *Daemon) Start() error {
 		}
 	}))
 
+	// Create goroutine heartbeat supervisor. Monitors group commit consumer,
+	// queue workers, and WAL watchdog. On stall: logs fatal, dumps stacks,
+	// exits with code 3. Converts silent deadlock into visible crash.
+	home, _ := os.UserHomeDir()
+	logsDir := filepath.Join(home, ".bubblefish", "logs")
+	d.supervisor = supervisor.New(supervisor.Config{
+		Timeout: 30 * time.Second,
+		LogsDir: logsDir,
+	}, d.logger)
+
 	if cfg.Daemon.WAL.GroupCommit.Enabled {
+		d.supervisor.Register("groupcommit")
 		gcCfg := wal.GroupCommitConfig{
 			Enabled:  true,
 			MaxBatch: cfg.Daemon.WAL.GroupCommit.MaxBatch,
 			MaxDelay: time.Duration(cfg.Daemon.WAL.GroupCommit.MaxDelayUS) * time.Microsecond,
+			BeatFn:   func() { d.supervisor.Beat("groupcommit") },
 		}
 		walOpts = append(walOpts, wal.WithGroupCommit(gcCfg))
 		d.logger.Info("daemon: WAL group commit enabled",
@@ -409,6 +426,7 @@ func (d *Daemon) Start() error {
 	// Create queue — wire OnProcessed to increment queue_processing_rate,
 	// and OnDelivered to advance cache watermarks so stale entries are
 	// invalidated.
+	d.supervisor.Register("queue")
 	d.queue = queue.New(
 		queue.Config{
 			Size:        cfg.Daemon.QueueSize,
@@ -417,6 +435,7 @@ func (d *Daemon) Start() error {
 				d.exactCache.InvalidateDest(dest)
 				d.semanticCache.InvalidateDest(dest)
 			},
+			BeatFn: func() { d.supervisor.Beat("queue") },
 		},
 		d.logger,
 		d.dest,
@@ -437,7 +456,12 @@ func (d *Daemon) Start() error {
 
 	// Start WAL watchdog — updates WAL health and disk metrics periodically.
 	// Reference: Tech Spec Section 4.4.
+	d.supervisor.Register("walwatchdog")
 	go d.walWatchdog(walPath)
+
+	// Start the goroutine heartbeat supervisor now that all monitored
+	// goroutines are registered.
+	d.supervisor.Start()
 
 	// Start consistency checker if enabled.
 	// Reference: Tech Spec Section 11.5.
@@ -727,6 +751,12 @@ func (d *Daemon) Stop() error {
 			"stage_timeout", stageTimeout,
 		)
 
+		// Notify supervisor that shutdown has begun — suppresses stall
+		// detection for goroutines that are legitimately draining.
+		if d.supervisor != nil {
+			d.supervisor.Shutdown()
+		}
+
 		// ── Stage 1: Stop accepting new HTTP requests ──────────────────────
 		if d.server != nil {
 			ctx1, cancel1 := context.WithTimeout(context.Background(), stageTimeout)
@@ -828,6 +858,11 @@ func (d *Daemon) Stop() error {
 					"error", err,
 				)
 			}
+		}
+
+		// Stop the goroutine heartbeat supervisor.
+		if d.supervisor != nil {
+			d.supervisor.Stop()
 		}
 
 		d.logger.Info("daemon: stage 3 complete — daemon stopped",
@@ -1128,6 +1163,10 @@ func (d *Daemon) walWatchdog(walDir string) {
 	defer ticker.Stop()
 
 	for {
+		if d.supervisor != nil {
+			d.supervisor.Beat("walwatchdog")
+		}
+
 		select {
 		case <-d.stopped:
 			return
