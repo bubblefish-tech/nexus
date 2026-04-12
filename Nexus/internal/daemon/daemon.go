@@ -574,7 +574,7 @@ func (d *Daemon) Start() error {
 			return fmt.Errorf("daemon: open audit logger: %w", alErr)
 		}
 		d.auditLogger = al
-		d.auditWAL = audit.NewWALWriter(d.wal)
+		d.auditWAL = audit.NewWALWriter(d.wal, nil) // TODO(phase4): wire ChainState here
 
 		// Build reader options mirroring the logger config.
 		var readerOpts []audit.ReaderOption

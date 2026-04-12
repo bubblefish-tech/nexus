@@ -43,7 +43,7 @@ func TestWALWriter_SubmitCreatesAuditEntry(t *testing.T) {
 	}
 	defer w.Close()
 
-	aw := NewWALWriter(w)
+	aw := NewWALWriter(w, nil)
 
 	rec := InteractionRecord{
 		RecordID:      "test-audit-001",
@@ -79,7 +79,7 @@ func TestWALWriter_SubmitSetsRecordID(t *testing.T) {
 	}
 	defer w.Close()
 
-	aw := NewWALWriter(w)
+	aw := NewWALWriter(w, nil)
 
 	rec := InteractionRecord{
 		Source:        "test-source",
@@ -104,7 +104,7 @@ func TestWALWriter_AuditEntryPayloadRoundtrip(t *testing.T) {
 		t.Fatalf("Open WAL: %v", err)
 	}
 
-	aw := NewWALWriter(w)
+	aw := NewWALWriter(w, nil)
 
 	rec := InteractionRecord{
 		RecordID:       "roundtrip-001",
