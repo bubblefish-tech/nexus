@@ -4,6 +4,60 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.1.3 — Phase 2: Trust Boundary Layer
+
+### Added — Phase 2.1 (Tier Partitions with SQL-layer Enforcement)
+- `tier` column (INTEGER, 0-3, default 1) on all memory entries.
+- Non-destructive migration via `ALTER TABLE memories ADD COLUMN tier`.
+- SQL `AND tier <= ?` in every query WHERE clause — enforcement is in the
+  database engine, not post-filter. Eliminates timing side-channels.
+- Source `tier` field (0-3, default 3 = unrestricted) and
+  `default_write_tier` field (0-3, default 1) in source TOML.
+- Admin tokens bypass tier filtering; source tokens see only `tier <= source.Tier`.
+- Full test coverage in `internal/destination/tier_test.go`.
+
+### Added — Phase 2.2 (LSH Tier-Scoped Seeds)
+- `internal/lsh` package: `TierSeeds`, `LoadOrGenerate`, `HyperplaneVectors`,
+  `BucketID` — 16-hyperplane SimHash foundation for Phase 3.
+- Seeds are per-tier (0-3), 32 bytes each, persisted in
+  `$BUBBLEFISH_HOME/secrets/lsh-tier-N.seed` (0600).
+- Same content in different tiers always maps to different bucket IDs
+  (cross-tier collision impossible by construction).
+
+### Added — Phase 2.3 (Review Token Classes)
+- `bfn_review_list_` token class: list quarantined memory IDs
+  (`GET /api/review/quarantine`).
+- `bfn_review_read_` token class: read content of specific quarantined IDs
+  (`GET /api/review/quarantine/{id}`).
+- Both classes constant-time compared in the auth path.
+- Both return 401 `wrong_token_class` on all other endpoints.
+- Config: `[daemon.review] list_token` and `read_token`.
+- For the Phase 5 governance UI.
+
+### Added — Phase 2.4 (Per-Tier Rate Limiting)
+- `[[daemon.tiers]]` config blocks with `level`, `requests_per_minute`,
+  `bytes_per_second` fields.
+- Precedence chain: source config → tier config → global config.
+- Source-level overrides take priority; tier fills the gap between global and per-source.
+
+### Added — Phase 2.5 (Embedding Validation Envelope)
+- `embeddingValidator` in daemon package (internal):
+  - **Shape check**: validates `len(embedding) == configured_dimensions`.
+  - **Content-hash integrity**: SHA-256 of content text stamped on every entry.
+  - **Provider-identity stamping**: records which provider generated the embedding.
+  - **Drift detection**: Welford online variance, 3-sigma threshold per provider.
+  - **Fresh baseline rule**: first 1000 embeddings per provider never trigger alarm.
+  - **Quarantine state**: in-memory map exposed via `/api/review/quarantine`.
+
+### Added — Phase 2.6 (Secrets Directory)
+- `internal/secrets` package: `Open`, `LoadOrGenerateLSHSeed`,
+  `LoadOrGenerateAllLSHSeeds`, `WriteSecret`, `ReadSecret`.
+- Directory created at `$BUBBLEFISH_HOME/secrets/` with 0700 permissions.
+- All secret files written at 0600 via atomic temp-file + rename.
+- Path traversal guard: rejects names containing path separators.
+
+---
+
 ## v0.1.3 — Phase 1.5: Critical Hardening
 
 ### Added — Phase 1.5 (Subtask 1.5: Dual Integrity Sentinels)
