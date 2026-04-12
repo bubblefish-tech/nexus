@@ -1862,6 +1862,9 @@ body{
     <button class="nav-btn" data-view="conflicts" data-tip="Conflicts">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     </button>
+    <button class="nav-btn" data-view="proofs" data-tip="Proofs">
+      <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+    </button>
     <button class="nav-btn" data-view="settings" data-tip="Effective Config">
       <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
     </button>
@@ -2253,6 +2256,45 @@ body{
     </div>
 
     <!-- ════════════ SETTINGS / EFFECTIVE CONFIG VIEW ════════════ -->
+    <div class="view" id="view-proofs">
+      <div class="view-pad">
+        <div class="page-head">
+          <div class="page-head-l">
+            <div class="page-title">
+              <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+              Cryptographic Proofs
+            </div>
+            <div class="page-sub">Audit chain status, Merkle roots, and proof export</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head">Audit Chain Status</div>
+          <div class="card-body" id="proofChainStatus">
+            <div class="empty-state">Chain status will appear when the daemon has provenance enabled.</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head">Daily Merkle Roots</div>
+          <div class="card-body" id="proofMerkleRoots">
+            <div class="empty-state">Merkle roots appear after the first midnight UTC rollover.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">Export Proof Bundle</div>
+          <div class="card-body">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="proofMemoryId" placeholder="memory_id (payload_id)" style="flex:1;padding:6px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-family:inherit;font-size:13px">
+              <button id="proofExportBtn" style="padding:6px 16px;background:var(--cyan);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:13px">Export</button>
+            </div>
+            <pre id="proofExportResult" style="margin-top:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--dim);max-height:300px;overflow-y:auto"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="view" id="view-settings">
       <div class="view-pad">
         <div class="page-head">
@@ -3415,6 +3457,29 @@ function startAmbient() {
 /* ═══════════════════════════════════════════════════════════════════
    BOOT
 ═══════════════════════════════════════════════════════════════════ */
+/* ═══════════ Proofs Tab ═══════════ */
+(function initProofs() {
+  const btn = document.getElementById('proofExportBtn');
+  const input = document.getElementById('proofMemoryId');
+  const resultEl = document.getElementById('proofExportResult');
+  if (!btn || !input) return;
+
+  btn.addEventListener('click', async () => {
+    const memId = input.value.trim();
+    if (!memId) { resultEl.textContent = 'Enter a memory_id first.'; return; }
+    resultEl.textContent = 'Fetching proof bundle…';
+    try {
+      const resp = await fetch('/verify/' + encodeURIComponent(memId), {
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('bfn_admin_token') || '') }
+      });
+      const data = await resp.json();
+      resultEl.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      resultEl.textContent = 'Error: ' + e.message;
+    }
+  });
+})();
+
 (function boot() {
   router.bind();
   bindWitness();
