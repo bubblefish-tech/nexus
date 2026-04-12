@@ -4,6 +4,36 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.1.3 — Phase 1.5: Critical Hardening
+
+### Added — Phase 1.5 (Subtask 1.5: Dual Integrity Sentinels)
+- 8-byte start sentinel (`BFBFBFBFBFBFBFBF`) and end sentinel
+  (`FBFBFBFBFBFBFBFB`) on every WAL entry for torn-sector-write detection.
+- Backward compatible: replay auto-detects old-format entries (v0.1.2 and
+  Phase 1 entries load cleanly).
+- Fail-closed: missing or corrupt end sentinel rejects the entry
+  unconditionally.
+- `SentinelFailures()` Prometheus counter for monitoring.
+
+### Added — Phase 1.5 (Subtask 1.8: Goroutine Heartbeat Supervisor)
+- `internal/supervisor` package with per-goroutine heartbeat tracking.
+- Monitors group commit consumer, queue workers, and WAL watchdog.
+- On stall (30s without heartbeat): logs fatal, dumps all goroutine stacks
+  to `logs/deadlock-<timestamp>.log`, exits with code 3.
+- Converts silent deadlock into visible crash + systemd restart.
+- Graceful shutdown suppresses stall detection during drain.
+
+### Added — Phase 1.5 (Subtask 1.9: Monotonic Sequence Counter)
+- `internal/seq` package with atomic int64 counter for ordering WAL entries
+  independently of wall-clock time.
+- `MonotonicSeq` field on WAL entries, assigned on every Append.
+- Persisted to `$BUBBLEFISH_HOME/seq.state` on shutdown, restored on start
+  as `max(persisted, highest_seq_in_wal) + 1`.
+- `TODO(monotonic)` audit comments at ordering-ambiguous timestamp sites.
+- No ordering-sensitive wall-clock comparisons found in current codebase.
+
+---
+
 ## v0.1.3 — OAuth 2.1 Hardening
 
 ### Added
