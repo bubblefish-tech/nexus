@@ -114,6 +114,12 @@ type Metrics struct {
 	// Incremented in handleWrite and handleQuery when Allow() returns false.
 	RateLimitHitsTotal *prometheus.CounterVec
 
+	// RateLimitBytesTotal counts bytes accepted through the bytes/sec limiter.
+	RateLimitBytesTotal *prometheus.CounterVec
+
+	// RateLimitBytesRejectedTotal counts bytes/sec rate limit rejections.
+	RateLimitBytesRejectedTotal *prometheus.CounterVec
+
 	// ── Admin ────────────────────────────────────────────────────────────────
 	// AdminCallsTotal counts admin endpoint calls by endpoint label.
 	// Incremented in the admin middleware (requireAdminToken success path).
@@ -338,6 +344,20 @@ func New() *Metrics {
 		},
 		[]string{"source"},
 	)
+	m.RateLimitBytesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_rate_limit_bytes_total",
+			Help: "Total bytes accepted through the bytes/sec rate limiter.",
+		},
+		[]string{"source"},
+	)
+	m.RateLimitBytesRejectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bubblefish_rate_limit_bytes_rejected_total",
+			Help: "Bytes/sec rate limit rejections by source.",
+		},
+		[]string{"source"},
+	)
 
 	// ── Admin ────────────────────────────────────────────────────────────────
 	m.AdminCallsTotal = prometheus.NewCounterVec(
@@ -479,6 +499,8 @@ func New() *Metrics {
 		m.AuthFailuresTotal,
 		m.PolicyDenialsTotal,
 		m.RateLimitHitsTotal,
+		m.RateLimitBytesTotal,
+		m.RateLimitBytesRejectedTotal,
 		m.AdminCallsTotal,
 		m.ConfigLintWarnings,
 		m.EmbeddingLatency,

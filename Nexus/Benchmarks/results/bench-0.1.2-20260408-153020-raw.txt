@@ -1,0 +1,78 @@
+PASS
+ok  	github.com/BubbleFish-Nexus/cmd/bubblefish	0.199s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/audit	0.595s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/backup	1.007s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/bench	1.296s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/cache	0.169s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/config	0.646s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/daemon	0.168s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/demo	1.092s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/destination	0.144s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/doctor	0.491s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/embedding	1.306s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/eventsink	1.407s
+goos: windows
+goarch: amd64
+pkg: github.com/BubbleFish-Nexus/internal/firewall
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkPostFilter_1000Records-16    	   14382	     74708 ns/op	  335875 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   16270	    106526 ns/op	  335874 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   10000	    117295 ns/op	  335874 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   10000	    116407 ns/op	  335874 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   10000	    129215 ns/op	  335874 B/op	       1 allocs/op
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/firewall	8.233s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/fsutil	0.471s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/hotreload	0.629s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/idempotency	0.521s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/jwtauth	1.364s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/lint	0.495s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/mcp	0.140s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/metrics	1.199s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/oauth	0.932s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/policy	0.658s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/projection	1.214s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/query	0.154s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/queue	1.031s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/securitylog	0.577s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/signing	0.551s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/tray	0.527s
+?   	github.com/BubbleFish-Nexus/internal/tui	[no test files]
+?   	github.com/BubbleFish-Nexus/internal/tui/api	[no test files]
+?   	github.com/BubbleFish-Nexus/internal/tui/components	[no test files]
+?   	github.com/BubbleFish-Nexus/internal/tui/styles	[no test files]
+?   	github.com/BubbleFish-Nexus/internal/tui/tabs	[no test files]
+?   	github.com/BubbleFish-Nexus/internal/version	[no test files]
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/vizpipe	0.600s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/wal	0.677s
+PASS
+ok  	github.com/BubbleFish-Nexus/internal/web	0.774s
+?   	github.com/BubbleFish-Nexus/web/dashboard	[no test files]

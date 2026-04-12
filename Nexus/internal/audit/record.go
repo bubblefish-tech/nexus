@@ -82,6 +82,12 @@ type InteractionRecord struct {
 
 	// Integrity — CRC32 computed over JSON with this field set to empty string.
 	CRC32 string `json:"crc32"`
+
+	// PrevAuditHash is the SHA-256 hash of the previous audit entry in the
+	// hash chain. Empty for the genesis entry. Set by the WAL writer before
+	// marshaling to ensure the chain extension is durable in the same fsync.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.3.
+	PrevAuditHash string `json:"prev_audit_hash,omitempty"`
 }
 
 // NewRecordID generates a cryptographically random UUID for use as record_id.

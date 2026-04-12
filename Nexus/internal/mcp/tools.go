@@ -74,6 +74,12 @@ type WriteParams struct {
 
 	// ActorID is the identity of the actor writing the memory (optional).
 	ActorID string
+
+	// IdempotencyKey is an explicit idempotency key for deduplication.
+	// If empty, the MCP server generates one automatically:
+	// SHA-256(session_id || content || timestamp_second)[:64].
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.5.
+	IdempotencyKey string
 }
 
 // WriteResult is the output of the nexus_write tool.

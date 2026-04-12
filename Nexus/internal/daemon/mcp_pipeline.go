@@ -108,6 +108,7 @@ func (d *Daemon) Write(ctx context.Context, params mcp.WriteParams) (mcp.WriteRe
 		Content:          params.Content,
 		Role:             "user", // MCP writes default to user role
 		Timestamp:        time.Now().UTC(),
+		IdempotencyKey:   params.IdempotencyKey,
 		SchemaVersion:    1,
 		TransformVersion: "1.0",
 		ActorType:        actorType,
@@ -122,13 +123,14 @@ func (d *Daemon) Write(ctx context.Context, params mcp.WriteParams) (mcp.WriteRe
 
 	// Step 4 — WAL append. If WAL fails, return error — do NOT enqueue.
 	entry := wal.Entry{
-		PayloadID:   payloadID,
-		Source:      src.Name,
-		Destination: dest,
-		Subject:     subject,
-		ActorType:   actorType,
-		ActorID:     actorID,
-		Payload:     payloadBytes,
+		PayloadID:      payloadID,
+		IdempotencyKey: params.IdempotencyKey,
+		Source:         src.Name,
+		Destination:    dest,
+		Subject:        subject,
+		ActorType:      actorType,
+		ActorID:        actorID,
+		Payload:        payloadBytes,
 	}
 	if err := d.wal.Append(entry); err != nil {
 		d.logger.Error("mcp: WAL append failed",

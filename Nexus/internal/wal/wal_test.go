@@ -123,8 +123,8 @@ func currentSegment(t *testing.T, dir string) string {
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-// TestWALAppendCRC32 verifies every written line contains a tab-separated
-// 8-char hex CRC32 over the JSON bytes.
+// TestWALAppendCRC32 verifies every written line is in sentinel format with a
+// valid CRC32 over the JSON bytes.
 func TestWALAppendCRC32(t *testing.T) {
 	w, dir := openTestWAL(t)
 	appendN(t, w, 10)
@@ -144,19 +144,20 @@ func TestWALAppendCRC32(t *testing.T) {
 	}
 
 	for i, line := range lines {
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
-			t.Errorf("line %d: no tab separator", i)
+		wl := parseWALLine(line)
+		if wl == nil {
+			t.Errorf("line %d: could not parse", i)
 			continue
 		}
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
-		wantCRC := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if storedCRC != wantCRC {
-			t.Errorf("line %d: CRC mismatch: stored=%s want=%s", i, storedCRC, wantCRC)
+		if !wl.HasSentinels {
+			t.Errorf("line %d: missing sentinels in new entry", i)
 		}
-		if len(storedCRC) != 8 {
-			t.Errorf("line %d: CRC not 8 chars: %q", i, storedCRC)
+		if wl.SentinelErr != nil {
+			t.Errorf("line %d: sentinel error: %v", i, wl.SentinelErr)
+		}
+		wantCRC := fmt.Sprintf("%08x", crc32.ChecksumIEEE(wl.JSONBytes))
+		if wl.StoredCRC != wantCRC {
+			t.Errorf("line %d: CRC mismatch: stored=%s want=%s", i, wl.StoredCRC, wantCRC)
 		}
 	}
 }
@@ -176,18 +177,23 @@ func TestWALReplayCorruptEntry(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 
-	// Flip a byte in the middle of the 5th line's JSON region.
+	// Flip a byte in the JSON region of the 5th line (sentinel format).
 	lines := strings.Split(string(data), "\n")
 	if len(lines) < 10 {
 		t.Fatalf("expected >=10 lines")
 	}
-	// Corrupt the JSON bytes of line 4 (0-indexed) by flipping a byte.
-	parts := strings.SplitN(lines[4], "\t", 2)
-	if len(parts) == 2 {
-		corrupted := []byte(parts[0])
-		corrupted[10] ^= 0xFF
-		lines[4] = string(corrupted) + "\t" + parts[1]
+	// Parse line 4 (0-indexed) to find JSON bytes and corrupt them.
+	wl := parseWALLine(lines[4])
+	if wl == nil || !wl.HasSentinels {
+		t.Fatalf("line 4: expected sentinel format")
 	}
+	// Reconstruct with corrupted JSON: flip a byte in the JSON region.
+	corruptedJSON := make([]byte, len(wl.JSONBytes))
+	copy(corruptedJSON, wl.JSONBytes)
+	corruptedJSON[10] ^= 0xFF
+	// Reassemble the line with corrupted JSON but original CRC (will mismatch).
+	lines[4] = fmt.Sprintf("%s\t%s\t%s\t%s", StartSentinel, corruptedJSON, wl.StoredCRC, EndSentinel)
+
 	if err := os.WriteFile(seg, []byte(strings.Join(lines, "\n")), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}

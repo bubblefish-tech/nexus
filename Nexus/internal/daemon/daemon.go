@@ -60,9 +60,11 @@ import (
 	"github.com/BubbleFish-Nexus/internal/firewall"
 	"github.com/BubbleFish-Nexus/internal/jwtauth"
 	"github.com/BubbleFish-Nexus/internal/oauth"
+	"github.com/BubbleFish-Nexus/internal/provenance"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
+	"github.com/BubbleFish-Nexus/internal/supervisor"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/vizpipe"
 	"github.com/BubbleFish-Nexus/internal/wal"
@@ -90,6 +92,7 @@ type Daemon struct {
 	semanticCache   *cache.SemanticCache      // Stage 2 — Phase 6
 	server          *http.Server
 	rl              *rateLimiter
+	bytesRL         *bytesRateLimiter
 
 	reloadWatcher *hotreload.Watcher
 	mcpServer     *mcp.Server // nil when MCP is disabled or failed to start
@@ -126,10 +129,14 @@ type Daemon struct {
 	// Reference: Tech Spec Addendum Section A3.1.
 	retrievalFirewall *firewall.RetrievalFirewall
 
-	// auditLogger is the interaction log writer. Nil when
+	// auditLogger is the interaction log writer (JSONL files). Nil when
 	// [daemon.audit] enabled = false.
 	// Reference: Tech Spec Addendum Section A2.3.
 	auditLogger *audit.AuditLogger
+
+	// auditWAL writes audit records to the WAL for kill-9 durability.
+	// Nil when [daemon.audit] enabled = false.
+	auditWAL *audit.WALWriter
 
 	// auditReader reads and queries the interaction log. Nil when
 	// [daemon.audit] enabled = false.
@@ -158,6 +165,28 @@ type Daemon struct {
 	exactStats    *cache.Stats
 	semanticStats *cache.SemanticStats
 
+	// supervisor monitors goroutine heartbeats and kills the process on stall.
+	// Nil when not started.
+	supervisor *supervisor.Supervisor
+
+	// embeddingValidator validates embedding envelopes and tracks quarantine state.
+	// Nil when embedding is disabled. Reference: v0.1.3 Build Plan Phase 2 Subtask 2.5.
+	embeddingValidator *embeddingValidator
+
+	// chainState maintains the hash-chained audit log. Nil when audit is disabled.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.3.
+	chainState *provenance.ChainState
+
+	// daemonKeyPair is the daemon's Ed25519 keypair for signing genesis entries,
+	// Merkle roots, and query attestations. Nil when secrets dir unavailable.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+	daemonKeyPair *provenance.KeyPair
+
+	// sourceKeys maps source name → loaded Ed25519 keypair for sources with
+	// [source.signing] mode = "local". Nil entries mean signing disabled.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+	sourceKeys map[string]*provenance.KeyPair
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -180,6 +209,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		logger:  logger,
 		metrics: m,
 		rl:      newRateLimiter(),
+		bytesRL: newBytesRateLimiter(),
 		vizPipe: vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
 		stopped:     make(chan struct{}),
 		shutdownReq: make(chan struct{}),
@@ -330,6 +360,59 @@ func (d *Daemon) Start() error {
 		}
 	}))
 
+	// Create goroutine heartbeat supervisor. Monitors group commit consumer,
+	// queue workers, and WAL watchdog. On stall: logs fatal, dumps stacks,
+	// exits with code 3. Converts silent deadlock into visible crash.
+	home, _ := os.UserHomeDir()
+	logsDir := filepath.Join(home, ".bubblefish", "logs")
+	d.supervisor = supervisor.New(supervisor.Config{
+		Timeout: 30 * time.Second,
+		LogsDir: logsDir,
+	}, d.logger)
+
+	// Enable zstd compression for new WAL entries when configured.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	if cfg.Daemon.WAL.CompressEnabled {
+		walOpts = append(walOpts, wal.WithCompression())
+		d.logger.Info("daemon: WAL zstd compression enabled",
+			"component", "daemon",
+		)
+	}
+
+	if cfg.Daemon.WAL.GroupCommit.Enabled {
+		d.supervisor.Register("groupcommit")
+		gcCfg := wal.GroupCommitConfig{
+			Enabled:  true,
+			MaxBatch: cfg.Daemon.WAL.GroupCommit.MaxBatch,
+			MaxDelay: time.Duration(cfg.Daemon.WAL.GroupCommit.MaxDelayUS) * time.Microsecond,
+			BeatFn:   func() { d.supervisor.Beat("groupcommit") },
+		}
+		walOpts = append(walOpts, wal.WithGroupCommit(gcCfg))
+		d.logger.Info("daemon: WAL group commit enabled",
+			"component", "daemon",
+			"max_batch", gcCfg.MaxBatch,
+			"max_delay_us", cfg.Daemon.WAL.GroupCommit.MaxDelayUS,
+		)
+	}
+
+	// Startup fsync verification: write+sync+read-back test on the WAL
+	// filesystem. Logs a warning if fsync appears to be a no-op (broken on
+	// network storage, some consumer SSDs). Non-fatal — daemon continues.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.6.
+	fsyncResult := doctor.FsyncTest(filepath.Dir(walPath))
+	if !fsyncResult.OK {
+		d.logger.Warn("daemon: fsync verification FAILED — data durability may be compromised",
+			"component", "daemon",
+			"error", fsyncResult.Error,
+			"wal_dir", filepath.Dir(walPath),
+		)
+	} else {
+		d.logger.Info("daemon: fsync verification passed",
+			"component", "daemon",
+			"duration", fsyncResult.Duration,
+		)
+	}
+
 	w, err := wal.Open(walPath, cfg.Daemon.WAL.MaxSegmentSizeMB, d.logger, walOpts...)
 	if err != nil {
 		return fmt.Errorf("daemon: open WAL: %w", err)
@@ -389,6 +472,7 @@ func (d *Daemon) Start() error {
 	// Create queue — wire OnProcessed to increment queue_processing_rate,
 	// and OnDelivered to advance cache watermarks so stale entries are
 	// invalidated.
+	d.supervisor.Register("queue")
 	d.queue = queue.New(
 		queue.Config{
 			Size:        cfg.Daemon.QueueSize,
@@ -397,6 +481,7 @@ func (d *Daemon) Start() error {
 				d.exactCache.InvalidateDest(dest)
 				d.semanticCache.InvalidateDest(dest)
 			},
+			BeatFn: func() { d.supervisor.Beat("queue") },
 		},
 		d.logger,
 		d.dest,
@@ -417,7 +502,12 @@ func (d *Daemon) Start() error {
 
 	// Start WAL watchdog — updates WAL health and disk metrics periodically.
 	// Reference: Tech Spec Section 4.4.
+	d.supervisor.Register("walwatchdog")
 	go d.walWatchdog(walPath)
+
+	// Start the goroutine heartbeat supervisor now that all monitored
+	// goroutines are registered.
+	d.supervisor.Start()
 
 	// Start consistency checker if enabled.
 	// Reference: Tech Spec Section 11.5.
@@ -432,6 +522,12 @@ func (d *Daemon) Start() error {
 
 	// Start visualization pipe.
 	d.vizPipe.Start()
+
+	// Initialise provenance: daemon Ed25519 key, source signing keys, and
+	// audit hash chain state. Non-fatal — the daemon runs without provenance
+	// if secrets directory is inaccessible (e.g. first install).
+	// Reference: v0.1.3 Build Plan Phase 4 Subtasks 4.1–4.3.
+	d.initProvenance(cfg)
 
 	// Initialise structured security event logger if enabled.
 	// Reference: Tech Spec Section 11.2, Section 9.2.18.
@@ -526,6 +622,7 @@ func (d *Daemon) Start() error {
 			return fmt.Errorf("daemon: open audit logger: %w", alErr)
 		}
 		d.auditLogger = al
+		d.auditWAL = audit.NewWALWriter(d.wal, d.chainState)
 
 		// Build reader options mirroring the logger config.
 		var readerOpts []audit.ReaderOption
@@ -557,10 +654,14 @@ func (d *Daemon) Start() error {
 		for i, s := range cfg.Daemon.Events.Sinks {
 			sinks[i] = eventsink.SinkConfig{
 				Name:           s.Name,
+				Type:           s.Type,
 				URL:            s.URL,
 				TimeoutSeconds: s.TimeoutSeconds,
 				MaxRetries:     s.MaxRetries,
 				Content:        s.Content,
+				Facility:       s.Facility,
+				Tag:            s.Tag,
+				Headers:        s.Headers,
 			}
 		}
 		d.eventSink = eventsink.New(eventsink.Config{
@@ -706,6 +807,12 @@ func (d *Daemon) Stop() error {
 			"stage_timeout", stageTimeout,
 		)
 
+		// Notify supervisor that shutdown has begun — suppresses stall
+		// detection for goroutines that are legitimately draining.
+		if d.supervisor != nil {
+			d.supervisor.Shutdown()
+		}
+
 		// ── Stage 1: Stop accepting new HTTP requests ──────────────────────
 		if d.server != nil {
 			ctx1, cancel1 := context.WithTimeout(context.Background(), stageTimeout)
@@ -807,6 +914,11 @@ func (d *Daemon) Stop() error {
 					"error", err,
 				)
 			}
+		}
+
+		// Stop the goroutine heartbeat supervisor.
+		if d.supervisor != nil {
+			d.supervisor.Stop()
 		}
 
 		d.logger.Info("daemon: stage 3 complete — daemon stopped",
@@ -1107,6 +1219,10 @@ func (d *Daemon) walWatchdog(walDir string) {
 	defer ticker.Stop()
 
 	for {
+		if d.supervisor != nil {
+			d.supervisor.Beat("walwatchdog")
+		}
+
 		select {
 		case <-d.stopped:
 			return

@@ -509,3 +509,129 @@ func searchString(s, substr string) bool {
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// --- Verify tests (V.5) ---
+
+func TestVerifyPassingBackup(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create files and manifest with correct checksums.
+	writeTestFile(t, dir, "config.toml", "key = true\n")
+	writeTestFile(t, dir, "wal/segment.jsonl", `{"id":"1"}`+"\n")
+
+	hash1 := mustSHA256(t, filepath.Join(dir, "config.toml"))
+	hash2 := mustSHA256(t, filepath.Join(dir, "wal/segment.jsonl"))
+	size1 := mustFileSize(t, filepath.Join(dir, "config.toml"))
+	size2 := mustFileSize(t, filepath.Join(dir, "wal/segment.jsonl"))
+
+	m := Manifest{
+		Version: "0.1.0",
+		Files: []ManifestFile{
+			{RelPath: "config.toml", SHA256: hash1, Size: size1, Category: "config"},
+			{RelPath: "wal/segment.jsonl", SHA256: hash2, Size: size2, Category: "wal"},
+		},
+	}
+	writeManifest(t, dir, m)
+
+	result, err := Verify(dir, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Pass {
+		t.Errorf("expected pass, got failures: %+v", result.Failures)
+	}
+	if result.TotalFiles != 2 || result.PassedFiles != 2 {
+		t.Errorf("expected 2/2 passed, got %d/%d", result.PassedFiles, result.TotalFiles)
+	}
+}
+
+func TestVerifyMissingFile(t *testing.T) {
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "exists.toml", "data")
+
+	m := Manifest{
+		Version: "0.1.0",
+		Files: []ManifestFile{
+			{RelPath: "exists.toml", SHA256: mustSHA256(t, filepath.Join(dir, "exists.toml")), Size: 4, Category: "config"},
+			{RelPath: "gone.toml", SHA256: "deadbeef", Size: 10, Category: "config"},
+		},
+	}
+	writeManifest(t, dir, m)
+
+	result, err := Verify(dir, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Pass {
+		t.Error("expected failure for missing file")
+	}
+	if result.MissingFiles != 1 {
+		t.Errorf("MissingFiles = %d, want 1", result.MissingFiles)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].Reason != "missing" {
+		t.Errorf("expected missing failure, got %+v", result.Failures)
+	}
+}
+
+func TestVerifyChecksumMismatch(t *testing.T) {
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "data.bin", "original content")
+
+	m := Manifest{
+		Version: "0.1.0",
+		Files: []ManifestFile{
+			{RelPath: "data.bin", SHA256: "0000000000000000000000000000000000000000000000000000000000000000", Size: mustFileSize(t, filepath.Join(dir, "data.bin")), Category: "config"},
+		},
+	}
+	writeManifest(t, dir, m)
+
+	result, err := Verify(dir, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Pass {
+		t.Error("expected failure for checksum mismatch")
+	}
+	if len(result.Failures) != 1 || result.Failures[0].Reason != "checksum_mismatch" {
+		t.Errorf("expected checksum_mismatch failure, got %+v", result.Failures)
+	}
+}
+
+func TestVerifyMissingManifest(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Verify(dir, discardLogger())
+	if err == nil {
+		t.Error("expected error for missing manifest")
+	}
+}
+
+func writeTestFile(t *testing.T, baseDir, relPath, content string) {
+	t.Helper()
+	full := filepath.Join(baseDir, relPath)
+	if err := os.MkdirAll(filepath.Dir(full), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustSHA256(t *testing.T, path string) string {
+	t.Helper()
+	h, err := sha256File(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func mustFileSize(t *testing.T, path string) int64 {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Size()
+}

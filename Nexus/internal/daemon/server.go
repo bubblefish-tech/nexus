@@ -100,6 +100,10 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/audit/log", d.handleAuditLog)
 		r.Get("/api/audit/stats", d.handleAuditStats)
 		r.Get("/api/audit/export", d.handleAuditExport)
+		// Cryptographic provenance — admin only.
+		// Reference: v0.1.3 Build Plan Phase 4 Subtasks 4.6, 4.9.
+		r.Get("/verify/{memory_id}", d.handleVerify)
+		r.Post("/api/prove", d.handleProve)
 		// Shutdown — admin only.
 		r.Post("/api/shutdown", d.handleShutdown)
 		// /metrics serves Prometheus text format from the private registry.
@@ -114,6 +118,18 @@ func (d *Daemon) buildRouter() http.Handler {
 	// OR ?token= query param (EventSource cannot send headers).
 	// Reference: dashboard-contract.md Authentication section.
 	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
+
+	// Review routes — require bfn_review_list_ or bfn_review_read_ tokens.
+	// Any other token class receives 401 wrong_token_class.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	r.Group(func(r chi.Router) {
+		r.Use(d.requireReviewListToken)
+		r.Get("/api/review/quarantine", d.handleReviewList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(d.requireReviewReadToken)
+		r.Get("/api/review/quarantine/{id}", d.handleReviewRead)
+	})
 
 	return r
 }

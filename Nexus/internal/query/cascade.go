@@ -96,6 +96,19 @@ type CascadeResult struct {
 	// Debug holds optional per-stage diagnostic information. Populated only
 	// when the cascade is run in debug mode. Reference: Tech Spec Section 7.3.
 	Debug *DebugInfo
+
+	// ClusterExpanded is true when cluster-aware profile expanded results
+	// to include cluster members.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	ClusterExpanded bool
+
+	// Conflict is true when expanded cluster members have different content
+	// hashes, indicating contradictory writes.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	Conflict bool
+
+	// ClusterCount is the number of distinct clusters in the result set.
+	ClusterCount int
 }
 
 // DebugInfo holds per-stage diagnostic data for the _nexus.debug response.
@@ -153,6 +166,7 @@ type CascadeRunner struct {
 	destinations     map[string]*config.Destination // Phase R-7: per-dest/collection decay
 	debug            bool // when true, populate DebugInfo in CascadeResult
 	fw               *firewall.RetrievalFirewall  // Phase R-31: retrieval firewall
+	clusterQuerier   destination.ClusterQuerier   // Phase 3: cluster expansion
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -234,6 +248,17 @@ func (cr *CascadeRunner) WithDestinations(dests map[string]*config.Destination) 
 // Reference: Tech Spec Section 7.3.
 func (cr *CascadeRunner) WithDebug(enabled bool) *CascadeRunner {
 	cr.debug = enabled
+	return cr
+}
+
+// WithClusterQuerier attaches a ClusterQuerier to the runner, enabling
+// cluster-aware profile expansion. When set and the profile is "cluster-aware",
+// results are expanded to include all cluster members and conflict detection is
+// applied. Returns the runner for method chaining.
+//
+// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+func (cr *CascadeRunner) WithClusterQuerier(cq destination.ClusterQuerier) *CascadeRunner {
+	cr.clusterQuerier = cq
 	return cr
 }
 
@@ -621,6 +646,34 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		finalStage = 3
 	}
 
+	// ── Cluster Expansion (cluster-aware profile) ──────────────────────────
+	// When profile = "cluster-aware" and a ClusterQuerier is available,
+	// expand each result that has a cluster_id to include all cluster members.
+	// Detect conflicts when members have different content hashes.
+	//
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	var clusterExpanded bool
+	var clusterConflict bool
+	var clusterCount int
+
+	if q.Profile == ProfileClusterAware && cr.clusterQuerier != nil && len(finalRecords) > 0 {
+		expanded, conflict, nClusters := expandClusters(cr.clusterQuerier, finalRecords, src)
+		if len(expanded) > 0 {
+			finalRecords = expanded
+			clusterExpanded = true
+			clusterConflict = conflict
+			clusterCount = nClusters
+			cr.logger.Debug("query: cluster expansion complete",
+				"component", "cascade",
+				"source", src.Name,
+				"original", len(finalRecords),
+				"expanded", len(expanded),
+				"conflict", conflict,
+				"clusters", nClusters,
+			)
+		}
+	}
+
 	// ── Retrieval Firewall PostFilter ────────────────────────────────────────
 	// Removes memories the source cannot see based on blocked_labels,
 	// max_classification_tier, required_labels, and namespace isolation.
@@ -666,12 +719,15 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 	}
 
 	result := CascadeResult{
-		Records:        finalRecords,
-		NextCursor:     finalNextCursor,
-		HasMore:        finalHasMore,
-		Profile:        q.Profile,
-		RetrievalStage: finalStage,
-		FirewallResult: fwResult,
+		Records:         finalRecords,
+		NextCursor:      finalNextCursor,
+		HasMore:         finalHasMore,
+		Profile:         q.Profile,
+		RetrievalStage:  finalStage,
+		FirewallResult:  fwResult,
+		ClusterExpanded: clusterExpanded,
+		Conflict:        clusterConflict,
+		ClusterCount:    clusterCount,
 	}
 
 	// Populate debug info for the non-cache path.
@@ -766,6 +822,67 @@ func runStage0(src *config.Source, q CanonicalQuery) *PolicyDenial {
 		}
 	}
 	return nil
+}
+
+// expandClusters takes the initial result set and, for each record that has a
+// cluster_id, fetches all cluster members from the destination. It deduplicates
+// by payload_id and detects conflicts (different content hashes within a cluster).
+//
+// Returns the expanded records, whether any conflict was found, and the number
+// of distinct clusters represented.
+//
+// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+func expandClusters(cq destination.ClusterQuerier, records []destination.TranslatedPayload, src *config.Source) ([]destination.TranslatedPayload, bool, int) {
+	seen := make(map[string]bool, len(records)*2)
+	expanded := make([]destination.TranslatedPayload, 0, len(records)*2)
+	clusterIDs := make(map[string]bool)
+	conflict := false
+
+	// First pass: add all original records and note their cluster IDs.
+	clusterIDsToExpand := make(map[string]bool)
+	for _, r := range records {
+		if !seen[r.PayloadID] {
+			seen[r.PayloadID] = true
+			expanded = append(expanded, r)
+		}
+		if r.ClusterID != "" {
+			clusterIDsToExpand[r.ClusterID] = true
+			clusterIDs[r.ClusterID] = true
+		}
+	}
+
+	// Second pass: fetch and add cluster members.
+	for cid := range clusterIDsToExpand {
+		members, err := cq.QueryClusterMembers(destination.ClusterQueryParams{
+			ClusterID:  cid,
+			TierFilter: true,
+			SourceTier: src.Tier,
+		})
+		if err != nil {
+			// Degrade gracefully — skip this cluster's expansion.
+			continue
+		}
+
+		// Conflict detection: check if members have different content hashes.
+		contentHashes := make(map[[32]byte]bool)
+		for _, m := range members {
+			if m.ClusterRole == "superseded" {
+				continue
+			}
+			h := sha256.Sum256([]byte(m.Content))
+			contentHashes[h] = true
+
+			if !seen[m.PayloadID] {
+				seen[m.PayloadID] = true
+				expanded = append(expanded, m)
+			}
+		}
+		if len(contentHashes) > 1 {
+			conflict = true
+		}
+	}
+
+	return expanded, conflict, len(clusterIDs)
 }
 
 // containsString reports whether s appears in slice. Linear scan — policy

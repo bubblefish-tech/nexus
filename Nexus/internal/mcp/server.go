@@ -20,6 +20,7 @@ package mcp
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -736,12 +737,13 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 
 func (s *Server) callNexusWrite(w http.ResponseWriter, r *http.Request, req rpcRequest, args json.RawMessage) {
 	var a struct {
-		Content     string `json:"content"`
-		Subject     string `json:"subject"`
-		Collection  string `json:"collection"`
-		Destination string `json:"destination"`
-		ActorType   string `json:"actor_type"`
-		ActorID     string `json:"actor_id"`
+		Content        string `json:"content"`
+		Subject        string `json:"subject"`
+		Collection     string `json:"collection"`
+		Destination    string `json:"destination"`
+		ActorType      string `json:"actor_type"`
+		ActorID        string `json:"actor_id"`
+		IdempotencyKey string `json:"idempotency_key"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
@@ -755,14 +757,29 @@ func (s *Server) callNexusWrite(w http.ResponseWriter, r *http.Request, req rpcR
 		return
 	}
 
+	// Auto-generate idempotency key if not provided by the client.
+	// SHA-256(session_id || content || timestamp_second) ensures that
+	// identical content within the same second from the same session is
+	// deduplicated, preventing duplicate writes from network retries.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.5.
+	idemKey := a.IdempotencyKey
+	if idemKey == "" {
+		sessionID := r.Header.Get("Mcp-Session-Id")
+		if sessionID == "" {
+			sessionID = r.URL.Query().Get("session_id")
+		}
+		idemKey = generateIdempotencyKey(sessionID, a.Content)
+	}
+
 	result, err := s.pipeline.Write(r.Context(), WriteParams{
-		Source:      s.sourceName,
-		Content:     a.Content,
-		Subject:     a.Subject,
-		Collection:  a.Collection,
-		Destination: a.Destination,
-		ActorType:   a.ActorType,
-		ActorID:     a.ActorID,
+		Source:         s.sourceName,
+		Content:        a.Content,
+		Subject:        a.Subject,
+		Collection:     a.Collection,
+		Destination:    a.Destination,
+		ActorType:      a.ActorType,
+		ActorID:        a.ActorID,
+		IdempotencyKey: idemKey,
 	})
 	if err != nil {
 		s.logger.Error("mcp: nexus_write pipeline error", "component", "mcp", "error", err)
@@ -856,4 +873,17 @@ func (s *Server) writeToolError(w http.ResponseWriter, r *http.Request, id json.
 		Content: []contentBlock{{Type: "text", Text: msg}},
 		IsError: true,
 	})
+}
+
+// generateIdempotencyKey produces a deterministic idempotency key from the
+// session ID and content. The timestamp is truncated to the current second
+// so identical content within the same second from the same session
+// produces the same key (preventing duplicate writes from network retries).
+//
+// Returns hex(SHA-256(sessionID || content || timestamp_second))[:64].
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.5.
+func generateIdempotencyKey(sessionID, content string) string {
+	ts := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+	h := sha256.Sum256([]byte(sessionID + content + ts))
+	return hex.EncodeToString(h[:])
 }

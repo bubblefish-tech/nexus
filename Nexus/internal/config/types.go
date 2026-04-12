@@ -50,6 +50,16 @@ type Config struct {
 	// May be nil if MCP is disabled or api_key is empty.
 	// NEVER log this value.
 	ResolvedMCPKey []byte
+
+	// ResolvedReviewListKey is the resolved bfn_review_list_ token bytes.
+	// Nil if not configured. NEVER log.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	ResolvedReviewListKey []byte
+
+	// ResolvedReviewReadKey is the resolved bfn_review_read_ token bytes.
+	// Nil if not configured. NEVER log.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	ResolvedReviewReadKey []byte
 }
 
 // SourceByName returns the Source with the given name, or nil if not found.
@@ -96,6 +106,12 @@ type DaemonConfig struct {
 	Audit          AuditConfig          `toml:"audit"`
 	RetrievalFirewall DaemonRetrievalFirewallConfig `toml:"retrieval_firewall"`
 	OAuth          OAuthDaemonConfig    `toml:"oauth"`
+	// Review token configuration for the governance review UI (Phase 5).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	Review         ReviewTokensConfig   `toml:"review"`
+	// Tier-level rate limit overrides. Key is tier level (0-3).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+	Tiers          []TierRateLimitConfig `toml:"tiers"`
 }
 
 // OAuthDaemonConfig models [daemon.oauth].
@@ -174,6 +190,27 @@ type WALDaemonConfig struct {
 	Integrity        WALIntegrityConfig  `toml:"integrity"`
 	Encryption       WALEncryptionConfig `toml:"encryption"`
 	Watchdog         WALWatchdogConfig   `toml:"watchdog"`
+	GroupCommit      WALGroupCommitConfig  `toml:"group_commit"`
+	Checkpoint       WALCheckpointConfig   `toml:"checkpoint"`
+	// CompressEnabled enables zstd compression for new WAL entries. 3-5x size
+	// reduction, fewer bytes to fsync, smaller backups. Replay auto-detects
+	// compressed entries regardless of this flag, so mixed segments work.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	CompressEnabled bool `toml:"compress_enabled"`
+}
+
+// WALGroupCommitConfig models [daemon.wal.group_commit].
+// When enabled, WAL writes are batched with a single fsync per batch.
+// Disabled by default (preserves exact v0.1.2 behaviour on upgrade).
+type WALGroupCommitConfig struct {
+	Enabled    bool `toml:"enabled"`
+	MaxBatch   int  `toml:"max_batch"`    // max entries per batch (default 256)
+	MaxDelayUS int  `toml:"max_delay_us"` // max wait in microseconds (default 500)
+}
+
+// WALCheckpointConfig models [daemon.wal.checkpoint].
+type WALCheckpointConfig struct {
+	IntervalEntries int `toml:"interval_entries"` // checkpoint every N entries (default 10000)
 }
 
 // WALIntegrityConfig models [daemon.wal.integrity].
@@ -267,11 +304,15 @@ type EventsConfig struct {
 
 // EventSink models [[daemon.events.sinks]].
 type EventSink struct {
-	Name           string `toml:"name"`
-	URL            string `toml:"url"`
-	TimeoutSeconds int    `toml:"timeout_seconds"`
-	MaxRetries     int    `toml:"max_retries"`
-	Content        string `toml:"content"` // "summary" or "full"
+	Name           string            `toml:"name"`
+	Type           string            `toml:"type"` // "webhook", "syslog", "fluentd", "otlp"
+	URL            string            `toml:"url"`
+	TimeoutSeconds int               `toml:"timeout_seconds"`
+	MaxRetries     int               `toml:"max_retries"`
+	Content        string            `toml:"content"`  // "summary" or "full"
+	Facility       string            `toml:"facility"` // syslog facility
+	Tag            string            `toml:"tag"`      // syslog/fluentd tag
+	Headers        map[string]string `toml:"headers"`  // OTLP custom headers
 }
 
 // RetrievalConfig models the top-level [retrieval] section.
@@ -317,12 +358,30 @@ type sourceBody struct {
 	DefaultActorType string                     `toml:"default_actor_type"`
 	DefaultActorID   string                     `toml:"default_actor_id"`
 	DefaultProfile   string                     `toml:"default_profile"`
+	// Tier is the access level of this source (0-3). Sources can only read
+	// memory entries whose tier is <= this value. Tier 3 = unrestricted.
+	// Default 3 preserves backward compatibility with sources that predate
+	// tier partitioning. Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	Tier             int                        `toml:"tier"`
+	// DefaultWriteTier is the tier assigned to entries written by this source
+	// when the request does not specify a tier. Default 1 (internal).
+	DefaultWriteTier int                        `toml:"default_write_tier"`
 	RateLimit        SourceRateLimitConfig      `toml:"rate_limit"`
 	PayloadLimits    PayloadLimitsConfig        `toml:"payload_limits"`
 	Mapping          map[string]string          `toml:"mapping"`
 	Transform        map[string][]string        `toml:"transform"`
 	Idempotency      IdempotencyConfig          `toml:"idempotency"`
 	Policy           SourcePolicyConfig         `toml:"policy"`
+	Signing          SourceSigningConfig        `toml:"signing"`
+}
+
+// SourceSigningConfig models [source.signing].
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+type SourceSigningConfig struct {
+	// Mode controls Ed25519 signing for writes from this source.
+	// "local" = sign with per-source key in secrets/sources/<name>.ed25519.
+	// "" (empty) = signing disabled (default, backward compatible).
+	Mode string `toml:"mode"`
 }
 
 // Source is the fully decoded, validated source configuration.
@@ -337,17 +396,28 @@ type Source struct {
 	DefaultActorType string
 	DefaultActorID   string
 	DefaultProfile   string
+	// Tier is the access level of this source (0-3). Sources can only read
+	// entries at tier <= Tier. Default 3 = unrestricted (backward compat).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	Tier             int
+	// DefaultWriteTier is the tier stamped on entries written by this source
+	// when the request does not specify a tier. Default 1 (internal).
+	DefaultWriteTier int
 	RateLimit        SourceRateLimitConfig
 	PayloadLimits    PayloadLimitsConfig
 	Mapping          map[string]string   // output field → gjson dot-path
 	Transform        map[string][]string // output field → transform pipeline
 	Idempotency      IdempotencyConfig
 	Policy           SourcePolicyConfig
+	// Signing holds per-source Ed25519 signing configuration.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+	Signing          SourceSigningConfig
 }
 
 // SourceRateLimitConfig models [source.rate_limit].
 type SourceRateLimitConfig struct {
-	RequestsPerMinute int `toml:"requests_per_minute"`
+	RequestsPerMinute int   `toml:"requests_per_minute"`
+	BytesPerSecond    int64 `toml:"bytes_per_second"` // 0 = unlimited
 }
 
 // PayloadLimitsConfig models [source.payload_limits].
@@ -461,4 +531,33 @@ type CollectionDecayConfig struct {
 	HalfLifeDays      float64 `toml:"half_life_days"`
 	DecayMode         string  `toml:"decay_mode"`
 	StepThresholdDays float64 `toml:"step_threshold_days"`
+}
+
+// ReviewTokensConfig models [daemon.review].
+// Review tokens are for the Phase 5 governance UI. Two classes:
+//   - bfn_review_list_ : list quarantined memory IDs (read-only)
+//   - bfn_review_read_ : read the content of specific quarantined IDs (read-only)
+//
+// Both classes are constant-time compared. Both return 401 on any endpoint
+// other than their designated review routes.
+//
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+type ReviewTokensConfig struct {
+	// ListToken is the env:/file:/literal reference for the bfn_review_list_ token.
+	ListToken string `toml:"list_token"`
+	// ReadToken is the env:/file:/literal reference for the bfn_review_read_ token.
+	ReadToken string `toml:"read_token"`
+}
+
+// TierRateLimitConfig models one [[daemon.tiers]] entry.
+// Per-source overrides take precedence over tier-level limits.
+//
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+type TierRateLimitConfig struct {
+	// Level is the tier number this config applies to (0-3).
+	Level             int   `toml:"level"`
+	// RequestsPerMinute is the rate limit for this tier. 0 = unlimited.
+	RequestsPerMinute int   `toml:"requests_per_minute"`
+	// BytesPerSecond is the byte-rate limit for this tier. 0 = unlimited.
+	BytesPerSecond    int64 `toml:"bytes_per_second"`
 }

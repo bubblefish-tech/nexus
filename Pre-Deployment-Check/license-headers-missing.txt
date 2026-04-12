@@ -1,0 +1,24 @@
+========================================================
+LICENSE HEADER COVERAGE
+D:\Bubblefish\Nexus
+Scan date: 2026-04-10
+========================================================
+
+== Go files (.go) ==
+Total .go files scanned: 194
+Files with "Copyright ... 2026 BubbleFish Technologies" header: 194
+Files MISSING header: 0
+
+No .go files are missing the required AGPL copyright header.
+
+== TypeScript files (.ts) ==
+Total .ts files scanned: 1
+Files with "AGPL" in first 30 lines: 1
+Files MISSING header: 0
+
+The single .ts file (D:\Bubblefish\Nexus\examples\blessed\openclaw\index.ts)
+contains "AGPL-3.0 License" at line 7.
+
+========================================================
+RESULT: 100% coverage. No files missing license headers.
+========================================================

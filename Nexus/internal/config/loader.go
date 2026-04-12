@@ -248,6 +248,17 @@ func loadSourceFile(path string, logger *slog.Logger) (*Source, error) {
 		b.Policy.RetrievalFirewall.DefaultClassificationTier = "public"
 	}
 
+	// Apply tier defaults.
+	// Tier 3 = unrestricted read access (backward compat for sources that
+	// predate tier partitioning). DefaultWriteTier 1 = "internal" sensitivity
+	// for new memories. Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	if b.Tier == 0 {
+		b.Tier = 3 // full clearance by default
+	}
+	if b.DefaultWriteTier == 0 {
+		b.DefaultWriteTier = 1 // internal sensitivity by default
+	}
+
 	src := &Source{
 		Name:             b.Name,
 		APIKey:           b.APIKey,
@@ -258,12 +269,15 @@ func loadSourceFile(path string, logger *slog.Logger) (*Source, error) {
 		DefaultActorType: b.DefaultActorType,
 		DefaultActorID:   b.DefaultActorID,
 		DefaultProfile:   b.DefaultProfile,
+		Tier:             b.Tier,
+		DefaultWriteTier: b.DefaultWriteTier,
 		RateLimit:        b.RateLimit,
 		PayloadLimits:    b.PayloadLimits,
 		Mapping:          b.Mapping,
 		Transform:        b.Transform,
 		Idempotency:      b.Idempotency,
 		Policy:           b.Policy,
+		Signing:          b.Signing,
 	}
 
 	if logger != nil {
@@ -401,6 +415,27 @@ func resolveAndValidate(cfg *Config, configDir string, logger *slog.Logger) erro
 		}
 		if mcpKey != "" {
 			cfg.ResolvedMCPKey = []byte(mcpKey)
+		}
+	}
+
+	// Resolve review tokens if configured.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
+	if cfg.Daemon.Review.ListToken != "" {
+		listKey, err := ResolveEnv(cfg.Daemon.Review.ListToken, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: review.list_token: %w", err)
+		}
+		if listKey != "" {
+			cfg.ResolvedReviewListKey = []byte(listKey)
+		}
+	}
+	if cfg.Daemon.Review.ReadToken != "" {
+		readKey, err := ResolveEnv(cfg.Daemon.Review.ReadToken, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: review.read_token: %w", err)
+		}
+		if readKey != "" {
+			cfg.ResolvedReviewReadKey = []byte(readKey)
 		}
 	}
 

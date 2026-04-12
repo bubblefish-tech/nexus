@@ -66,6 +66,47 @@ type TranslatedPayload struct {
 	// Reference: Tech Spec Addendum Section A3.2.
 	SensitivityLabels  []string `json:"sensitivity_labels,omitempty"`
 	ClassificationTier string   `json:"classification_tier,omitempty"`
+
+	// Tier is the numeric access tier of this entry (0-3, default 1).
+	// Sources may only read entries where entry.Tier <= source.Tier.
+	// Enforcement is in the SQL WHERE clause, not post-filter.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	Tier int `json:"tier,omitempty"`
+
+	// LSHBucket is the 16-bit SimHash bucket ID computed from the embedding
+	// and the tier-scoped hyperplane vectors. Used as a prefilter for cluster
+	// assignment: only entries in the same (tier, lsh_bucket) are candidates.
+	// Zero when no embedding is available.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	LSHBucket int `json:"lsh_bucket,omitempty"`
+
+	// ClusterID groups semantically similar memories. Entries with the same
+	// ClusterID share a conceptual topic. Empty when not yet clustered.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	ClusterID string `json:"cluster_id,omitempty"`
+
+	// ClusterRole indicates this entry's role within its cluster:
+	// "primary" (representative), "member", or "superseded".
+	// Empty when not yet clustered.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.2.
+	ClusterRole string `json:"cluster_role,omitempty"`
+
+	// Signature is the hex-encoded Ed25519 signature over the signable
+	// envelope {source_name, timestamp, idempotency_key, content_hash}.
+	// Empty for unsigned entries (sources without [source.signing]).
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	Signature string `json:"signature,omitempty"`
+
+	// SigningKeyID is the fingerprint (hex SHA256[:16]) of the Ed25519
+	// public key used to produce the Signature. Empty for unsigned entries.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	SigningKeyID string `json:"signing_key_id,omitempty"`
+
+	// SignatureAlg identifies the signature algorithm. Currently always
+	// "ed25519" for signed entries, empty for unsigned. Future post-quantum
+	// algorithms are pluggable via this field.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	SignatureAlg string `json:"signature_alg,omitempty"`
 }
 
 // DestinationWriter is the interface satisfied by every memory backend
@@ -115,6 +156,17 @@ type QueryParams struct {
 	//
 	// Reference: Tech Spec Section 7.1.
 	ActorType string
+
+	// TierFilter, when true, adds `AND tier <= SourceTier` to the WHERE clause.
+	// Enforcement happens in the SQL layer — not as a post-filter — so the
+	// database engine never touches rows the caller is not authorised to see.
+	// This eliminates timing side-channels from row-count variations.
+	// Set to false for admin queries that must see all tiers.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	TierFilter bool
+	// SourceTier is the requesting source's tier level (0-3). Only meaningful
+	// when TierFilter = true.
+	SourceTier int
 }
 
 // QueryResult holds one page of query results and pagination state.
@@ -218,6 +270,33 @@ type SemanticSearcher interface {
 	// by cosine similarity descending. Filters are applied from params
 	// (Namespace, Destination). Implementations must be safe for concurrent use.
 	SemanticSearch(ctx context.Context, vec []float32, params QueryParams) ([]ScoredRecord, error)
+}
+
+// ClusterQueryParams holds the options for querying cluster members.
+// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+type ClusterQueryParams struct {
+	// ClusterID is the cluster to query.
+	ClusterID string
+	// TierFilter, when true, adds tier enforcement to the WHERE clause.
+	TierFilter bool
+	// SourceTier is the requesting source's access tier.
+	SourceTier int
+}
+
+// ClusterQuerier is an optional interface for destination backends that
+// support cluster-aware retrieval. Callers must type-assert to check for
+// support.
+// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+type ClusterQuerier interface {
+	// QueryClusterMembers returns all members of the specified cluster.
+	QueryClusterMembers(params ClusterQueryParams) ([]TranslatedPayload, error)
+
+	// QueryBucketCandidates returns entries in the same (tier, lsh_bucket) that
+	// have an embedding, for cluster assignment. Limited to candidateLimit rows.
+	QueryBucketCandidates(tier, bucket, candidateLimit int) ([]TranslatedPayload, error)
+
+	// UpdateCluster sets the cluster_id and cluster_role for a given payload_id.
+	UpdateCluster(payloadID, clusterID, clusterRole string) error
 }
 
 // ValidActorType reports whether s is one of the accepted provenance values:

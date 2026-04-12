@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/doctor"
 )
 
 // runDoctor executes the `bubblefish doctor` command.
@@ -33,6 +35,14 @@ import (
 //
 // Reference: Post-Build Add-On Update Technical Specification Section 6.4.
 func runDoctor() {
+	// Handle --fsync-test flag before loading config.
+	for _, arg := range os.Args[2:] {
+		if arg == "--fsync-test" {
+			runFsyncTest()
+			return
+		}
+	}
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelWarn,
 	}))
@@ -103,4 +113,33 @@ func runDoctor() {
 		os.Exit(1)
 	}
 	fmt.Println("\nbubblefish doctor: ok")
+}
+
+// runFsyncTest executes `bubblefish doctor --fsync-test`.
+// Writes data, fsyncs, reads back via fresh fd, and verifies the bytes match.
+// Detects broken fsync on network storage and some consumer SSDs.
+//
+// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.6.
+func runFsyncTest() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish doctor --fsync-test: %v\n", err)
+		os.Exit(1)
+	}
+	walDir := filepath.Join(home, ".bubblefish", "Nexus", "wal")
+	if err := os.MkdirAll(walDir, 0700); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish doctor --fsync-test: create WAL dir: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("bubblefish doctor --fsync-test: testing fsync in %s\n", walDir)
+	result := doctor.FsyncTest(walDir)
+	if result.OK {
+		fmt.Printf("bubblefish doctor --fsync-test: ok — fsync verified in %s\n", result.Duration)
+	} else {
+		fmt.Fprintf(os.Stderr, "bubblefish doctor --fsync-test: FAIL — %s\n", result.Error)
+		fmt.Fprintln(os.Stderr, "  WARNING: fsync may not be flushing data to durable storage.")
+		fmt.Fprintln(os.Stderr, "  This filesystem may silently lose data on power failure.")
+		os.Exit(1)
+	}
 }

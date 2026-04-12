@@ -57,7 +57,15 @@ func main() {
 	fmt.Fprintln(os.Stderr, "  status       show daemon health and resolved paths")
 		fmt.Fprintln(os.Stderr, "  tui          interactive terminal dashboard (Bubble Tea)")
 		fmt.Fprintln(os.Stderr, "  doctor       run configuration and connectivity health checks")
+		fmt.Fprintln(os.Stderr, "  anchor       manage external anchoring (setup --gist)")
+		fmt.Fprintln(os.Stderr, "  source       manage source signing keys (rotate-key, pubkey)")
+		fmt.Fprintln(os.Stderr, "  timeline     show full audit history of a memory (no daemon required)")
+		fmt.Fprintln(os.Stderr, "  verify       verify a cryptographic proof bundle (no daemon required)")
 		fmt.Fprintln(os.Stderr, "  sign-config  sign compiled config files for signed-mode deployments")
+		fmt.Fprintln(os.Stderr, "  chaos        fault injection and recovery verification")
+		fmt.Fprintln(os.Stderr, "  simulate     deterministic testing harness (FoundationDB-style)")
+		fmt.Fprintln(os.Stderr, "  sentinel     continuous drift detection between WAL and destinations")
+		fmt.Fprintln(os.Stderr, "  destination  manage destinations (rebuild)")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
 	}
@@ -106,8 +114,24 @@ func main() {
 		runBench(os.Args[2:])
 	case "demo":
 		runDemo(os.Args[2:])
+	case "anchor":
+		runAnchor(os.Args[2:])
+	case "source":
+		runSource(os.Args[2:])
+	case "timeline":
+		runTimeline(os.Args[2:])
+	case "verify":
+		runVerify(os.Args[2:])
 	case "sign-config":
 		runSignConfig()
+	case "chaos":
+		runChaos(os.Args[2:])
+	case "simulate":
+		runSimulate(os.Args[2:])
+	case "sentinel":
+		runSentinel(os.Args[2:])
+	case "destination":
+		runDestination(os.Args[2:])
 	case "version", "--version":
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:

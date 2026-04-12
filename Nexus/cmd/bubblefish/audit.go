@@ -18,6 +18,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/BubbleFish-Nexus/internal/provenance"
 )
 
 // runAudit dispatches `bubblefish audit <subcommand>`.
@@ -43,6 +45,7 @@ func runAudit(args []string) {
 		fmt.Fprintln(os.Stderr, "  stats   print summary statistics (no daemon required)")
 		fmt.Fprintln(os.Stderr, "  export  export interaction log to JSON or CSV file (no daemon required)")
 		fmt.Fprintln(os.Stderr, "  tail    stream interaction log entries in real time")
+		fmt.Fprintln(os.Stderr, "  recover inspect and repair corrupted audit hash chain")
 		os.Exit(1)
 	}
 
@@ -55,6 +58,8 @@ func runAudit(args []string) {
 		runAuditExport(args[1:])
 	case "tail":
 		runAuditTail(args[1:])
+	case "recover":
+		runAuditRecover(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish audit: unknown subcommand %q\n", args[0])
 		os.Exit(1)
@@ -512,5 +517,102 @@ func runAuditTail(args []string) {
 			seen[rec.RecordID] = struct{}{}
 			_ = enc.Encode(rec)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// bubblefish audit recover
+// ---------------------------------------------------------------------------
+
+// runAuditRecover inspects the audit hash chain for corruption and offers
+// recovery options. This is the escape hatch that prevents a single bit flip
+// from bricking the daemon permanently.
+//
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.4.
+func runAuditRecover(args []string) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	// Load all audit records to get raw JSON payloads for chain verification.
+	reader, err := buildReaderFromConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish audit recover: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Read all records with no filter and high limit.
+	filter := audit.AuditFilter{
+		Limit: 1000000, // Read all entries
+	}
+	result, err := reader.Query(filter)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish audit recover: read audit log: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Convert records to raw JSON for chain inspection.
+	entries := make([]json.RawMessage, 0, len(result.Records))
+	for _, rec := range result.Records {
+		raw, merr := json.Marshal(rec)
+		if merr != nil {
+			fmt.Fprintf(os.Stderr, "bubblefish audit recover: marshal record %s: %v\n", rec.RecordID, merr)
+			os.Exit(1)
+		}
+		entries = append(entries, raw)
+	}
+
+	report := provenance.InspectChainFromEntries(entries, logger)
+
+	// Print forensic report.
+	reportJSON, _ := json.MarshalIndent(report, "", "  ")
+	fmt.Println(string(reportJSON))
+
+	if report.ChainStatus == "intact" || report.ChainStatus == "empty" {
+		fmt.Println("\nbubblefish audit recover: chain is healthy, no action needed")
+		return
+	}
+
+	fmt.Printf("\n%s\n", report.Recommendation)
+	fmt.Println("\nOptions:")
+	fmt.Printf("  (a) Truncate chain: remove %d entries from index %d onward\n",
+		report.TotalEntries-report.ValidEntries, report.CorruptionIndex)
+	fmt.Println("  (b) Abort: take no action")
+	fmt.Print("\nChoice [a/b]: ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		fmt.Fprintln(os.Stderr, "bubblefish audit recover: no input, aborting")
+		os.Exit(1)
+	}
+	choice := strings.TrimSpace(scanner.Text())
+
+	switch strings.ToLower(choice) {
+	case "a":
+		fmt.Printf("bubblefish audit recover: truncation acknowledged. "+
+			"Chain will be rebuilt from %d valid entries on next daemon startup.\n",
+			report.ValidEntries)
+
+		// Persist the truncated chain state so the daemon knows to rebuild.
+		configDir, cerr := config.ConfigDir()
+		if cerr != nil {
+			fmt.Fprintf(os.Stderr, "bubblefish audit recover: resolve config dir: %v\n", cerr)
+			os.Exit(1)
+		}
+		dataDir := filepath.Join(configDir, "data")
+		cs := provenance.NewChainState()
+		// The chain state file is intentionally empty/zeroed — the daemon
+		// will detect this on startup and trigger a full chain rebuild from
+		// the valid portion of the audit log.
+		if serr := cs.SaveChainState(dataDir); serr != nil {
+			fmt.Fprintf(os.Stderr, "bubblefish audit recover: save chain state: %v\n", serr)
+			os.Exit(1)
+		}
+		fmt.Println("bubblefish audit recover: chain state reset. Restart the daemon to rebuild.")
+	case "b":
+		fmt.Println("bubblefish audit recover: aborted, no changes made")
+	default:
+		fmt.Fprintf(os.Stderr, "bubblefish audit recover: unrecognized choice %q, aborting\n", choice)
+		os.Exit(1)
 	}
 }

@@ -21,11 +21,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"hash/crc32"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/BubbleFish-Nexus/internal/fsutil"
 )
@@ -206,17 +204,20 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Split into up to 3 fields to handle both CRC-only and CRC+HMAC lines.
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+
+		wl := parseWALLine(line)
+		if wl == nil {
 			// Partial line — preserve as-is; it will be skipped on replay.
 			lines = append(lines, line)
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			// Unparseable line — preserve as-is.
 			lines = append(lines, line)
 			continue
@@ -232,16 +233,10 @@ func (w *WAL) markStatusInSegment(segPath, payloadID, status string) (bool, erro
 				}
 				return false, fmt.Errorf("wal: marshal updated entry: %w", marshalErr)
 			}
-			checksum := crc32.ChecksumIEEE(updated)
-			// Recompute BOTH CRC32 and HMAC over the new JSON bytes.
-			// NEVER leave old HMAC on a rewritten entry.
+			// Recompute CRC32 and HMAC over the new JSON bytes.
+			// Always write in the new sentinel format.
 			// Reference: Tech Spec Section 4.3.
-			if w.integrityMode == IntegrityModeMAC {
-				mac := computeHMAC(updated, w.macKey)
-				line = fmt.Sprintf("%s\t%08x\t%s", updated, checksum, mac)
-			} else {
-				line = fmt.Sprintf("%s\t%08x", updated, checksum)
-			}
+			line = formatWALContent(updated, w.integrityMode, w.macKey)
 			found = true
 		}
 
@@ -326,15 +321,19 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+
+		wl := parseWALLine(line)
+		if wl == nil {
 			lines = append(lines, line)
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			lines = append(lines, line)
 			continue
 		}
@@ -348,13 +347,7 @@ func (w *WAL) markStatusBatchInSegment(segPath string, remaining map[string]stru
 				}
 				return 0, fmt.Errorf("wal: marshal updated entry: %w", marshalErr)
 			}
-			checksum := crc32.ChecksumIEEE(updated)
-			if w.integrityMode == IntegrityModeMAC {
-				mac := computeHMAC(updated, w.macKey)
-				line = fmt.Sprintf("%s\t%08x\t%s", updated, checksum, mac)
-			} else {
-				line = fmt.Sprintf("%s\t%08x", updated, checksum)
-			}
+			line = formatWALContent(updated, w.integrityMode, w.macKey)
 			delete(remaining, entry.PayloadID)
 			found++
 		}

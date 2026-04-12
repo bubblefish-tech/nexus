@@ -66,6 +66,21 @@ type NexusMetadata struct {
 	// the returned records. 0.0 means unverified; 1.0 means fully consistent.
 	ConsistencyScore float64 `json:"consistency_score"`
 
-	// Profile is the retrieval profile used: "fast", "balanced", or "deep".
+	// Profile is the retrieval profile used: "fast", "balanced", "deep",
+	// or "cluster-aware".
 	Profile string `json:"profile"`
+
+	// ClusterExpanded is true when the result set was expanded to include
+	// cluster members (profile = "cluster-aware").
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	ClusterExpanded bool `json:"cluster_expanded,omitempty"`
+
+	// Conflict is true when cluster members have divergent content hashes,
+	// indicating contradictory writes within a cluster.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	Conflict bool `json:"conflict,omitempty"`
+
+	// ClusterCount is the number of distinct clusters represented in the
+	// result set. Only populated when ClusterExpanded is true.
+	ClusterCount int `json:"cluster_count,omitempty"`
 }

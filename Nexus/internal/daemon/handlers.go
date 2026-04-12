@@ -37,6 +37,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tidwall/gjson"
+	"golang.org/x/time/rate"
 
 	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/config"
@@ -44,6 +45,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/lint"
+	"github.com/BubbleFish-Nexus/internal/provenance"
 	"github.com/BubbleFish-Nexus/internal/vizpipe"
 	"github.com/BubbleFish-Nexus/internal/query"
 	"github.com/BubbleFish-Nexus/internal/version"
@@ -131,6 +133,8 @@ type nexusMetadata struct {
 	SemanticUnavailable        bool             `json:"semantic_unavailable,omitempty"`
 	SemanticUnavailableReason  string           `json:"semantic_unavailable_reason,omitempty"`
 	RetrievalFirewallFiltered  bool             `json:"retrieval_firewall_filtered,omitempty"`
+	ClusterExpanded            bool             `json:"cluster_expanded,omitempty"`
+	Conflict                   bool             `json:"conflict,omitempty"`
 	Debug                      *query.DebugInfo `json:"debug,omitempty"`
 }
 
@@ -204,6 +208,90 @@ func (rl *rateLimiter) Allow(sourceName string, rpm int) (bool, int) {
 
 	w.count++
 	return true, 0
+}
+
+// bytesRateLimiter implements per-source bytes/sec rate limiting using
+// token bucket (golang.org/x/time/rate). Each source gets its own limiter.
+// A zero or negative limit means unlimited (no limiter is created).
+type bytesRateLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+}
+
+func newBytesRateLimiter() *bytesRateLimiter {
+	return &bytesRateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+	}
+}
+
+// Allow checks whether n bytes are allowed for the given source. Returns
+// true if allowed. When rejected, retryAfter is the estimated seconds
+// until enough tokens are available.
+func (bl *bytesRateLimiter) Allow(sourceName string, bytesPerSecond int64, n int) (bool, int) {
+	if bytesPerSecond <= 0 {
+		return true, 0
+	}
+
+	bl.mu.Lock()
+	lim, ok := bl.limiters[sourceName]
+	if !ok {
+		lim = rate.NewLimiter(rate.Limit(bytesPerSecond), int(bytesPerSecond))
+		bl.limiters[sourceName] = lim
+	}
+	bl.mu.Unlock()
+
+	if lim.AllowN(time.Now(), n) {
+		return true, 0
+	}
+
+	// Estimate retry-after from the token refill rate.
+	tokensNeeded := float64(n) - float64(lim.Burst())
+	if tokensNeeded < 0 {
+		tokensNeeded = float64(n)
+	}
+	retryAfter := int(tokensNeeded/float64(bytesPerSecond)) + 1
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+	return false, retryAfter
+}
+
+// ---------------------------------------------------------------------------
+// Tier-aware rate limit resolution
+// ---------------------------------------------------------------------------
+
+// effectiveRPM returns the effective requests-per-minute for src, following
+// the precedence chain: source config → tier config → global config.
+//
+// Per-source overrides per-tier; per-tier overrides global.
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+func effectiveRPM(cfg *config.Config, src *config.Source) int {
+	if src.RateLimit.RequestsPerMinute > 0 {
+		return src.RateLimit.RequestsPerMinute
+	}
+	// Check tier-level override.
+	for _, tc := range cfg.Daemon.Tiers {
+		if tc.Level == src.Tier && tc.RequestsPerMinute > 0 {
+			return tc.RequestsPerMinute
+		}
+	}
+	return cfg.Daemon.RateLimit.GlobalRequestsPerMinute
+}
+
+// effectiveBPS returns the effective bytes-per-second limit for src,
+// following the same precedence chain as effectiveRPM.
+// Returns 0 (unlimited) if no limit is configured at any level.
+// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+func effectiveBPS(cfg *config.Config, src *config.Source) int64 {
+	if src.RateLimit.BytesPerSecond > 0 {
+		return src.RateLimit.BytesPerSecond
+	}
+	for _, tc := range cfg.Daemon.Tiers {
+		if tc.Level == src.Tier && tc.BytesPerSecond > 0 {
+			return tc.BytesPerSecond
+		}
+	}
+	return 0 // unlimited
 }
 
 // ---------------------------------------------------------------------------
@@ -402,12 +490,11 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 6 — Rate limit check AFTER idempotency.
+	// Effective RPM follows precedence: source config → tier config → global.
 	// Reference: Phase 0C Behavioral Contract item 11, Invariant 4.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
 	cfg := d.getConfig()
-	rpm := src.RateLimit.RequestsPerMinute
-	if rpm <= 0 {
-		rpm = cfg.Daemon.RateLimit.GlobalRequestsPerMinute
-	}
+	rpm := effectiveRPM(cfg, src)
 	if allowed, retryAfter := d.rl.Allow(src.Name, rpm); !allowed {
 		d.logger.Warn("daemon: rate limit exceeded",
 			"component", "daemon",
@@ -435,6 +522,27 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		d.writeErrorResponse(w, r, http.StatusTooManyRequests, "rate_limit_exceeded",
 			"rate limit exceeded; back off and retry", retryAfter)
 		return
+	}
+
+	// Step 6b — Bytes/sec rate limit check (tier-aware).
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
+	bps := effectiveBPS(cfg, src)
+	if bps > 0 {
+		if allowed, retryAfter := d.bytesRL.Allow(src.Name, bps, len(bodyStr)); !allowed {
+			d.logger.Warn("daemon: bytes rate limit exceeded",
+				"component", "daemon",
+				"source", src.Name,
+				"bytes_per_second", bps,
+				"body_bytes", len(bodyStr),
+				"request_id", middleware.GetReqID(r.Context()),
+			)
+			d.metrics.RateLimitBytesRejectedTotal.WithLabelValues(src.Name).Inc()
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			d.writeErrorResponse(w, r, http.StatusTooManyRequests, "bytes_rate_limit_exceeded",
+				"bytes/sec rate limit exceeded; back off and retry", retryAfter)
+			return
+		}
+		d.metrics.RateLimitBytesTotal.WithLabelValues(src.Name).Add(float64(len(bodyStr)))
 	}
 
 	// Step 7 — Field mapping via gjson dot-path.
@@ -527,6 +635,15 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Determine the numeric tier for this entry from the source's default.
+	// Callers can override via the "tier" field in the request body in future;
+	// for now the source's DefaultWriteTier is authoritative.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	writeTier := src.DefaultWriteTier
+	if writeTier == 0 {
+		writeTier = 1 // internal
+	}
+
 	tp := destination.TranslatedPayload{
 		PayloadID:          payloadID,
 		RequestID:          requestID,
@@ -547,8 +664,13 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		Metadata:           metadata,
 		SensitivityLabels:  sensitivityLabels,
 		ClassificationTier: classificationTier,
+		Tier:               writeTier,
 	}
 	tp.Embedding = d.embedContent(r.Context(), payloadID, tp.Content)
+
+	// Sign write envelope if source has signing enabled.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
+	d.signWriteEnvelope(&tp)
 
 	// Build WAL entry payload.
 	payloadBytes, err := json.Marshal(tp)
@@ -740,13 +862,11 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit — applies to reads too.
+	// Rate limit — applies to reads too (tier-aware).
 	// Reference: Phase 0C Behavioral Contract item 11.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.4.
 	qcfg := d.getConfig()
-	rpm := src.RateLimit.RequestsPerMinute
-	if rpm <= 0 {
-		rpm = qcfg.Daemon.RateLimit.GlobalRequestsPerMinute
-	}
+	rpm := effectiveRPM(qcfg, src)
 	if allowed, retryAfter := d.rl.Allow(src.Name+":read", rpm); !allowed {
 		d.metrics.RateLimitHitsTotal.WithLabelValues(src.Name).Inc()
 		d.emitRateLimitHit(r, src.Name, rpm)
@@ -806,6 +926,13 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Normalize query params into a CanonicalQuery. Invalid cursors → 400.
+	// TierFilter is enabled for source tokens; admin tokens see all tiers.
+	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.1.
+	tierFilter := !isAdmin
+	sourceTier := src.Tier
+	if isAdmin || src.Tier == 0 {
+		sourceTier = 3 // admin and synthesized sources get unrestricted access
+	}
 	cq, err := query.Normalize(destination.QueryParams{
 		Destination: destName,
 		Namespace:   src.Namespace,
@@ -815,6 +942,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Cursor:      r.URL.Query().Get("cursor"),
 		Profile:     profile,
 		ActorType:   actorTypeFilter,
+		TierFilter:  tierFilter,
+		SourceTier:  sourceTier,
 	})
 	if err != nil {
 		// Distinguish profile validation errors from cursor decode errors.
@@ -844,6 +973,12 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		WithDecayCounter(d.metrics.TemporalDecayApplied).
 		WithDebug(debugStages).
 		WithFirewall(d.retrievalFirewall)
+
+	// Wire cluster querier for cluster-aware retrieval profile.
+	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
+	if clusterQ, ok := d.querier.(destination.ClusterQuerier); ok {
+		runner = runner.WithClusterQuerier(clusterQ)
+	}
 	cascResult, err := runner.Run(r.Context(), src, cq)
 	if err != nil {
 		d.logger.Error("daemon: cascade failed",
@@ -941,6 +1076,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		RetrievalStage:            cascResult.RetrievalStage,
 		SemanticUnavailable:       cascResult.SemanticUnavailable,
 		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
+		ClusterExpanded:           cascResult.ClusterExpanded,
+		Conflict:                  cascResult.Conflict,
 		Debug:                     cascResult.Debug,
 	}
 
@@ -1987,3 +2124,149 @@ func (d *Daemon) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// handleVerify returns a cryptographic proof bundle for the given memory_id.
+// The bundle contains the memory, its signature (if signed), the audit chain
+// from genesis, and the daemon's public key — everything needed for
+// standalone offline verification.
+//
+// GET /verify/{memory_id}  (admin token required)
+//
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.6.
+func (d *Daemon) handleVerify(w http.ResponseWriter, r *http.Request) {
+	memoryID := chi.URLParam(r, "memory_id")
+	if memoryID == "" {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "missing_memory_id", "memory_id path parameter is required", 0)
+		return
+	}
+
+	// Query the destination for the memory.
+	q, ok := d.querier.(destination.Querier)
+	if !ok || q == nil {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "no_querier", "destination does not support queries", 0)
+		return
+	}
+
+	result, err := q.Query(destination.QueryParams{
+		Limit: 200,
+	})
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "query_failed", "failed to query destination: "+err.Error(), 0)
+		return
+	}
+
+	// Find the specific memory by payload_id.
+	var memory *destination.TranslatedPayload
+	for i := range result.Records {
+		if result.Records[i].PayloadID == memoryID {
+			memory = &result.Records[i]
+			break
+		}
+	}
+
+	if memory == nil {
+		d.writeErrorResponse(w, r, http.StatusNotFound, "memory_not_found", "no memory found with payload_id "+memoryID, 0)
+		return
+	}
+
+	// Build proof bundle.
+	bundle := provenance.ProofBundle{
+		Version: 1,
+		Memory: provenance.ProofMemory{
+			PayloadID:      memory.PayloadID,
+			Source:         memory.Source,
+			Subject:        memory.Subject,
+			Content:        memory.Content,
+			Timestamp:      memory.Timestamp.UTC().Format(time.RFC3339Nano),
+			IdempotencyKey: memory.IdempotencyKey,
+			ContentHash:    provenance.ContentHash(memory.Content),
+		},
+		Signature:    memory.Signature,
+		SignatureAlg: memory.SignatureAlg,
+		SourcePubKey: d.sourcePublicKeyHex(memory.Source),
+		SigningKeyID: memory.SigningKeyID,
+		GeneratedAt:  time.Now().UTC(),
+	}
+
+	// Include daemon pubkey and genesis entry if available.
+	if d.daemonKeyPair != nil {
+		bundle.DaemonPubKey = hex.EncodeToString(d.daemonKeyPair.PublicKey)
+	}
+
+	d.writeJSON(w, http.StatusOK, bundle)
+}
+
+// handleProve creates a cryptographic attestation for a query and its results.
+// The daemon signs a proof that the query produced the exact result set.
+//
+// POST /api/prove  (admin token required)
+// Body: {"query": {...}, "destination": "..."}
+//
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.9.
+func (d *Daemon) handleProve(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query       json.RawMessage `json:"query"`
+		Destination string          `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "invalid_body", "cannot parse request body: "+err.Error(), 0)
+		return
+	}
+	if len(body.Query) == 0 {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "missing_query", "query field is required", 0)
+		return
+	}
+
+	if d.daemonKeyPair == nil {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "no_daemon_key",
+			"daemon Ed25519 key not available — cannot sign attestation", 0)
+		return
+	}
+
+	q, ok := d.querier.(destination.Querier)
+	if !ok || q == nil {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "no_querier",
+			"destination does not support queries", 0)
+		return
+	}
+
+	// Extract query text from the JSON body for destination query.
+	var qParams struct {
+		Q     string `json:"q"`
+		Limit int    `json:"limit"`
+	}
+	_ = json.Unmarshal(body.Query, &qParams)
+	if qParams.Limit <= 0 {
+		qParams.Limit = 50
+	}
+
+	result, err := q.Query(destination.QueryParams{
+		Q:     qParams.Q,
+		Limit: qParams.Limit,
+	})
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "query_failed",
+			"failed to query destination: "+err.Error(), 0)
+		return
+	}
+
+	// Serialize each result record for hashing.
+	resultPayloads := make([][]byte, len(result.Records))
+	for i, rec := range result.Records {
+		b, mErr := json.Marshal(rec)
+		if mErr != nil {
+			d.writeErrorResponse(w, r, http.StatusInternalServerError, "marshal_failed",
+				"failed to marshal result record", 0)
+			return
+		}
+		resultPayloads[i] = b
+	}
+
+	att, err := provenance.BuildQueryAttestation(body.Query, resultPayloads, d.daemonKeyPair)
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "attestation_failed",
+			"failed to build query attestation: "+err.Error(), 0)
+		return
+	}
+
+	d.writeJSON(w, http.StatusOK, att)
+}

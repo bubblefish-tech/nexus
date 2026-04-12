@@ -33,7 +33,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,6 +55,15 @@ const (
 	// scannerBufSize is 10MB. The default bufio.Scanner buffer (64KB) is too small
 	// for large AI payloads. NEVER reduce this value.
 	scannerBufSize = 10 << 20
+
+	// maxEntrySize is the maximum expected size of a single WAL entry line
+	// (JSON + sentinels + CRC + newline). Used for disk reservation checks.
+	// Set conservatively to 1MB; most entries are well under this.
+	maxEntrySize = 1 << 20
+
+	// preAllocThresholdPct is the segment fill percentage at which the next
+	// segment is pre-allocated. At 80% fill, a new empty segment is created.
+	preAllocThresholdPct = 80
 )
 
 // Entry is a single WAL record. All fields except Payload are indexed at the
@@ -73,6 +81,15 @@ type Entry struct {
 	ActorType      string          `json:"actor_type"`
 	ActorID        string          `json:"actor_id"`
 	Payload        json.RawMessage `json:"payload"`
+	// EntryType discriminates entry kinds. Empty string (zero value) means
+	// data entry, preserving backward compatibility with v0.1.2 WAL files.
+	EntryType string `json:"entry_type,omitempty"`
+	// MonotonicSeq is a strictly increasing sequence number assigned on
+	// append, independent of wall-clock time. Used for ordering WAL entries
+	// correctly even when the system clock jumps (NTP, VM migration).
+	// Zero for v0.1.2 entries; Replay assigns synthetic sequences from
+	// file offset for backward compatibility.
+	MonotonicSeq int64 `json:"monotonic_seq,omitempty"`
 }
 
 // WAL is the write-ahead log engine. All state is held in struct fields;
@@ -85,7 +102,8 @@ type WAL struct {
 	currentPath string
 	currentSize int64        // protected by mu
 	logger      *slog.Logger
-	crcFailures atomic.Int64 // read without mu via CRCFailures()
+	crcFailures      atomic.Int64 // read without mu via CRCFailures()
+	sentinelFailures atomic.Int64 // read without mu via SentinelFailures()
 
 	// Integrity mode: IntegrityModeCRC32 (default) or IntegrityModeMAC.
 	// When mode=mac, HMAC-SHA256 is computed over JSON bytes on every write
@@ -105,6 +123,23 @@ type WAL struct {
 	// on MarkDelivered/MarkPermanentFailure, initialised during Replay.
 	// Read without lock via PendingCount(). Reference: Tech Spec Section 4.4.
 	pendingCount atomic.Int64
+
+	// gc is the optional group committer. When non-nil, Append routes
+	// through the group commit goroutine instead of writing+fsyncing
+	// directly. The durability guarantee is preserved: Append blocks
+	// until the batch containing the entry has been fsynced.
+	gc *groupCommitter
+
+	// seqFn returns the next monotonic sequence value. Set via
+	// WithSequence option. When nil, MonotonicSeq is left at 0
+	// (backward compatible with v0.1.2 consumers).
+	seqFn func() int64
+
+	// compress enables zstd compression on new WAL entries. Compressed
+	// entries use the "zstd:" prefix in the payload field. Replay
+	// auto-detects and decompresses regardless of this flag.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	compress bool
 }
 
 // WithIntegrity configures WAL integrity mode. When mode is "mac", key
@@ -130,12 +165,45 @@ func WithEncryption(key []byte) Option {
 	}
 }
 
+// WithGroupCommit enables the group commit write path. When enabled, Append
+// routes entries through a single consumer goroutine that batches writes and
+// performs one fsync per batch. Per-request durability is preserved: Append
+// blocks until the batch is fsynced.
+func WithGroupCommit(cfg GroupCommitConfig) Option {
+	return func(w *WAL) {
+		if cfg.Enabled {
+			w.gc = newGroupCommitter(cfg, w.logger)
+		}
+	}
+}
+
+// WithSequence configures the monotonic sequence function. When set, every
+// Append assigns entry.MonotonicSeq = seqFn(). The seqFn must return
+// strictly increasing values. Typically backed by a seq.Counter.
+func WithSequence(seqFn func() int64) Option {
+	return func(w *WAL) {
+		w.seqFn = seqFn
+	}
+}
+
 // WithSecurityEvent registers a callback invoked on security events such
 // as wal_tamper_detected. The callback is invoked synchronously during
 // replay; it must not block.
 func WithSecurityEvent(fn SecurityEventFunc) Option {
 	return func(w *WAL) {
 		w.onSecurityEvent = fn
+	}
+}
+
+// WithCompression enables zstd compression for new WAL entries. Compressed
+// entries are 3-5x smaller, resulting in fewer bytes to fsync and smaller
+// backups. Replay auto-detects and decompresses regardless of this flag,
+// so compressed and uncompressed segments can coexist.
+//
+// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+func WithCompression() Option {
+	return func(w *WAL) {
+		w.compress = true
 	}
 }
 
@@ -171,6 +239,9 @@ func Open(dir string, maxSizeMB int64, logger *slog.Logger, opts ...Option) (*WA
 	}
 	if err := w.openCurrentSegment(); err != nil {
 		return nil, err
+	}
+	if w.gc != nil {
+		go w.gc.run(w.writeBatch)
 	}
 	return w, nil
 }
@@ -220,15 +291,26 @@ func (w *WAL) segments() ([]string, error) {
 
 // Append writes entry to the WAL. The entry status is forced to PENDING and
 // version is set to walVersion. CRC32 is computed over the JSON bytes and
-// appended after a tab before the newline. fsync is called before returning.
+// appended after a tab before the newline.
 //
-// On any failure the caller must return a 500 to the client. The WAL invariant
-// is: if Append returns nil, the entry is durable on disk.
+// When group commit is enabled, the entry is sent to a consumer goroutine
+// that batches writes and calls fsync once per batch. When group commit is
+// disabled (legacy mode), fsync is called per entry.
+//
+// In both modes the durability guarantee is the same: if Append returns nil,
+// the entry is on disk. On any failure the caller must return a 500 to the
+// client.
 func (w *WAL) Append(entry Entry) error {
 	entry.Version = walVersion
 	entry.Status = StatusPending
+	// TODO(monotonic): Timestamp is wall-clock for display/forensics only.
+	// Ordering uses MonotonicSeq (below). Phases 2-4 MUST compare
+	// MonotonicSeq, never Timestamp, for sequencing decisions.
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = time.Now().UTC()
+	}
+	if w.seqFn != nil {
+		entry.MonotonicSeq = w.seqFn()
 	}
 
 	data, err := json.Marshal(entry)
@@ -236,27 +318,45 @@ func (w *WAL) Append(entry Entry) error {
 		return fmt.Errorf("wal: marshal entry: %w", err)
 	}
 
-	checksum := crc32.ChecksumIEEE(data)
-	var line string
-	if w.integrityMode == IntegrityModeMAC {
-		mac := computeHMAC(data, w.macKey)
-		line = fmt.Sprintf("%s\t%08x\t%s\n", data, checksum, mac)
+	// Optionally compress the JSON payload before CRC computation.
+	// Compression happens before CRC32, so the CRC covers compressed bytes.
+	// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.10.
+	var payloadBytes []byte
+	if w.compress {
+		payloadBytes = []byte(compressPayload(data))
 	} else {
-		line = fmt.Sprintf("%s\t%08x\n", data, checksum)
+		payloadBytes = data
 	}
 
+	line := formatWALContent(payloadBytes, w.integrityMode, w.macKey) + "\n"
+
+	if w.gc != nil {
+		// Group commit path: submit to the consumer goroutine and block
+		// until the batch is fsynced. pendingCount is incremented inside
+		// writeBatch after the successful fsync.
+		return w.gc.submit(line)
+	}
+
+	return w.appendDirect(line)
+}
+
+// appendDirect writes a single line to the current segment with fsync.
+// Used when group commit is disabled (legacy mode).
+func (w *WAL) appendDirect(line string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// Disk-full reservation check for legacy (non-group-commit) path.
+	if free, dErr := diskFreeBytes(w.dir); dErr == nil && free < uint64(maxEntrySize) {
+		return fmt.Errorf("wal: disk full — need %d bytes, only %d available", maxEntrySize, free)
+	}
 
 	n, err := fmt.Fprint(w.current, line)
 	if err != nil {
 		return fmt.Errorf("wal: write: %w", err)
 	}
-	// fsync per entry is REQUIRED for the durability guarantee. Each WAL
-	// append must be on disk before the handler returns 200 to the client.
-	// Do NOT "optimize" this with batched fsyncs or group commit without
-	// reviewing the durability contract. The "survives kill -9 with zero
-	// data loss" claim depends on this line.
+	// fsync per entry is REQUIRED for the legacy durability guarantee.
+	// When group commit is enabled, fsync is batched in writeBatch instead.
 	if err := w.current.Sync(); err != nil {
 		return fmt.Errorf("wal: fsync: %w", err)
 	}
@@ -272,6 +372,76 @@ func (w *WAL) Append(entry Entry) error {
 		}
 	}
 	return nil
+}
+
+// writeBatch is called by the group committer goroutine. It writes all
+// entries in the batch sequentially, calls fsync once, then signals every
+// waiter. On failure, all waiters receive the error.
+func (w *WAL) writeBatch(batch []*pendingEntry) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Disk-full reservation check: verify enough space for (batch_size × maxEntrySize).
+	// Reject the entire batch if insufficient — data is better refused than
+	// partially written and corrupted. Reference: v0.1.3 Build Plan Subtask 1.7.
+	requiredBytes := uint64(len(batch)) * uint64(maxEntrySize)
+	if free, err := diskFreeBytes(w.dir); err == nil && free < requiredBytes {
+		diskErr := fmt.Errorf("wal: disk full — need %d bytes for batch, only %d available", requiredBytes, free)
+		w.logger.Error("wal: disk-full reservation check failed",
+			"component", "wal",
+			"required_bytes", requiredBytes,
+			"free_bytes", free,
+			"batch_size", len(batch),
+		)
+		for _, pe := range batch {
+			pe.done <- diskErr
+		}
+		return
+	}
+
+	var totalBytes int64
+	var writeErr error
+	for _, pe := range batch {
+		n, err := fmt.Fprint(w.current, pe.line)
+		if err != nil {
+			writeErr = fmt.Errorf("wal: write: %w", err)
+			break
+		}
+		totalBytes += int64(n)
+	}
+
+	if writeErr == nil {
+		if err := w.current.Sync(); err != nil {
+			writeErr = fmt.Errorf("wal: fsync: %w", err)
+		}
+	}
+
+	// Signal all waiters. On success, increment pendingCount for each
+	// entry and check segment rotation.
+	for _, pe := range batch {
+		if writeErr != nil {
+			pe.done <- writeErr
+		} else {
+			w.pendingCount.Add(1)
+			pe.done <- nil
+		}
+	}
+
+	if writeErr == nil {
+		w.currentSize += totalBytes
+		if w.currentSize >= w.maxSize {
+			if rotErr := w.rotate(); rotErr != nil {
+				w.logger.Warn("wal: segment rotation failed",
+					"component", "wal",
+					"error", rotErr,
+				)
+			}
+		} else if w.currentSize*100/w.maxSize >= preAllocThresholdPct {
+			// Pre-allocate next segment at 80% fill so rotation is instant.
+			// Reference: v0.1.3 Build Plan Subtask 1.7.
+			w.preAllocateNextSegment()
+		}
+	}
 }
 
 func (w *WAL) rotate() error {
@@ -291,6 +461,24 @@ func (w *WAL) rotate() error {
 	w.currentPath = newPath
 	w.currentSize = 0
 	return nil
+}
+
+// preAllocateNextSegment creates the next segment file so that rotation just
+// does close+open rather than create. Called when current segment reaches 80%
+// fill. Idempotent — no-op if the next segment already exists or on any error.
+// Reference: v0.1.3 Build Plan Phase 1 Subtask 1.7.
+func (w *WAL) preAllocateNextSegment() {
+	nextPath := w.newSegmentPath()
+	f, err := os.OpenFile(nextPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	if err != nil {
+		// Already exists or disk error — ignore silently.
+		return
+	}
+	_ = f.Close()
+	w.logger.Debug("wal: pre-allocated next segment",
+		"component", "wal",
+		"path", nextPath,
+	)
 }
 
 // Replay reads all WAL segments oldest-first, calling fn for each PENDING entry.
@@ -338,17 +526,27 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 		lineNum++
 		line := scanner.Text()
 
-		// Split into up to 3 fields: JSON, CRC32, optional HMAC.
-		// 2 fields = CRC-only (default or pre-upgrade entries).
-		// 3 fields = CRC + HMAC (integrity=mac entries).
-		// <2 fields = partial write (crash mid-write). Skip silently.
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+		wl := parseWALLine(line)
+		if wl == nil {
+			continue // partial write — fewer than 2 tab fields
+		}
+
+		// Sentinel validation: fail closed on sentinel errors.
+		// If the start sentinel is present but the end sentinel is missing
+		// or corrupt, the entry may be a torn write. Reject unconditionally.
+		if wl.HasSentinels && wl.SentinelErr != nil {
+			w.sentinelFailures.Add(1)
+			w.logger.Error("wal: sentinel corruption detected — entry rejected",
+				"component", "wal",
+				"segment", path,
+				"line_number", lineNum,
+				"error", wl.SentinelErr,
+			)
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
+		jsonBytes := wl.JSONBytes
+		storedCRC := wl.StoredCRC
 
 		// CRC32 validated first (cheap). Reference: Tech Spec Section 4.1.
 		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
@@ -366,11 +564,10 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 
 		// HMAC validated second (more expensive). Reference: Tech Spec Section 4.1.
 		// Only checked when integrity=mac AND the line has an HMAC field.
-		// Pre-upgrade entries (2-field lines) are treated as valid when mode=mac
+		// Pre-upgrade entries without HMAC are treated as valid when mode=mac
 		// because no tamper check is possible for entries written before upgrade.
-		if w.integrityMode == IntegrityModeMAC && len(parts) == 3 {
-			storedHMAC := parts[2]
-			if !validateHMAC(jsonBytes, w.macKey, storedHMAC) {
+		if w.integrityMode == IntegrityModeMAC && wl.StoredHMAC != "" {
+			if !validateHMAC(jsonBytes, w.macKey, wl.StoredHMAC) {
 				w.integrityFailures.Add(1)
 				w.logger.Warn("wal: HMAC mismatch — entry skipped (possible tampering)",
 					"component", "wal",
@@ -387,14 +584,33 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 			}
 		}
 
+		// Decompress if the payload is zstd-compressed.
+		entryBytes := jsonBytes
+		if decompressed, wasCompressed, dErr := decompressPayload(jsonBytes); dErr != nil {
+			w.logger.Warn("wal: zstd decompression failed — entry skipped",
+				"component", "wal",
+				"segment", path,
+				"line_number", lineNum,
+				"error", dErr,
+			)
+			continue
+		} else if wasCompressed {
+			entryBytes = decompressed
+		}
+
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			w.logger.Warn("wal: malformed JSON — entry skipped",
 				"component", "wal",
 				"segment", path,
 				"line_number", lineNum,
 				"error", err,
 			)
+			continue
+		}
+
+		// Skip non-data entries (checkpoints, audit, etc.).
+		if entry.EntryType != EntryTypeData {
 			continue
 		}
 
@@ -447,6 +663,71 @@ func (w *WAL) IntegrityFailures() int64 {
 	return w.integrityFailures.Load()
 }
 
+// HighestSeq scans all WAL segments and returns the highest MonotonicSeq
+// value found. Returns 0 if no entries have a MonotonicSeq. Used during
+// startup to initialize the sequence counter from WAL state when the
+// persisted seq.state file is missing or stale.
+func (w *WAL) HighestSeq() (int64, error) {
+	segs, err := w.segments()
+	if err != nil {
+		return 0, err
+	}
+	var highest int64
+	for _, seg := range segs {
+		h, err := w.scanHighestSeq(seg)
+		if err != nil {
+			return 0, err
+		}
+		if h > highest {
+			highest = h
+		}
+	}
+	return highest, nil
+}
+
+func (w *WAL) scanHighestSeq(path string) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, fmt.Errorf("wal: open segment for seq scan %q: %w", path, err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
+
+	var highest int64
+	for scanner.Scan() {
+		wl := parseWALLine(scanner.Text())
+		if wl == nil {
+			continue
+		}
+		if wl.HasSentinels && wl.SentinelErr != nil {
+			continue
+		}
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
+		var entry Entry
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
+			continue
+		}
+		if entry.MonotonicSeq > highest {
+			highest = entry.MonotonicSeq
+		}
+	}
+	return highest, scanner.Err()
+}
+
+// SentinelFailures returns the total number of sentinel corruption events
+// detected during Replay calls. A sentinel failure indicates the start
+// sentinel was present but the end sentinel was missing or corrupt,
+// suggesting a torn sector write. Exposed to Prometheus via
+// bubblefish_wal_sentinel_failures_total.
+func (w *WAL) SentinelFailures() int64 {
+	return w.sentinelFailures.Load()
+}
+
 // SampleDelivered scans all WAL segments and returns up to count randomly
 // sampled entries with status DELIVERED. This is a read-only operation used
 // by the consistency checker to verify that delivered payloads exist in the
@@ -496,21 +777,28 @@ func (w *WAL) scanDelivered(path string, out *[]Entry) error {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
+
+		wl := parseWALLine(line)
+		if wl == nil {
 			continue
 		}
 
-		jsonBytes := []byte(parts[0])
-		storedCRC := parts[1]
+		// Skip sentinel-corrupt entries silently (same as CRC failures here).
+		if wl.HasSentinels && wl.SentinelErr != nil {
+			continue
+		}
 
-		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(jsonBytes))
-		if computed != storedCRC {
+		computed := fmt.Sprintf("%08x", crc32.ChecksumIEEE(wl.JSONBytes))
+		if computed != wl.StoredCRC {
 			continue // skip corrupt entries silently
 		}
 
+		entryBytes := wl.JSONBytes
+		if dec, ok, _ := decompressPayload(wl.JSONBytes); ok {
+			entryBytes = dec
+		}
 		var entry Entry
-		if err := json.Unmarshal(jsonBytes, &entry); err != nil {
+		if err := json.Unmarshal(entryBytes, &entry); err != nil {
 			continue
 		}
 
@@ -521,8 +809,14 @@ func (w *WAL) scanDelivered(path string, out *[]Entry) error {
 	return scanner.Err()
 }
 
-// Close closes the current WAL segment. Safe to call multiple times.
+// Close flushes any pending group commit entries and closes the current
+// WAL segment. Safe to call multiple times.
 func (w *WAL) Close() error {
+	// Stop the group committer first so it flushes its buffer and exits.
+	// This must happen before we close the file handle.
+	if w.gc != nil {
+		w.gc.stop()
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.current != nil {

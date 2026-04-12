@@ -3,7 +3,7 @@
 // Conversations are automatically saved to your local Nexus memory daemon
 // and relevant memories are injected into every response.
 //
-// Copyright (c) 2026 BubbleFish Technologies, Inc.
+// Copyright (c) 2026 Shawn Sammartano
 // AGPL-3.0 License
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";

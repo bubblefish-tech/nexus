@@ -469,6 +469,108 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// VerifyResult is the outcome of verifying a backup directory.
+type VerifyResult struct {
+	ManifestVersion string          `json:"manifest_version"`
+	TotalFiles      int             `json:"total_files"`
+	PassedFiles     int             `json:"passed_files"`
+	FailedFiles     int             `json:"failed_files"`
+	MissingFiles    int             `json:"missing_files"`
+	Failures        []VerifyFailure `json:"failures,omitempty"`
+	Pass            bool            `json:"pass"`
+}
+
+// VerifyFailure describes a single file that failed verification.
+type VerifyFailure struct {
+	RelPath     string `json:"rel_path"`
+	Reason      string `json:"reason"` // "missing", "size_mismatch", "checksum_mismatch"
+	ExpectedSHA string `json:"expected_sha256,omitempty"`
+	ActualSHA   string `json:"actual_sha256,omitempty"`
+}
+
+// Verify checks all files in a backup directory against the manifest checksums
+// without restoring anything. Returns a VerifyResult summarizing pass/fail
+// per file. Exit code 0 when all checks pass.
+//
+// Reference: v0.1.3 Build Plan Section 6.5.
+func Verify(backupDir string, logger *slog.Logger) (VerifyResult, error) {
+	manifestPath := filepath.Join(backupDir, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return VerifyResult{}, fmt.Errorf("backup: read manifest: %w", err)
+	}
+
+	var manifest Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return VerifyResult{}, fmt.Errorf("backup: parse manifest: %w", err)
+	}
+
+	result := VerifyResult{
+		ManifestVersion: manifest.Version,
+		TotalFiles:      len(manifest.Files),
+	}
+
+	for _, mf := range manifest.Files {
+		filePath := filepath.Join(backupDir, mf.RelPath)
+
+		info, err := os.Stat(filePath)
+		if err != nil {
+			result.MissingFiles++
+			result.FailedFiles++
+			result.Failures = append(result.Failures, VerifyFailure{
+				RelPath: mf.RelPath,
+				Reason:  "missing",
+			})
+			continue
+		}
+
+		if info.Size() != mf.Size {
+			result.FailedFiles++
+			result.Failures = append(result.Failures, VerifyFailure{
+				RelPath: mf.RelPath,
+				Reason:  "size_mismatch",
+			})
+			continue
+		}
+
+		actual, err := sha256File(filePath)
+		if err != nil {
+			result.FailedFiles++
+			result.Failures = append(result.Failures, VerifyFailure{
+				RelPath: mf.RelPath,
+				Reason:  "checksum_error",
+			})
+			continue
+		}
+
+		if actual != mf.SHA256 {
+			result.FailedFiles++
+			result.Failures = append(result.Failures, VerifyFailure{
+				RelPath:     mf.RelPath,
+				Reason:      "checksum_mismatch",
+				ExpectedSHA: mf.SHA256,
+				ActualSHA:   actual,
+			})
+			continue
+		}
+
+		result.PassedFiles++
+	}
+
+	result.Pass = result.FailedFiles == 0 && result.MissingFiles == 0
+
+	if logger != nil {
+		logger.Info("backup: verify complete",
+			"total", result.TotalFiles,
+			"passed", result.PassedFiles,
+			"failed", result.FailedFiles,
+			"missing", result.MissingFiles,
+		)
+	}
+
+	return result, nil
+}
+
 // resolveWALPath returns the absolute WAL directory path from config.
 func resolveWALPath(cfg *config.Config) (string, error) {
 	p := cfg.Daemon.WAL.Path
