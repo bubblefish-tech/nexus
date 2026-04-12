@@ -1,0 +1,21 @@
+# Agent A — writes memories with Ed25519 signing enabled.
+# This source has cryptographic provenance: every write is signed.
+#
+# Reference: v0.1.3 Build Plan Phase 4 Subtask 4.12.
+
+[source]
+name = "agent-a"
+api_key = "env:AGENT_A_KEY"
+namespace = "demo"
+can_read = true
+can_write = true
+target_destination = "sqlite"
+default_actor_type = "agent"
+default_actor_id = "agent-a-demo"
+
+[source.signing]
+mode = "local"
+
+[source.idempotency]
+enabled = true
+dedup_window_seconds = 60
