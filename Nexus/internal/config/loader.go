@@ -277,6 +277,7 @@ func loadSourceFile(path string, logger *slog.Logger) (*Source, error) {
 		Transform:        b.Transform,
 		Idempotency:      b.Idempotency,
 		Policy:           b.Policy,
+		Signing:          b.Signing,
 	}
 
 	if logger != nil {

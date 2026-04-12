@@ -135,6 +135,71 @@ func (d *Dir) ReadSecret(name string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(d.path, name))
 }
 
+// WriteSecretPath writes arbitrary secret bytes to a relative path within the
+// secrets directory. Unlike WriteSecret, the path may contain subdirectories
+// (e.g. "sources/agent-a.ed25519"). Intermediate directories are created with
+// 0700 permissions. The file is written atomically and set to 0600.
+//
+// relPath must be relative (no leading slash) and must not escape the secrets
+// directory via ".." components.
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+func (d *Dir) WriteSecretPath(relPath string, data []byte) error {
+	if err := validateRelPath(relPath); err != nil {
+		return err
+	}
+	absPath := filepath.Join(d.path, filepath.FromSlash(relPath))
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
+		return fmt.Errorf("secrets: create directory %s: %w", dir, err)
+	}
+	return writeAtomic(absPath, data)
+}
+
+// ReadSecretPath reads a secret at a relative path within the secrets
+// directory. The path may contain subdirectories. Returns os.ErrNotExist
+// if absent.
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+func (d *Dir) ReadSecretPath(relPath string) ([]byte, error) {
+	if err := validateRelPath(relPath); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(d.path, filepath.FromSlash(relPath)))
+}
+
+// validateRelPath checks that a relative path is safe: non-empty, no ".."
+// traversal, and no absolute path prefix.
+func validateRelPath(relPath string) error {
+	if relPath == "" {
+		return fmt.Errorf("secrets: relative path must not be empty")
+	}
+	if filepath.IsAbs(relPath) {
+		return fmt.Errorf("secrets: path %q must be relative", relPath)
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(relPath))
+	for _, part := range splitPath(cleaned) {
+		if part == ".." {
+			return fmt.Errorf("secrets: path %q must not contain '..'", relPath)
+		}
+	}
+	return nil
+}
+
+// splitPath splits a cleaned filepath into its components.
+func splitPath(p string) []string {
+	var parts []string
+	for p != "" && p != "." {
+		dir, file := filepath.Split(p)
+		if file != "" {
+			parts = append(parts, file)
+		}
+		p = filepath.Clean(dir)
+		if p == "." || p == string(filepath.Separator) {
+			break
+		}
+	}
+	return parts
+}
+
 // writeAtomic writes data to path atomically via a temp file + rename,
 // setting file permissions to 0600. The temp file is created in the same
 // directory as path so the rename is within-filesystem.

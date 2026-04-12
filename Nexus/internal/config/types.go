@@ -363,6 +363,16 @@ type sourceBody struct {
 	Transform        map[string][]string        `toml:"transform"`
 	Idempotency      IdempotencyConfig          `toml:"idempotency"`
 	Policy           SourcePolicyConfig         `toml:"policy"`
+	Signing          SourceSigningConfig        `toml:"signing"`
+}
+
+// SourceSigningConfig models [source.signing].
+// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+type SourceSigningConfig struct {
+	// Mode controls Ed25519 signing for writes from this source.
+	// "local" = sign with per-source key in secrets/sources/<name>.ed25519.
+	// "" (empty) = signing disabled (default, backward compatible).
+	Mode string `toml:"mode"`
 }
 
 // Source is the fully decoded, validated source configuration.
@@ -390,6 +400,9 @@ type Source struct {
 	Transform        map[string][]string // output field → transform pipeline
 	Idempotency      IdempotencyConfig
 	Policy           SourcePolicyConfig
+	// Signing holds per-source Ed25519 signing configuration.
+	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
+	Signing          SourceSigningConfig
 }
 
 // SourceRateLimitConfig models [source.rate_limit].
