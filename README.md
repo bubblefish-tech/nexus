@@ -2,6 +2,7 @@
 [![CI](https://github.com/bubblefish-tech/nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/bubblefish-tech/nexus/actions/workflows/ci.yml)
 
 > **v0.1.2 released** — binaries are now available under [Releases](https://github.com/bubblefish-tech/nexus/releases/latest). Install instructions below.
+
 > **v0.1.3 COMING THIS WEEK!**
 
 **THE Underlying AI Memory Infrastructure. Connects the memory of your AI apps and agents. Survives `kill -9`.**
