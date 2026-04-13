@@ -108,6 +108,13 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - `scopes_supported` in OAuth server metadata, `OPTIONS` preflight on all OAuth endpoints
 - `handleAllow` and `handleDeny` now strictly validate `state` and `code_challenge` presence
 
+### Release (Shawn)
+- **RL.2** — 24-hour chaos run with Ingest active (release gate, Sunday night)
+- **SX.5** — Discord server live with #general, #install-help, #showcase, #bugs, #roadmap channels. Invite link in README
+- **RL.3** — Tag v0.1.3, build binaries for Windows/macOS(Intel+ARM)/Linux, GitHub release page with SHA-256 checksums and Ed25519-signed artifacts
+- **SX.4** — Python pipx launcher at `python/bubblefish_nexus/` (deferred until after RL.3 — wrapper needs release download URL)
+- **RL.4** — HN post (Tuesday 7am Pacific), LinkedIn (Wednesday), r/LocalLLaMA and r/programming cross-posts
+
 ### Measured (fill in after release rehearsal)
 - Writes: TBD/sec steady state, p99 TBD ms
 - Queries: TBD/sec steady state, p99 TBD ms
