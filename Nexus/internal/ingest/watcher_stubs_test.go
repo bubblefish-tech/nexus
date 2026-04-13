@@ -103,7 +103,7 @@ func TestStubDetectWithRealDirectory(t *testing.T) {
 func TestPathAllowedDeny(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AllowlistPaths = []string{"/safe/dir"}
-	m, _ := New(cfg, nil, nil, nil)
+	m, _ := New(cfg, nil, nil, nil, nil)
 
 	if m.pathAllowed("/unsafe/dir/file.jsonl") {
 		t.Error("expected /unsafe path to be denied")
@@ -113,7 +113,7 @@ func TestPathAllowedDeny(t *testing.T) {
 func TestPathAllowedAllow(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AllowlistPaths = []string{"/safe/dir"}
-	m, _ := New(cfg, nil, nil, nil)
+	m, _ := New(cfg, nil, nil, nil, nil)
 
 	if !m.pathAllowed("/safe/dir/sub/file.jsonl") {
 		t.Error("expected /safe/dir/sub path to be allowed")
@@ -123,7 +123,7 @@ func TestPathAllowedAllow(t *testing.T) {
 func TestPathAllowedExactMatch(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AllowlistPaths = []string{"/safe/dir"}
-	m, _ := New(cfg, nil, nil, nil)
+	m, _ := New(cfg, nil, nil, nil, nil)
 
 	if !m.pathAllowed("/safe/dir") {
 		t.Error("expected exact allowlist match to be allowed")
@@ -132,7 +132,7 @@ func TestPathAllowedExactMatch(t *testing.T) {
 
 func TestPathAllowedEmptyAllowlist(t *testing.T) {
 	cfg := DefaultConfig()
-	m, _ := New(cfg, nil, nil, nil)
+	m, _ := New(cfg, nil, nil, nil, nil)
 
 	if !m.pathAllowed("/any/path/at/all") {
 		t.Error("expected all paths allowed when allowlist is empty")

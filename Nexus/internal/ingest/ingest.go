@@ -38,6 +38,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -54,6 +55,7 @@ type Manager struct {
 	// pathToWatcher maps watched directory prefixes to their owning watcher.
 	pathToWatcher map[string]Watcher
 
+	metrics   *IngestMetrics
 	fsWatcher *fsnotify.Watcher
 	debouncer *Debouncer
 	pool      *WorkerPool
@@ -67,15 +69,20 @@ type Manager struct {
 
 // New creates a Manager. If Ingest is disabled via kill switch or config,
 // returns a no-op Manager that is safe to call Start/Shutdown/Status on.
-func New(cfg Config, state *FileStateStore, writer IngestWriter, logger *slog.Logger) (*Manager, error) {
+// metrics may be nil (testing/disabled mode).
+func New(cfg Config, state *FileStateStore, writer IngestWriter, logger *slog.Logger, metrics *IngestMetrics) (*Manager, error) {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if metrics == nil {
+		metrics = NewIngestMetrics(nil)
 	}
 	return &Manager{
 		cfg:           cfg,
 		state:         state,
 		writer:        writer,
 		logger:        logger,
+		metrics:       metrics,
 		pathToWatcher: make(map[string]Watcher),
 	}, nil
 }
@@ -326,8 +333,11 @@ func (m *Manager) parseAndWrite(ctx context.Context, path string) {
 		}
 	}
 
+	parseStart := time.Now()
 	result, err := w.Parse(ctx, path, offset)
+	m.metrics.ParseDuration.WithLabelValues(w.Name()).Observe(time.Since(parseStart).Seconds())
 	if err != nil {
+		m.metrics.ParseErrors.WithLabelValues(w.Name()).Inc()
 		m.logger.Warn("ingest: parse failed",
 			"component", "ingest", "watcher", w.Name(), "path", path, "error", err)
 		return
@@ -350,6 +360,7 @@ func (m *Manager) parseAndWrite(ctx context.Context, path string) {
 	}
 
 	if len(result.Memories) > 0 {
+		m.metrics.IngestionsTotal.WithLabelValues(w.Name()).Add(float64(len(result.Memories)))
 		m.logger.Info("ingest: parsed and wrote memories",
 			"component", "ingest",
 			"watcher", w.Name(),

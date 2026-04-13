@@ -52,7 +52,7 @@ func (w *mockWriter) count() int {
 func TestNewManagerKillSwitch(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.KillSwitch = true
-	m, err := New(cfg, nil, nil, slog.Default())
+	m, err := New(cfg, nil, nil, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestNewManagerKillSwitch(t *testing.T) {
 func TestNewManagerDisabled(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = false
-	m, err := New(cfg, nil, nil, slog.Default())
+	m, err := New(cfg, nil, nil, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestNewManagerDisabled(t *testing.T) {
 
 func TestNewManagerEnabled(t *testing.T) {
 	cfg := DefaultConfig()
-	m, err := New(cfg, nil, nil, slog.Default())
+	m, err := New(cfg, nil, nil, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestNewManagerEnabled(t *testing.T) {
 func TestStartDisabledIsNoop(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.KillSwitch = true
-	m, _ := New(cfg, nil, nil, slog.Default())
+	m, _ := New(cfg, nil, nil, slog.Default(), nil)
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatalf("Start on disabled manager should succeed: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestStartDisabledIsNoop(t *testing.T) {
 func TestShutdownIdempotent(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.KillSwitch = true
-	m, _ := New(cfg, nil, nil, slog.Default())
+	m, _ := New(cfg, nil, nil, slog.Default(), nil)
 	if err := m.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestShutdownIdempotent(t *testing.T) {
 func TestStatusEmptyWhenNoWatchers(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.KillSwitch = true
-	m, _ := New(cfg, nil, nil, slog.Default())
+	m, _ := New(cfg, nil, nil, slog.Default(), nil)
 	status := m.Status()
 	if len(status) != 0 {
 		t.Errorf("expected 0 watchers, got %d", len(status))
@@ -191,7 +191,7 @@ func TestWatcherStateString(t *testing.T) {
 
 func TestPathAllowed(t *testing.T) {
 	cfg := DefaultConfig()
-	m, _ := New(cfg, nil, nil, slog.Default())
+	m, _ := New(cfg, nil, nil, slog.Default(), nil)
 
 	// No allowlist — everything is allowed.
 	if !m.pathAllowed("/any/path") {
@@ -244,7 +244,7 @@ func TestIntegrationClaudeCodeEndToEnd(t *testing.T) {
 	cfg.GenericJSONLEnabled = true
 	cfg.GenericJSONLPaths = []string{projectDir}
 
-	m, err := New(cfg, store, writer, slog.Default())
+	m, err := New(cfg, store, writer, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

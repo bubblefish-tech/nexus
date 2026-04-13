@@ -126,6 +126,8 @@ func main() {
 		runSignConfig()
 	case "import":
 		runImport(os.Args[2:])
+	case "ingest":
+		runIngest(os.Args[2:])
 	case "chaos":
 		runChaos(os.Args[2:])
 	case "simulate":
