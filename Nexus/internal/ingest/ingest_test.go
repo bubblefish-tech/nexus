@@ -19,9 +19,35 @@ package ingest
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
+
+	_ "modernc.org/sqlite"
 )
+
+// mockWriter collects all memories written through the pipeline.
+type mockWriter struct {
+	mu       sync.Mutex
+	memories []Memory
+}
+
+func (w *mockWriter) Write(ctx context.Context, source string, memory Memory) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.memories = append(w.memories, memory)
+	return nil
+}
+
+func (w *mockWriter) count() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.memories)
+}
 
 func TestNewManagerKillSwitch(t *testing.T) {
 	cfg := DefaultConfig()
@@ -72,6 +98,7 @@ func TestStartDisabledIsNoop(t *testing.T) {
 
 func TestShutdownIdempotent(t *testing.T) {
 	cfg := DefaultConfig()
+	cfg.KillSwitch = true
 	m, _ := New(cfg, nil, nil, slog.Default())
 	if err := m.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
@@ -83,6 +110,7 @@ func TestShutdownIdempotent(t *testing.T) {
 
 func TestStatusEmptyWhenNoWatchers(t *testing.T) {
 	cfg := DefaultConfig()
+	cfg.KillSwitch = true
 	m, _ := New(cfg, nil, nil, slog.Default())
 	status := m.Status()
 	if len(status) != 0 {
@@ -158,5 +186,130 @@ func TestWatcherStateString(t *testing.T) {
 		if got := tt.state.String(); got != tt.want {
 			t.Errorf("WatcherState(%d).String() = %q, want %q", tt.state, got, tt.want)
 		}
+	}
+}
+
+func TestPathAllowed(t *testing.T) {
+	cfg := DefaultConfig()
+	m, _ := New(cfg, nil, nil, slog.Default())
+
+	// No allowlist — everything is allowed.
+	if !m.pathAllowed("/any/path") {
+		t.Error("expected all paths allowed when allowlist is empty")
+	}
+
+	// With allowlist.
+	m.cfg.AllowlistPaths = []string{"/allowed/dir"}
+	if !m.pathAllowed("/allowed/dir/file.jsonl") {
+		t.Error("expected path under allowlist to be allowed")
+	}
+	if m.pathAllowed("/other/dir/file.jsonl") {
+		t.Error("expected path outside allowlist to be denied")
+	}
+}
+
+// TestIntegrationClaudeCodeEndToEnd is the critical integration test.
+// It spins up a Manager with a real fsnotify watcher, writes a JSONL file,
+// and verifies memories appear in the mock writer.
+func TestIntegrationClaudeCodeEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "projects", "test-project")
+	if err := os.MkdirAll(projectDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up SQLite file state store.
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewFileStateStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writer := &mockWriter{}
+
+	// Create a custom watcher that looks at our temp dir instead of ~/.claude.
+	cfg := DefaultConfig()
+	cfg.DebounceDuration = 100 * time.Millisecond
+	cfg.ParseConcurrency = 2
+	cfg.ClaudeCodeEnabled = false
+	cfg.CursorEnabled = false
+	cfg.GenericJSONLEnabled = true
+	cfg.GenericJSONLPaths = []string{projectDir}
+
+	m, err := New(cfg, store, writer, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Shutdown(context.Background())
+
+	// Give fsnotify time to start watching.
+	time.Sleep(200 * time.Millisecond)
+
+	// Write a JSONL file into the watched directory.
+	sessionFile := filepath.Join(projectDir, "session.jsonl")
+	content := `{"role":"user","content":"Hello from integration test"}` + "\n" +
+		`{"role":"assistant","content":"Hello back!"}` + "\n" +
+		`{"role":"user","content":"Third message"}` + "\n"
+	if err := os.WriteFile(sessionFile, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for debounce + parse + write (debounce=100ms, generous timeout).
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if writer.count() >= 3 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if writer.count() < 3 {
+		t.Fatalf("expected >= 3 memories, got %d", writer.count())
+	}
+
+	// Verify file state was persisted.
+	offset, _, err := store.Get("generic_jsonl", sessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offset <= 0 {
+		t.Errorf("expected positive persisted offset, got %d", offset)
+	}
+
+	// Append 2 more lines.
+	f, err := os.OpenFile(sessionFile, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"role":"user","content":"Fourth message"}` + "\n")
+	f.WriteString(`{"role":"assistant","content":"Fifth message"}` + "\n")
+	f.Close()
+
+	// Wait for the new messages.
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if writer.count() >= 5 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if writer.count() < 5 {
+		t.Fatalf("after append: expected >= 5 memories, got %d", writer.count())
 	}
 }
