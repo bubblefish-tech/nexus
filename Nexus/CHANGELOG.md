@@ -4,6 +4,50 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.1.3 — Memory Operating System (2026-04-14)
+
+Proactive ingestion, cryptographic provenance, bulk import, and the `wake` profile.
+
+### Ingest (Proactive Ingestion)
+- **Filesystem watcher framework** with fsnotify, per-file debouncing (500ms), bounded parse worker pool (4 goroutines)
+- **Claude Code parser** — `~/.claude/projects/**/*.jsonl`, offset-based incremental parsing, handles string and array content formats
+- **Cursor parser** — `~/.cursor/chat-history/*.json`, whole-file hash comparison for rewrite detection
+- **Generic JSONL parser** — fallback for any `{role, content, timestamp}` JSONL file, user-configured paths
+- **Scaffolded parsers** for ChatGPT Desktop, Claude Desktop, LM Studio, Open WebUI, Perplexity Comet (detection and interface only; real parsers in v0.1.4)
+- **File position tracking** — `ingest_file_state` SQLite table persists (watcher, path, offset, hash) for crash-safe resume without re-ingesting
+- **Truncation detection** — SHA-256 hash of last 64 bytes detects file replacement or truncation, triggers full re-parse
+- **Path allowlist policy** — enterprise deployments can restrict which paths Ingest reads
+- **Security** — symlinks never followed, MaxFileSize (100MB) and MaxLineLength (4MB) enforced, read-only file handles only
+- **`bubblefish ingest status|pause|resume|reset`** CLI commands
+- **Prometheus metrics** — `nexus_ingest_ingestions_total`, `nexus_ingest_parse_errors_total`, `nexus_ingest_parse_duration_seconds`, `nexus_ingest_active_files`, `nexus_ingest_watchers_total`
+- **Config** — `[ingest]` TOML section with `enabled`, `kill_switch`, per-watcher toggles, `generic_jsonl_paths`
+
+### Importer (Bulk Historical Ingest)
+- **`bubblefish import <path>`** with auto-format detection
+- Supports Claude export ZIP, ChatGPT export ZIP, Claude Code project directories, Cursor directories, generic JSONL
+- Idempotent via existing content hash layer
+- `--dry-run`, `--source-name`, `--format` flags
+- Coming in v0.1.4: Slack exports, Codex CLI, LM Studio, Open WebUI bulk
+
+### Chaos A+B Verification
+- Two complementary verification paths: direct SQLite DB read (ground truth) + admin API cursor walk
+- New `GET /admin/memories` endpoint with stable `(created_at, payload_id)` tuple cursor
+- Cross-check distinguishes durability bugs, read-path bugs, phantom data, cursor instability
+- `waitForDrain()` polls queue depth before verification to prevent false positives
+
+### Other
+- **`nexus_status` MCP auto-teaching tool** — returns daemon version, available tools with examples, retrieval profiles, active sources, and ingest state in one call
+- **`wake` retrieval profile** — alias for `fast` with `top_k=20`, tuned for low-latency critical-context loading (~170 tokens)
+- **Release rehearsal scripts** — `scripts/release/rehearsal.ps1`, `capture_benchmark.ps1`, `capture_chaos.ps1`, `sign_artifacts.ps1`
+
+### Measured (fill in after release rehearsal)
+- Writes: TBD/sec steady state, p99 TBD ms
+- Queries: TBD/sec steady state, p99 TBD ms
+- Resident: ~TBD MB after 10K writes + 10K reads
+- Chaos: TBD kill-9 iterations, zero data loss
+
+---
+
 ## v0.1.3 — Moat Release (2026-04-12)
 
 Four moat phases + extreme durability hardening + viral differentiators.
