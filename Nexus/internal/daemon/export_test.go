@@ -246,6 +246,15 @@ func (d *Daemon) QueryHandler() http.Handler {
 	return r
 }
 
+// AdminListHandler returns an http.Handler that routes GET /admin/memories
+// through the requireAdminToken middleware and admin list handler.
+func (d *Daemon) AdminListHandler() http.Handler {
+	r := chi.NewRouter()
+	r.Use(d.requireAdminToken)
+	r.Get("/admin/memories", d.handleAdminList)
+	return r
+}
+
 // BuildRouter exposes buildRouter for tests that need the full server router
 // (e.g. health/ready probes that bypass auth).
 func (d *Daemon) BuildRouter() http.Handler {

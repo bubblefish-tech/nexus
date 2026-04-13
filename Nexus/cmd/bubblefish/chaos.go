@@ -41,7 +41,7 @@ func runChaos(args []string) {
 	apiKey := fs.String("api-key", "", "data-plane API key (or set NEXUS_API_KEY)")
 	adminKey := fs.String("admin-key", "", "admin token (or set NEXUS_ADMIN_KEY)")
 	source := fs.String("source", "default", "source name for write requests")
-	destination := fs.String("destination", "sqlite", "destination name for recovery queries")
+	dbPath := fs.String("db", "", "path to memories.db for direct DB verification (required)")
 	duration := fs.Duration("duration", 60*time.Second, "how long to run the chaos test")
 	concurrency := fs.Int("concurrency", 5, "number of concurrent writer goroutines")
 	faultInterval := fs.Duration("fault-interval", 10*time.Second, "time between fault injections")
@@ -62,6 +62,14 @@ func runChaos(args []string) {
 		fmt.Fprintln(os.Stderr, "bubblefish chaos: --api-key or NEXUS_API_KEY is required")
 		os.Exit(1)
 	}
+	if *dbPath == "" {
+		fmt.Fprintln(os.Stderr, "bubblefish chaos: --db is required (path to memories.db for direct DB verification)")
+		os.Exit(1)
+	}
+	if *adminKey == "" {
+		fmt.Fprintln(os.Stderr, "bubblefish chaos: --admin-key or NEXUS_ADMIN_KEY is required for /admin/memories verification")
+		os.Exit(1)
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -70,7 +78,7 @@ func runChaos(args []string) {
 	result, err := chaos.Run(chaos.Options{
 		URL:           *url,
 		Source:        *source,
-		Destination:   *destination,
+		DBPath:        *dbPath,
 		APIKey:        *apiKey,
 		AdminKey:      *adminKey,
 		Duration:      *duration,

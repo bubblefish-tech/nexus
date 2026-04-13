@@ -104,6 +104,9 @@ func (d *Daemon) buildRouter() http.Handler {
 		// Reference: v0.1.3 Build Plan Phase 4 Subtasks 4.6, 4.9.
 		r.Get("/verify/{memory_id}", d.handleVerify)
 		r.Post("/api/prove", d.handleProve)
+		// Admin memory list — stable cursor pagination over all rows.
+		// Used by chaos verifier and ops debugging.
+		r.Get("/admin/memories", d.handleAdminList)
 		// Shutdown — admin only.
 		r.Post("/api/shutdown", d.handleShutdown)
 		// /metrics serves Prometheus text format from the private registry.
@@ -158,6 +161,7 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Get("/api/audit/log", d.handleAuditLog)
 		r.Get("/api/audit/stats", d.handleAuditStats)
 		r.Get("/api/audit/export", d.handleAuditExport)
+		r.Get("/admin/memories", d.handleAdminList)
 		r.Post("/api/shutdown", d.handleShutdown)
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),

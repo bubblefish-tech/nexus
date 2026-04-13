@@ -26,15 +26,19 @@ package chaos
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	_ "modernc.org/sqlite" // SQLite driver for direct DB verification.
 )
 
 // Options configures a chaos run.
@@ -43,11 +47,11 @@ type Options struct {
 	URL string
 	// Source is the source name for write requests.
 	Source string
-	// Destination is the destination name for recovery queries.
-	Destination string
+	// DBPath is the path to memories.db for direct DB verification (ground truth).
+	DBPath string
 	// APIKey is the data-plane API key.
 	APIKey string
-	// AdminKey is the admin token for /ready and /api/status checks.
+	// AdminKey is the admin token for /ready, /api/status, and /admin/memories.
 	AdminKey string
 	// Duration is how long to run the chaos test.
 	Duration time.Duration
@@ -77,13 +81,25 @@ type Report struct {
 	WritesFailed    int64 `json:"writes_failed"`
 
 	// Fault injection stats.
-	FaultsInjected int   `json:"faults_injected"`
+	FaultsInjected int      `json:"faults_injected"`
 	FaultTypes     []string `json:"fault_types"`
 
-	// Recovery verification.
-	RecoveredCount  int    `json:"recovered_count"`
-	MissingCount    int    `json:"missing_count"`
-	DuplicateCount  int    `json:"duplicate_count"`
+	// Path A — DB ground truth.
+	DBRecoveredCount int `json:"db_recovered_count"`
+
+	// Path B — admin HTTP read path.
+	HTTPRecoveredCount int `json:"http_recovered_count"`
+
+	// Cross-checks.
+	AcceptedNotInDB   int `json:"accepted_not_in_db"`   // durability bug
+	AcceptedNotInHTTP int `json:"accepted_not_in_http"` // read-path bug
+	DBNotInHTTP       int `json:"db_not_in_http"`       // read-path / cursor bug
+	HTTPNotInDB       int `json:"http_not_in_db"`       // phantom data
+
+	// Backwards-compat fields.
+	RecoveredCount  int     `json:"recovered_count"`
+	MissingCount    int     `json:"missing_count"`
+	DuplicateCount  int     `json:"duplicate_count"`
 	DataLossPercent float64 `json:"data_loss_percent"`
 
 	// Verdict.
@@ -98,6 +114,12 @@ func Run(opts Options) (*Report, error) {
 	}
 	if opts.APIKey == "" {
 		return nil, fmt.Errorf("chaos: --api-key is required")
+	}
+	if opts.DBPath == "" {
+		return nil, fmt.Errorf("chaos: --db is required (path to memories.db)")
+	}
+	if opts.AdminKey == "" {
+		return nil, fmt.Errorf("chaos: --admin-key is required for /admin/memories verification")
 	}
 	if opts.Duration <= 0 {
 		opts.Duration = 60 * time.Second
@@ -211,44 +233,107 @@ func Run(opts Options) (*Report, error) {
 		)
 	}
 
-	// Verify: query all memories and check against accepted IDs.
-	recovered, err := queryAll(client, opts.URL, opts.Destination, opts.APIKey)
+	// Wait for WAL + queue to drain before reading the DB.
+	if err := waitForDrain(client, opts.URL, opts.AdminKey, 30*time.Second, opts.Logger); err != nil {
+		opts.Logger.Warn("chaos: queue did not fully drain — some accepted writes may not yet be in SQLite",
+			"component", "chaos",
+			"error", err,
+		)
+	}
+
+	// Path A: ground truth from SQLite directly.
+	opts.Logger.Info("chaos: verifying against DB (ground truth)", "component", "chaos", "db", opts.DBPath)
+	dbSet, err := verifyAgainstDB(opts.DBPath)
 	if err != nil {
-		return nil, fmt.Errorf("chaos: recovery query failed: %w", err)
+		return nil, fmt.Errorf("chaos: DB verification failed: %w", err)
 	}
 
-	recoveredSet := make(map[string]int)
-	for _, id := range recovered {
-		recoveredSet[id]++
+	// Path B: HTTP admin list endpoint.
+	opts.Logger.Info("chaos: verifying against admin API", "component", "chaos", "url", opts.URL)
+	httpSet, duplicates, err := verifyAgainstAdminList(client, opts.URL, opts.AdminKey)
+	if err != nil {
+		return nil, fmt.Errorf("chaos: admin API verification failed: %w", err)
 	}
 
-	var missing, duplicates int
+	// Build accepted set.
+	acceptedSet := make(map[string]bool, len(acceptedIDs))
 	for _, id := range acceptedIDs {
-		count := recoveredSet[id]
-		if count == 0 {
-			missing++
-		} else if count > 1 {
-			duplicates++
+		acceptedSet[id] = true
+	}
+
+	// Set differences.
+	acceptedNotInDB := 0
+	for id := range acceptedSet {
+		if !dbSet[id] {
+			acceptedNotInDB++
+		}
+	}
+	acceptedNotInHTTP := 0
+	for id := range acceptedSet {
+		if !httpSet[id] {
+			acceptedNotInHTTP++
+		}
+	}
+	dbNotInHTTP := 0
+	for id := range dbSet {
+		if !httpSet[id] {
+			dbNotInHTTP++
+		}
+	}
+	httpNotInDB := 0
+	for id := range httpSet {
+		if !dbSet[id] {
+			httpNotInDB++
 		}
 	}
 
-	report.RecoveredCount = len(recovered)
-	report.MissingCount = missing
+	report.DBRecoveredCount = len(dbSet)
+	report.HTTPRecoveredCount = len(httpSet)
+	report.AcceptedNotInDB = acceptedNotInDB
+	report.AcceptedNotInHTTP = acceptedNotInHTTP
+	report.DBNotInHTTP = dbNotInHTTP
+	report.HTTPNotInDB = httpNotInDB
 	report.DuplicateCount = duplicates
+
+	// Backwards-compat fields.
+	report.RecoveredCount = len(dbSet)
+	report.MissingCount = acceptedNotInDB
 	if report.WritesAccepted > 0 {
-		report.DataLossPercent = float64(missing) / float64(report.WritesAccepted) * 100.0
+		report.DataLossPercent = float64(acceptedNotInDB) / float64(report.WritesAccepted) * 100.0
 	}
+
 	report.FinishedAt = time.Now().UTC()
 	report.Duration = report.FinishedAt.Sub(report.StartedAt)
 	report.DurationHuman = report.Duration.Round(time.Millisecond).String()
 
-	if missing == 0 && duplicates == 0 {
-		report.Pass = true
-		report.Verdict = fmt.Sprintf("PASS — %d writes, %d recovered, 0 missing, 0 duplicates, %d faults injected",
-			report.WritesAccepted, report.RecoveredCount, report.FaultsInjected)
+	pass := report.AcceptedNotInDB == 0 &&
+		report.AcceptedNotInHTTP == 0 &&
+		report.DBNotInHTTP == 0 &&
+		report.HTTPNotInDB == 0 &&
+		report.DuplicateCount == 0
+	report.Pass = pass
+
+	if pass {
+		report.Verdict = fmt.Sprintf("PASS — %d writes accepted, %d in DB, %d via admin API, all sets agree, %d faults injected",
+			report.WritesAccepted, report.DBRecoveredCount, report.HTTPRecoveredCount, report.FaultsInjected)
 	} else {
-		report.Verdict = fmt.Sprintf("FAIL — %d writes, %d recovered, %d missing (%.2f%% loss), %d duplicates",
-			report.WritesAccepted, report.RecoveredCount, missing, report.DataLossPercent, duplicates)
+		var parts []string
+		if report.AcceptedNotInDB > 0 {
+			parts = append(parts, fmt.Sprintf("DURABILITY BUG: %d accepted writes missing from DB", report.AcceptedNotInDB))
+		}
+		if report.AcceptedNotInHTTP > 0 {
+			parts = append(parts, fmt.Sprintf("READ-PATH BUG: %d accepted writes missing from admin API", report.AcceptedNotInHTTP))
+		}
+		if report.DBNotInHTTP > 0 {
+			parts = append(parts, fmt.Sprintf("READ-PATH BUG: %d DB rows not returned by admin API", report.DBNotInHTTP))
+		}
+		if report.HTTPNotInDB > 0 {
+			parts = append(parts, fmt.Sprintf("PHANTOM DATA: %d admin API rows not in DB", report.HTTPNotInDB))
+		}
+		if report.DuplicateCount > 0 {
+			parts = append(parts, fmt.Sprintf("CURSOR INSTABILITY: %d duplicates in admin API pagination", report.DuplicateCount))
+		}
+		report.Verdict = "FAIL — " + strings.Join(parts, "; ")
 	}
 
 	return report, nil
@@ -359,53 +444,140 @@ func waitForReady(client *http.Client, baseURL, adminKey string, timeout time.Du
 	return fmt.Errorf("daemon not ready after %s", timeout)
 }
 
-// queryAll retrieves all payload IDs from the destination.
-func queryAll(client *http.Client, baseURL, destination, apiKey string) ([]string, error) {
-	var allIDs []string
-	cursor := ""
-
-	for {
-		url := fmt.Sprintf("%s/query/%s?limit=200", baseURL, destination)
-		if cursor != "" {
-			url += "&cursor=" + cursor
+// waitForDrain polls /api/status until queue_depth and wal.pending_entries both
+// reach 0, meaning all accepted writes have been flushed to SQLite.
+func waitForDrain(client *http.Client, baseURL, adminKey string, timeout time.Duration, logger *slog.Logger) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		req, _ := http.NewRequest(http.MethodGet, baseURL+"/api/status", nil)
+		if adminKey != "" {
+			req.Header.Set("Authorization", "Bearer "+adminKey)
 		}
-
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, err
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("query returned %d: %s", resp.StatusCode, body)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		var status struct {
+			QueueDepth int64 `json:"queue_depth"`
+			WAL        struct {
+				PendingEntries int64 `json:"pending_entries"`
+			} `json:"wal"`
+		}
+		if err := json.Unmarshal(body, &status); err != nil {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		if status.QueueDepth == 0 && status.WAL.PendingEntries == 0 {
+			logger.Info("chaos: queue drained",
+				"component", "chaos",
+				"queue_depth", status.QueueDepth,
+				"wal_pending", status.WAL.PendingEntries,
+			)
+			return nil
+		}
+
+		logger.Info("chaos: waiting for queue drain",
+			"component", "chaos",
+			"queue_depth", status.QueueDepth,
+			"wal_pending", status.WAL.PendingEntries,
+		)
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("queue did not drain within %s", timeout)
+}
+
+// verifyAgainstDB opens memories.db read-only and returns the set of all payload_ids.
+// This is ground truth for the durability claim.
+func verifyAgainstDB(dbPath string) (map[string]bool, error) {
+	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	if err != nil {
+		return nil, fmt.Errorf("verifyAgainstDB: open: %w", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT payload_id FROM memories")
+	if err != nil {
+		return nil, fmt.Errorf("verifyAgainstDB: query: %w", err)
+	}
+	defer rows.Close()
+
+	set := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("verifyAgainstDB: scan: %w", err)
+		}
+		set[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("verifyAgainstDB: rows: %w", err)
+	}
+	return set, nil
+}
+
+// verifyAgainstAdminList paginates through GET /admin/memories and returns the
+// set of payload_ids plus the count of duplicates encountered.
+func verifyAgainstAdminList(client *http.Client, baseURL, adminKey string) (map[string]bool, int, error) {
+	set := make(map[string]bool)
+	duplicates := 0
+	cursor := ""
+
+	for {
+		url := fmt.Sprintf("%s/admin/memories?limit=500", baseURL)
+		if cursor != "" {
+			url += "&cursor=" + cursor
+		}
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return nil, 0, fmt.Errorf("verifyAgainstAdminList: new request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+adminKey)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, 0, fmt.Errorf("verifyAgainstAdminList: do: %w", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, 0, fmt.Errorf("verifyAgainstAdminList: status %d: %s", resp.StatusCode, body)
 		}
 
 		var result struct {
-			Records []struct {
+			Memories []struct {
 				PayloadID string `json:"payload_id"`
-			} `json:"records"`
-			Nexus struct {
+			} `json:"memories"`
+			Admin struct {
 				HasMore    bool   `json:"has_more"`
 				NextCursor string `json:"next_cursor"`
-			} `json:"_nexus"`
+			} `json:"_admin"`
 		}
 		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, err
+			return nil, 0, fmt.Errorf("verifyAgainstAdminList: decode: %w (body=%s)", err, string(body))
 		}
 
-		for _, r := range result.Records {
-			allIDs = append(allIDs, r.PayloadID)
+		for _, m := range result.Memories {
+			if set[m.PayloadID] {
+				duplicates++
+			}
+			set[m.PayloadID] = true
 		}
 
-		if !result.Nexus.HasMore || result.Nexus.NextCursor == "" {
+		if !result.Admin.HasMore || result.Admin.NextCursor == "" {
 			break
 		}
-		cursor = result.Nexus.NextCursor
+		cursor = result.Admin.NextCursor
 	}
-
-	return allIDs, nil
+	return set, duplicates, nil
 }
