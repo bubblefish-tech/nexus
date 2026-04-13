@@ -31,8 +31,15 @@ import (
 //
 // Reference: v0.1.3 Build Plan Section 6.3.
 func runSentinel(args []string) {
-	fmt.Fprintln(os.Stderr, "bubblefish sentinel: integrated mode — enable via [daemon.sentinel] enabled = true in config")
+	fmt.Fprintln(os.Stderr, "bubblefish sentinel: integrated mode — enable via [consistency] enabled = true in daemon.toml")
+	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  The sentinel runs as a background goroutine inside the daemon.")
-	fmt.Fprintln(os.Stderr, "  It samples 1% of delivered entries and verifies they exist in the destination.")
-	fmt.Fprintln(os.Stderr, "  Anomalies are logged at WARN level and exposed via Prometheus metrics.")
+	fmt.Fprintln(os.Stderr, "  It samples delivered entries and verifies they exist in the destination.")
+	fmt.Fprintln(os.Stderr, "  Anomalies are logged at WARN level and exposed via bubblefish_consistency_score.")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  Configuration:")
+	fmt.Fprintln(os.Stderr, "    [consistency]")
+	fmt.Fprintln(os.Stderr, "    enabled = true")
+	fmt.Fprintln(os.Stderr, "    interval_seconds = 300   # check every 5 minutes")
+	fmt.Fprintln(os.Stderr, "    sample_size = 100        # entries per check")
 }
