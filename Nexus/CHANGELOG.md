@@ -70,6 +70,16 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **Dashboard Proofs tab** — live chain status, verification, proof export
 - **60-second cross-vendor demo** — `examples/cryptographic-provenance/` with demo.sh, demo.ps1, agent configs
 
+### Agent Gateway (AG.1–AG.8)
+- **Agent identity and registration** — `agents` SQLite table, UUID-based identity, `bubblefish agent register|list|suspend|retire|show` CLI
+- **Agent session management** — in-memory session tracking per agent, idle timeout, `GET /api/agents/{id}/sessions`, Prometheus gauge
+- **Credential gateway** — synthetic API keys (`bfn_sk_`) route to real provider keys. OpenAI-compatible `/v1/chat/completions` and Anthropic-compatible `/v1/messages` proxy endpoints. Model allowlist, per-key rate limiting, streaming passthrough. Real keys never in logs
+- **Tool-use policy enforcement** — per-agent tool allowlist/denylist in agent TOML, parameter limits (max_content_bytes, max_limit, allowed_profiles), hot-reloadable
+- **Agent-to-agent coordination** — `agent_broadcast`, `agent_pull_signals`, `agent_status_query` MCP tools. Ephemeral signal queue (max 1000) with optional persistent signals via WAL
+- **Per-agent rate limiting and quotas** — requests/min, bytes/sec, writes/day, tool_calls/day per agent TOML. Quota state persisted hourly, resets at UTC midnight
+- **Agent activity telemetry** — `EntryTypeAgentActivity` WAL entry, `GET /api/agents/{id}/activity`, dashboard Agents tab, 7-day retention with background pruning
+- **Agent health and lifecycle** — heartbeat tracking (inferred from requests), stale/inactive/dormant state transitions, `bubblefish agent health` CLI, dashboard color-coded status
+
 ### Chaos A+B Verification
 - Two complementary verification paths: direct SQLite DB read (ground truth) + admin API cursor walk
 - New `GET /admin/memories` endpoint with stable `(created_at, payload_id)` tuple cursor
