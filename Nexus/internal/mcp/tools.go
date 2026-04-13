@@ -118,11 +118,47 @@ type SearchResult struct {
 	SemanticUnavailable bool                            `json:"semantic_unavailable,omitempty"`
 }
 
-// StatusResult is the output of the nexus_status tool.
+// StatusResult is the output of the nexus_status tool. It serves as an
+// auto-teaching document: the FIRST thing an LLM client should call when
+// connecting to Nexus. The response contains everything the LLM needs to
+// use Nexus correctly without external docs.
 type StatusResult struct {
+	// Core status (backwards-compatible).
 	Status     string `json:"status"`
 	Version    string `json:"version"`
 	QueueDepth int    `json:"queue_depth"`
+
+	// Auto-teaching fields.
+	Daemon   StatusDaemon    `json:"daemon"`
+	Tools    []StatusTool    `json:"tools"`
+	Profiles []StatusProfile `json:"profiles"`
+	Sources  []string        `json:"sources"`
+	Ingest   StatusIngest    `json:"ingest"`
+}
+
+// StatusDaemon holds daemon identity and uptime.
+type StatusDaemon struct {
+	Version       string `json:"version"`
+	UptimeSeconds int64  `json:"uptime_seconds"`
+}
+
+// StatusTool describes an available MCP tool with a usage example.
+type StatusTool struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Example     map[string]string `json:"example,omitempty"`
+}
+
+// StatusProfile describes a retrieval profile.
+type StatusProfile struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// StatusIngest summarizes the Ingest subsystem state.
+type StatusIngest struct {
+	Enabled        bool `json:"enabled"`
+	WatchersActive int  `json:"watchers_active"`
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +219,7 @@ func toolList() []toolDef {
 		},
 		{
 			Name:        "nexus_status",
-			Description: "Return the current BubbleFish Nexus daemon status including queue depth and version.",
+			Description: "Return the full BubbleFish Nexus daemon status: version, available tools with examples, retrieval profiles, active sources, and ingest watcher state. Call this first when connecting to learn how to use Nexus.",
 			InputSchema: inputSchema{
 				Type:       "object",
 				Properties: map[string]propDef{},
@@ -213,5 +249,42 @@ func (p *TestPipeline) Search(_ context.Context, _ SearchParams) (SearchResult, 
 
 // Status returns a canned "ok" status without querying the daemon.
 func (p *TestPipeline) Status(_ context.Context) (StatusResult, error) {
-	return StatusResult{Status: "ok", Version: version.Version, QueueDepth: 0}, nil
+	return StatusResult{
+		Status:     "ok",
+		Version:    version.Version,
+		QueueDepth: 0,
+		Daemon:     StatusDaemon{Version: version.Version, UptimeSeconds: 0},
+		Tools:      DefaultStatusTools(),
+		Profiles:   DefaultStatusProfiles(),
+	}, nil
+}
+
+// defaultStatusTools returns the tool descriptions for auto-teaching.
+func DefaultStatusTools() []StatusTool {
+	return []StatusTool{
+		{
+			Name:        "nexus_write",
+			Description: "Persist a memory to Nexus. Content is stored durably with WAL fsync, idempotency dedup, and cryptographic provenance.",
+			Example:     map[string]string{"content": "User prefers dark mode in all editors"},
+		},
+		{
+			Name:        "nexus_search",
+			Description: "Search memories using the 6-stage retrieval cascade. Returns ranked results with optional semantic similarity.",
+			Example:     map[string]string{"q": "user preferences", "profile": "balanced"},
+		},
+		{
+			Name:        "nexus_status",
+			Description: "Return daemon status, available tools, retrieval profiles, and ingest state. Call this first when connecting.",
+		},
+	}
+}
+
+// defaultStatusProfiles returns the retrieval profile descriptions.
+func DefaultStatusProfiles() []StatusProfile {
+	return []StatusProfile{
+		{Name: "fast", Description: "Structured lookup only, lowest latency, p99 < 5ms"},
+		{Name: "balanced", Description: "Full 6-stage cascade, best results, p99 < 50ms"},
+		{Name: "deep", Description: "Maximum recall, skip cache, p99 varies with dataset size"},
+		{Name: "wake", Description: "Alias for fast with top_k=20 and byte_budget=4096, returns critical context in ~170 tokens"},
+	}
 }
