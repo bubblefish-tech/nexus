@@ -124,6 +124,8 @@ func main() {
 		runVerify(os.Args[2:])
 	case "sign-config":
 		runSignConfig()
+	case "import":
+		runImport(os.Args[2:])
 	case "chaos":
 		runChaos(os.Args[2:])
 	case "simulate":
