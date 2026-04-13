@@ -31,6 +31,7 @@ type Config struct {
 	Retrieval      RetrievalConfig      `toml:"retrieval"`
 	Consistency    ConsistencyConfig    `toml:"consistency"`
 	SecurityEvents SecurityEventsConfig `toml:"security_events"`
+	Ingest         IngestConfig         `toml:"ingest"`
 
 	// Sources and Destinations are populated by scanning the sources/ and
 	// destinations/ sub-directories. Not decoded from daemon.toml itself.
@@ -335,6 +336,28 @@ type ConsistencyConfig struct {
 type SecurityEventsConfig struct {
 	Enabled bool   `toml:"enabled"`
 	LogFile string `toml:"log_file"`
+}
+
+// IngestConfig models the [ingest] TOML section. Controls proactive
+// filesystem-based ingestion of AI client conversations.
+type IngestConfig struct {
+	Enabled          bool     `toml:"enabled"`
+	KillSwitch       bool     `toml:"kill_switch"`
+	DebounceDuration int      `toml:"debounce_duration_ms"` // milliseconds; converted to time.Duration by caller
+	ParseConcurrency int      `toml:"parse_concurrency"`
+	MaxFileSize      int64    `toml:"max_file_size"`
+	MaxLineLength    int      `toml:"max_line_length"`
+	AllowlistPaths   []string `toml:"allowlist_paths"`
+
+	ClaudeCodeEnabled      bool     `toml:"claude_code_enabled"`
+	CursorEnabled          bool     `toml:"cursor_enabled"`
+	GenericJSONLEnabled    bool     `toml:"generic_jsonl_enabled"`
+	GenericJSONLPaths      []string `toml:"generic_jsonl_paths"`
+	ChatGPTDesktopEnabled  bool     `toml:"chatgpt_desktop_enabled"`
+	ClaudeDesktopEnabled   bool     `toml:"claude_desktop_enabled"`
+	LMStudioEnabled        bool     `toml:"lm_studio_enabled"`
+	OpenWebUIEnabled       bool     `toml:"open_webui_enabled"`
+	PerplexityCometEnabled bool     `toml:"perplexity_comet_enabled"`
 }
 
 // ---------------------------------------------------------------------------
