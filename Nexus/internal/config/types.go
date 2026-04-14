@@ -34,6 +34,14 @@ type Config struct {
 	Ingest         IngestConfig         `toml:"ingest"`
 	Credentials    CredentialsConfig    `toml:"credentials"`
 
+	// Substrate holds the [substrate] section for BF-Sketch.
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan.
+	Substrate SubstrateConfig `toml:"substrate"`
+
+	// Canonical holds the [canonical] section for embedding canonicalization.
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
+	Canonical CanonicalConfig `toml:"canonical"`
+
 	// Sources and Destinations are populated by scanning the sources/ and
 	// destinations/ sub-directories. Not decoded from daemon.toml itself.
 	Sources      []*Source
@@ -605,4 +613,29 @@ type TierRateLimitConfig struct {
 	RequestsPerMinute int   `toml:"requests_per_minute"`
 	// BytesPerSecond is the byte-rate limit for this tier. 0 = unlimited.
 	BytesPerSecond    int64 `toml:"bytes_per_second"`
+}
+
+// SubstrateConfig holds the [substrate] TOML section for BF-Sketch.
+// All fields default to safe values (disabled). When absent from daemon.toml,
+// the substrate is completely invisible.
+// Reference: v0.1.3 BF-Sketch Substrate Build Plan.
+type SubstrateConfig struct {
+	Enabled                bool    `toml:"enabled"`
+	SketchBits             int     `toml:"sketch_bits"`
+	RatchetRotationPeriod  string  `toml:"ratchet_rotation_period"`
+	PrefilterThreshold     int     `toml:"prefilter_threshold"`
+	PrefilterTopK          int     `toml:"prefilter_top_k"`
+	CuckooCapacity         uint    `toml:"cuckoo_capacity"`
+	CuckooRebuildThreshold float64 `toml:"cuckoo_rebuild_threshold"`
+	EncryptionEnabled      bool    `toml:"encryption_enabled"`
+}
+
+// CanonicalConfig holds the [canonical] TOML section for embedding
+// canonicalization. Required when substrate is enabled.
+// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
+type CanonicalConfig struct {
+	Enabled              bool `toml:"enabled"`
+	CanonicalDim         int  `toml:"canonical_dim"`
+	WhiteningWarmup      int  `toml:"whitening_warmup"`
+	QueryCacheTTLSeconds int  `toml:"query_cache_ttl_seconds"`
 }

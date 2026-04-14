@@ -53,6 +53,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/coordination"
 	"github.com/BubbleFish-Nexus/internal/credentials"
 	"github.com/BubbleFish-Nexus/internal/cache"
+	"github.com/BubbleFish-Nexus/internal/canonical"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
 	"github.com/BubbleFish-Nexus/internal/doctor"
@@ -70,6 +71,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
+	"github.com/BubbleFish-Nexus/internal/substrate"
 	"github.com/BubbleFish-Nexus/internal/supervisor"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/vizpipe"
@@ -212,6 +214,15 @@ type Daemon struct {
 	toolPolicyChecker  *policy.ToolPolicyChecker      // AG.4
 	signalQueue        *coordination.SignalQueue      // AG.5
 	quotaManager       *agent.QuotaManager            // AG.6
+
+	// ── BF-Sketch substrate (BS.1–BS.10) ────────────────────────────────
+	// substrate is the BF-Sketch coordinator. Nil-safe when disabled.
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan.
+	substrate *substrate.Substrate
+
+	// canonical is the embedding canonicalization pipeline. Nil-safe when disabled.
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
+	canonical *canonical.Manager
 
 	stopOnce    sync.Once
 	stopped     chan struct{}
@@ -727,6 +738,89 @@ func (d *Daemon) Start() error {
 	// start so we can wire coordination provider and policy checker.
 	d.startAgentGateway()
 
+	// ── BF-Sketch substrate initialization ──────────────────────────────
+	// Substrate is disabled by default. When enabled, the full initialization
+	// runs (BS.2+). Any startup error disables substrate and the daemon
+	// continues with the legacy cascade (fail-closed, rule 4).
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 0 rule 4.
+	{
+		canonicalCfg := canonical.DefaultConfig()
+		if cfg.Canonical.Enabled {
+			canonicalCfg.Enabled = true
+			canonicalCfg.CanonicalDim = cfg.Canonical.CanonicalDim
+			if canonicalCfg.CanonicalDim == 0 {
+				canonicalCfg.CanonicalDim = 1024
+			}
+			canonicalCfg.WhiteningWarmup = cfg.Canonical.WhiteningWarmup
+			if canonicalCfg.WhiteningWarmup == 0 {
+				canonicalCfg.WhiteningWarmup = 1000
+			}
+			canonicalCfg.QueryCacheTTLSeconds = cfg.Canonical.QueryCacheTTLSeconds
+			if canonicalCfg.QueryCacheTTLSeconds == 0 {
+				canonicalCfg.QueryCacheTTLSeconds = 60
+			}
+		}
+
+		substrateCfg := substrate.DefaultConfig()
+		if cfg.Substrate.Enabled {
+			substrateCfg.Enabled = true
+			substrateCfg.SketchBits = cfg.Substrate.SketchBits
+			if substrateCfg.SketchBits == 0 {
+				substrateCfg.SketchBits = 1
+			}
+			if cfg.Substrate.RatchetRotationPeriod != "" {
+				substrateCfg.RatchetRotationPeriodStr = cfg.Substrate.RatchetRotationPeriod
+			}
+			if cfg.Substrate.PrefilterThreshold > 0 {
+				substrateCfg.PrefilterThreshold = cfg.Substrate.PrefilterThreshold
+			}
+			if cfg.Substrate.PrefilterTopK > 0 {
+				substrateCfg.PrefilterTopK = cfg.Substrate.PrefilterTopK
+			}
+			if cfg.Substrate.CuckooCapacity > 0 {
+				substrateCfg.CuckooCapacity = cfg.Substrate.CuckooCapacity
+			}
+			if cfg.Substrate.CuckooRebuildThreshold > 0 {
+				substrateCfg.CuckooRebuildThreshold = cfg.Substrate.CuckooRebuildThreshold
+			}
+			substrateCfg.EncryptionEnabled = cfg.Substrate.EncryptionEnabled
+		}
+
+		// Substrate requires canonical; force-enable if needed.
+		if substrateCfg.Enabled && !canonicalCfg.Enabled {
+			d.logger.Warn("substrate enabled without canonical; force-enabling canonical",
+				"component", "daemon")
+			canonicalCfg.Enabled = true
+		}
+
+		if err := canonicalCfg.Validate(); err != nil {
+			d.logger.Warn("canonical config invalid, disabling canonical",
+				"component", "daemon", "error", err)
+			canonicalCfg = canonical.DefaultConfig()
+			substrateCfg.Enabled = false
+			substrateCfg = substrate.DefaultConfig()
+		}
+		if err := substrateCfg.Validate(); err != nil {
+			d.logger.Warn("substrate config invalid, disabling substrate",
+				"component", "daemon", "error", err)
+			substrateCfg = substrate.DefaultConfig()
+		}
+
+		d.canonical = canonical.NewManager(canonicalCfg)
+		sub, err := substrate.New(substrateCfg, d.logger)
+		if err != nil {
+			d.logger.Warn("substrate initialization failed, disabling substrate",
+				"component", "daemon", "error", err)
+			disabledCfg := substrate.DefaultConfig()
+			sub, _ = substrate.New(disabledCfg, d.logger)
+		}
+		d.substrate = sub
+
+		if d.substrate.Enabled() {
+			d.logger.Info("substrate enabled", "component", "daemon")
+		}
+	}
+
 	// Initialise JWT validator if enabled.
 	// Reference: Tech Spec Section 6.6.
 	if cfg.Daemon.JWT.Enabled {
@@ -969,6 +1063,24 @@ func (d *Daemon) Stop() error {
 		// Stop health tracker.
 		if d.healthTracker != nil {
 			d.healthTracker.Stop()
+		}
+
+		// Stop BF-Sketch substrate and canonical pipeline.
+		if d.substrate != nil {
+			if err := d.substrate.Shutdown(); err != nil {
+				d.logger.Error("daemon: substrate shutdown error",
+					"component", "daemon",
+					"error", err,
+				)
+			}
+		}
+		if d.canonical != nil {
+			if err := d.canonical.Shutdown(); err != nil {
+				d.logger.Error("daemon: canonical shutdown error",
+					"component", "daemon",
+					"error", err,
+				)
+			}
 		}
 
 		// Stop agent gateway subsystems.
