@@ -145,6 +145,58 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 	// addSignatureAlgColumn stores the algorithm identifier (e.g. "ed25519").
 	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
 	addSignatureAlgColumn = `ALTER TABLE memories ADD COLUMN signature_alg TEXT NOT NULL DEFAULT ''`
+
+	// ── BF-Sketch substrate columns (BS.9) ──────────────────────────────
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.1.
+
+	// addSketchColumn stores the binary sketch (160 bytes at canonical_d=1024).
+	addSketchColumn = `ALTER TABLE memories ADD COLUMN sketch BLOB`
+
+	// addEmbeddingCiphertextColumn stores the AES-256-GCM encrypted embedding.
+	addEmbeddingCiphertextColumn = `ALTER TABLE memories ADD COLUMN embedding_ciphertext BLOB`
+
+	// addEmbeddingNonceColumn stores the 12-byte GCM nonce.
+	addEmbeddingNonceColumn = `ALTER TABLE memories ADD COLUMN embedding_nonce BLOB`
+
+	// createSubstrateRatchetStatesTable tracks ratchet history.
+	createSubstrateRatchetStatesTable = `CREATE TABLE IF NOT EXISTS substrate_ratchet_states (
+		state_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+		created_at     INTEGER NOT NULL,
+		shredded_at    INTEGER,
+		state_bytes    BLOB NOT NULL,
+		canonical_dim  INTEGER NOT NULL,
+		sketch_bits    INTEGER NOT NULL,
+		signature      BLOB NOT NULL
+	)`
+
+	// createSubstrateRatchetCreatedIndex indexes ratchet states by creation time.
+	createSubstrateRatchetCreatedIndex = `CREATE INDEX IF NOT EXISTS idx_substrate_ratchet_created ON substrate_ratchet_states(created_at)`
+
+	// createSubstrateMemoryStateTable maps memories to ratchet states.
+	createSubstrateMemoryStateTable = `CREATE TABLE IF NOT EXISTS substrate_memory_state (
+		memory_id TEXT PRIMARY KEY,
+		state_id  INTEGER NOT NULL,
+		FOREIGN KEY (state_id) REFERENCES substrate_ratchet_states(state_id)
+	)`
+
+	// createSubstrateMemoryStateIndex indexes by state_id for batch queries.
+	createSubstrateMemoryStateIndex = `CREATE INDEX IF NOT EXISTS idx_substrate_memory_state_state ON substrate_memory_state(state_id)`
+
+	// createSubstrateCanonicalWhiteningTable stores per-source whitening state.
+	createSubstrateCanonicalWhiteningTable = `CREATE TABLE IF NOT EXISTS substrate_canonical_whitening (
+		source_name  TEXT PRIMARY KEY,
+		sample_count INTEGER NOT NULL,
+		mean_vector  BLOB NOT NULL,
+		covariance_lr BLOB NOT NULL,
+		updated_at   INTEGER NOT NULL
+	)`
+
+	// createSubstrateCuckooFilterTable persists the cuckoo filter.
+	createSubstrateCuckooFilterTable = `CREATE TABLE IF NOT EXISTS substrate_cuckoo_filter (
+		filter_id      INTEGER PRIMARY KEY,
+		filter_bytes   BLOB NOT NULL,
+		last_persisted INTEGER NOT NULL
+	)`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -298,6 +350,38 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 	if _, err := d.db.Exec(addSignatureAlgColumn); err != nil {
 		_ = err // duplicate column — expected on existing databases
 	}
+
+	// Idempotent migration: add BF-Sketch substrate columns and tables.
+	// Existing rows keep NULL for sketch/ciphertext/nonce.
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.1.
+	if _, err := d.db.Exec(addSketchColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addEmbeddingCiphertextColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addEmbeddingNonceColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(createSubstrateRatchetStatesTable); err != nil {
+		return fmt.Errorf("destination: sqlite: create substrate_ratchet_states: %w", err)
+	}
+	if _, err := d.db.Exec(createSubstrateRatchetCreatedIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create substrate ratchet index: %w", err)
+	}
+	if _, err := d.db.Exec(createSubstrateMemoryStateTable); err != nil {
+		return fmt.Errorf("destination: sqlite: create substrate_memory_state: %w", err)
+	}
+	if _, err := d.db.Exec(createSubstrateMemoryStateIndex); err != nil {
+		return fmt.Errorf("destination: sqlite: create substrate memory state index: %w", err)
+	}
+	if _, err := d.db.Exec(createSubstrateCanonicalWhiteningTable); err != nil {
+		return fmt.Errorf("destination: sqlite: create substrate_canonical_whitening: %w", err)
+	}
+	if _, err := d.db.Exec(createSubstrateCuckooFilterTable); err != nil {
+		return fmt.Errorf("destination: sqlite: create substrate_cuckoo_filter: %w", err)
+	}
+
 	return nil
 }
 
