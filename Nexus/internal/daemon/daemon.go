@@ -196,6 +196,10 @@ type Daemon struct {
 	// Always initialized. Reference: AG.7.
 	activityLog *agent.ActivityLog
 
+	// healthTracker monitors agent liveness for health state transitions.
+	// Always initialized. Reference: AG.8.
+	healthTracker *agent.HealthTracker
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -231,6 +235,9 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 
 	// Agent activity log with 7-day retention (AG.7).
 	d.activityLog = agent.NewActivityLog(7*24*time.Hour, logger)
+
+	// Agent health tracker (AG.8).
+	d.healthTracker = agent.NewHealthTracker(logger)
 
 	return d
 }
@@ -940,6 +947,11 @@ func (d *Daemon) Stop() error {
 		// Stop activity log pruner.
 		if d.activityLog != nil {
 			d.activityLog.Stop()
+		}
+
+		// Stop health tracker.
+		if d.healthTracker != nil {
+			d.healthTracker.Stop()
 		}
 
 		// Stop the goroutine heartbeat supervisor.

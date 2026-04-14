@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/BubbleFish-Nexus/internal/agent"
 	_ "modernc.org/sqlite"
@@ -49,6 +50,7 @@ func runAgent(args []string) {
 		fmt.Fprintln(os.Stderr, "  show       show full details for an agent")
 		fmt.Fprintln(os.Stderr, "  suspend    suspend an agent (reject future writes)")
 		fmt.Fprintln(os.Stderr, "  retire     retire an agent (soft delete, preserve audit)")
+		fmt.Fprintln(os.Stderr, "  health     show health status for all agents")
 		os.Exit(1)
 	}
 
@@ -75,6 +77,8 @@ func runAgent(args []string) {
 			os.Exit(1)
 		}
 		runAgentRetire(args[1])
+	case "health":
+		runAgentHealth()
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish agent: unknown subcommand %q\n", args[0])
 		os.Exit(1)
@@ -238,4 +242,43 @@ func runAgentRetire(id string) {
 	}
 
 	fmt.Printf("bubblefish agent retire: ok — agent %s retired\n", id)
+}
+
+func runAgentHealth() {
+	reg, db := openAgentRegistry()
+	defer db.Close()
+
+	agents, err := reg.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish agent health: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(agents) == 0 {
+		fmt.Println("no agents registered")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "AGENT_ID\tNAME\tSTATUS\tHEALTH\tLAST SEEN")
+	for _, a := range agents {
+		lastSeen := "-"
+		health := "dormant"
+		if !a.LastSeenAt.IsZero() {
+			lastSeen = a.LastSeenAt.Format("2006-01-02 15:04:05")
+			elapsed := time.Since(a.LastSeenAt)
+			switch {
+			case elapsed >= 24*time.Hour:
+				health = "dormant"
+			case elapsed >= 1*time.Hour:
+				health = "inactive"
+			case elapsed >= 5*time.Minute:
+				health = "stale"
+			default:
+				health = "active"
+			}
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", a.ID, a.Name, a.Status, health, lastSeen)
+	}
+	w.Flush()
 }
