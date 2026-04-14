@@ -265,6 +265,9 @@ func (s *Substrate) ComputeAndStoreSketch(memoryID string, rawEmbedding []float6
 		return fmt.Errorf("substrate: commit: %w", err)
 	}
 
+	// Chaos kill point: DB committed but cuckoo not yet updated.
+	ChaosKillPoint("sketch_write")
+
 	// 6. Cuckoo insert
 	if err := s.cuckoo.Insert(memoryID); err != nil {
 		if err == ErrCuckooNeedsRebuild {
@@ -335,6 +338,9 @@ func (s *Substrate) ShredMemory(memoryID string) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("substrate: shred commit: %w", err)
 	}
+
+	// Chaos kill point: ciphertext cleared in DB but cuckoo still has the entry.
+	ChaosKillPoint("shred_after_clear")
 
 	s.cuckoo.Delete(memoryID)
 

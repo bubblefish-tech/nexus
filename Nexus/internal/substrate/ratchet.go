@@ -138,6 +138,9 @@ func (m *RatchetManager) Advance(reason string) (*RatchetState, error) {
 		return nil, fmt.Errorf("persist new ratchet state: %w", err)
 	}
 
+	// Chaos kill point: new state persisted but old state not yet shredded.
+	ChaosKillPoint("ratchet_advance_after_insert")
+
 	// Shred the old state in the DB
 	if err := m.shredState(old.StateID); err != nil {
 		return nil, fmt.Errorf("shred old ratchet state: %w", err)

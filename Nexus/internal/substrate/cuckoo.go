@@ -134,6 +134,9 @@ func (o *CuckooOracle) Persist(db *sql.DB) error {
 	data := o.filter.Encode()
 	o.mu.RUnlock()
 
+	// Chaos kill point: filter encoded but SQL write not yet executed.
+	ChaosKillPoint("cuckoo_persist")
+
 	_, err := db.Exec(`
 		INSERT INTO substrate_cuckoo_filter (filter_id, filter_bytes, last_persisted)
 		VALUES (1, ?, ?)
