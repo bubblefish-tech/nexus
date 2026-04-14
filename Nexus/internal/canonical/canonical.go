@@ -35,6 +35,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -213,7 +214,7 @@ func queryCacheKey(embedding []float64, source string) [32]byte {
 	h.Write([]byte{0}) // separator
 	buf := make([]byte, 8)
 	for _, v := range embedding {
-		binary.LittleEndian.PutUint64(buf, uint64(v))
+		binary.LittleEndian.PutUint64(buf, math.Float64bits(v))
 		h.Write(buf)
 	}
 	var key [32]byte
