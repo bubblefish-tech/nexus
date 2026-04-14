@@ -299,9 +299,29 @@ func (d *Daemon) Status(_ context.Context) (mcp.StatusResult, error) {
 	if d.queue != nil {
 		queueDepth = d.queue.Len()
 	}
+
+	cfg := d.getConfig()
+	var sourceNames []string
+	for _, s := range cfg.Sources {
+		sourceNames = append(sourceNames, s.Name)
+	}
+
+	var uptimeSeconds int64
+	if !d.startedAt.IsZero() {
+		uptimeSeconds = int64(time.Since(d.startedAt).Seconds())
+	}
+
 	return mcp.StatusResult{
 		Status:     "ok",
 		Version:    version.Version,
 		QueueDepth: queueDepth,
+		Daemon: mcp.StatusDaemon{
+			Version:       version.Version,
+			UptimeSeconds: uptimeSeconds,
+		},
+		Tools:    mcp.DefaultStatusTools(),
+		Profiles: mcp.DefaultStatusProfiles(),
+		Sources:  sourceNames,
+		Ingest:   mcp.StatusIngest{Enabled: !cfg.Ingest.KillSwitch && cfg.Ingest.Enabled},
 	}, nil
 }

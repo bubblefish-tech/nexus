@@ -4,182 +4,124 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## v0.1.3 — Moat Release (2026-04-12)
+## v0.1.3 — Memory Operating System (2026-04-14)
 
-Four moat phases + extreme durability hardening + viral differentiators.
+One memory pool for all your AI apps. Proactive ingestion, cryptographic provenance, bulk import, four moat phases, and extreme durability hardening.
+
+### Ingest (Proactive Ingestion)
+- **Filesystem watcher framework** with fsnotify, per-file debouncing (500ms), bounded parse worker pool (4 goroutines)
+- **Claude Code parser** — `~/.claude/projects/**/*.jsonl`, offset-based incremental parsing, handles string and array content formats
+- **Cursor parser** — `~/.cursor/chat-history/*.json`, whole-file hash comparison for rewrite detection
+- **Generic JSONL parser** — fallback for any `{role, content, timestamp}` JSONL file, user-configured paths
+- **Scaffolded parsers** for ChatGPT Desktop, Claude Desktop, LM Studio, Open WebUI, Perplexity Comet (detection and interface only; real parsers in v0.1.4)
+- **File position tracking** — `ingest_file_state` SQLite table persists (watcher, path, offset, hash) for crash-safe resume without re-ingesting
+- **Truncation detection** — SHA-256 hash of last 64 bytes detects file replacement or truncation, triggers full re-parse
+- **Path allowlist policy** — enterprise deployments can restrict which paths Ingest reads
+- **Security** — symlinks never followed, MaxFileSize (100MB) and MaxLineLength (4MB) enforced, read-only file handles only
+- **`bubblefish ingest status|pause|resume|reset`** CLI commands
+- **Prometheus metrics** — `nexus_ingest_ingestions_total`, `nexus_ingest_parse_errors_total`, `nexus_ingest_parse_duration_seconds`, `nexus_ingest_active_files`, `nexus_ingest_watchers_total`
+- **Config** — `[ingest]` TOML section with `enabled`, `kill_switch`, per-watcher toggles, `generic_jsonl_paths`
+
+### Importer (Bulk Historical Ingest)
+- **`bubblefish import <path>`** with auto-format detection
+- Supports Claude export ZIP, ChatGPT export ZIP, Claude Code project directories, Cursor directories, generic JSONL
+- Idempotent via existing content hash layer
+- `--dry-run`, `--source-name`, `--format` flags
+- Coming in v0.1.4: Slack exports, Codex CLI, LM Studio, Open WebUI bulk
 
 ### Phase 1 — Foundation Layer (Hardened)
-- **Group commit ring buffer** — single-consumer goroutine batches WAL writes with one fsync per batch. Configurable max_batch (256) and max_delay (500us).
-- **Dual integrity sentinels** — 8-byte start/end sentinels (BF/FB) on every WAL entry for torn-sector-write detection, in addition to CRC32.
-- **Incremental replay with consistent checkpoints** — checkpoint validation (CRC32 + state_hash + applied_count); any failure triggers full genesis replay.
-- **Audit log as WAL entry type** — `EntryTypeAudit` with group commit durability. `bubblefish audit export --format jsonl --since --until`.
-- **Bytes/sec rate limiting** — per-source token bucket with distinct 429 code `bytes_rate_limit_exceeded`.
-- **fsync verification on startup** — write/fsync/read-back test detects broken fsync (network storage, consumer SSDs). `bubblefish doctor --fsync-test`.
-- **Disk-full pre-batch reservation** — verifies (batch_size x max_entry_size) bytes available before every group commit. Pre-allocates next segment at 80% fill.
-- **Goroutine heartbeat supervisor** — 30s stall detection, stack dump to `logs/deadlock-*.log`, exit code 3.
-- **Monotonic sequence counter** — ordering independent of wall-clock time. Persisted across restarts.
-- **WAL zstd compression** — `github.com/klauspost/compress/zstd`. 3-5x size reduction. Auto-detected on replay; mixed segments work. Config: `compress_enabled = true`.
+- **Group commit ring buffer** — single-consumer goroutine batches WAL writes with one fsync per batch. Configurable max_batch (256) and max_delay (500us)
+- **Dual integrity sentinels** — 8-byte start/end sentinels (BF/FB) on every WAL entry for torn-sector-write detection, in addition to CRC32. Backward compatible with v0.1.2 entries. Fail-closed on corrupt sentinel. `SentinelFailures()` Prometheus counter
+- **Incremental replay with consistent checkpoints** — checkpoint validation (CRC32 + state_hash + applied_count); any failure triggers full genesis replay
+- **Audit log as WAL entry type** — `EntryTypeAudit` with group commit durability. `bubblefish audit export --format jsonl --since --until`
+- **Bytes/sec rate limiting** — per-source token bucket with distinct 429 code `bytes_rate_limit_exceeded`
+- **fsync verification on startup** — write/fsync/read-back test detects broken fsync (network storage, consumer SSDs). `bubblefish doctor --fsync-test`
+- **Disk-full pre-batch reservation** — verifies (batch_size x max_entry_size) bytes available before every group commit. Pre-allocates next segment at 80% fill
+- **Goroutine heartbeat supervisor** — `internal/supervisor` package. 30s stall detection, stack dump to `logs/deadlock-*.log`, exit code 3. Graceful shutdown suppresses stall detection during drain
+- **Monotonic sequence counter** — `internal/seq` package. Atomic int64 ordering independent of wall-clock time. Persisted to `$BUBBLEFISH_HOME/seq.state` on shutdown
+- **WAL zstd compression** — 3-5x size reduction. Auto-detected on replay; mixed segments work. Config: `compress_enabled = true`
+- **WAL watchdog heartbeat fix** — moved heartbeat inside ticker case to prevent false supervisor kill (`61d37bd`)
 
 ### Phase 2 — Trust Boundary Layer
-- **Tier partitions** — `tier` column (0-3) with SQL-layer `AND tier <= ?` enforcement.
-- **LSH tier-scoped buckets** — per-tier seeds, cross-tier collision impossible.
-- **Review token classes** — `bfn_review_list_` and `bfn_review_read_` with constant-time comparison.
-- **Per-tier rate limiting** — `[[daemon.tiers]]` config with source > tier > global precedence.
-- **Embedding validation envelope** — shape check, content-hash, provider stamping, 3-sigma drift detection, fresh baseline rule (1000 warmup).
-- **Secrets directory** — `~/.bubblefish/Nexus/secrets/` (0700), atomic writes (0600), path traversal guard.
+- **Tier partitions** — `tier` column (0-3) with SQL-layer `AND tier <= ?` enforcement. Non-destructive migration. Admin tokens bypass; source tokens see only `tier <= source.Tier`
+- **LSH tier-scoped buckets** — `internal/lsh` package. Per-tier seeds (32 bytes each, persisted at 0600), 16-hyperplane SimHash. Cross-tier collision impossible by construction
+- **Review token classes** — `bfn_review_list_` and `bfn_review_read_` with constant-time comparison. `GET /api/review/quarantine` and `GET /api/review/quarantine/{id}`
+- **Per-tier rate limiting** — `[[daemon.tiers]]` config blocks with `level`, `requests_per_minute`, `bytes_per_second`. Precedence: source > tier > global
+- **Embedding validation envelope** — shape check, content-hash integrity, provider-identity stamping, 3-sigma Welford drift detection, fresh baseline rule (1000 warmup), quarantine state
+- **Secrets directory** — `internal/secrets` package. `$BUBBLEFISH_HOME/secrets/` (0700), atomic temp-file + rename (0600), path traversal guard
 
 ### Phase 3 — Cluster Mechanism
-- **SimHash LSH prefilter** — 16 hyperplanes per tier, bucket ID as 16-bit integer.
-- **Cluster columns** — `cluster_id`, `cluster_role` (primary/member/superseded), `lsh_bucket` with indexes.
-- **Async cluster assignment** — cosine similarity >= 0.92, cluster cap 16, deterministic overflow by timestamp, never spans tiers.
-- **Cluster-aware retrieval** — `cluster-aware` profile with `_nexus.conflict` and `_nexus.cluster_expanded` metadata fields.
+- **SimHash LSH prefilter** — 16 hyperplanes per tier, bucket ID as 16-bit integer
+- **Cluster columns** — `cluster_id`, `cluster_role` (primary/member/superseded), `lsh_bucket` with indexes
+- **Async cluster assignment** — cosine similarity >= 0.92, cluster cap 16, deterministic overflow by timestamp, never spans tiers
+- **Cluster-aware retrieval** — `cluster-aware` profile with `_nexus.conflict` and `_nexus.cluster_expanded` metadata fields
 
 ### Phase 4 — Cryptographic Provenance
-- **Per-source Ed25519 keys** — `[source.signing] mode = "local"`, key rotation chain. CLIs: `bubblefish source rotate-key`, `bubblefish source pubkey`.
-- **Signed write envelopes** — Ed25519 signature over `{source_name, timestamp, idempotency_key, content_hash}`. Daemon signs on write path.
-- **Hash-chained audit log** — genesis entry with daemon identity, `prev_audit_hash` chain, fail-closed on mismatch (exit code 2).
-- **`bubblefish audit recover`** — forensic inspection of corrupted chain, truncate-or-abort operator choice.
-- **Automatic MCP idempotency** — `SHA-256(session_id || content || timestamp_second)` auto-generated for `nexus_write` calls without explicit key.
-- **Verify endpoint + CLI** — `GET /verify/{memory_id}` returns proof bundle. `bubblefish verify <proof.json>` with parallel chain verification.
-- **Python verifier** — `tools/verify-python/verify.py`, independent implementation proving the proof format is spec, not trick.
-- **Daily Merkle root** — midnight UTC computation, daemon-signed, persisted to `data/merkle-roots/`. `bubblefish anchor setup --gist` for external anchoring.
-- **Query attestation** — `POST /api/prove` returns daemon-signed proof of query result set.
-- **Timeline command** — `bubblefish timeline <memory_id>` for forensic audit history.
-- **Dashboard Proofs tab** — live chain status, verification, proof export.
-- **60-second cross-vendor demo** — `examples/cryptographic-provenance/` with demo.sh, demo.ps1, agent configs.
+- **Per-source Ed25519 keys** — `[source.signing] mode = "local"`, key rotation chain. CLIs: `bubblefish source rotate-key`, `bubblefish source pubkey`
+- **Signed write envelopes** — Ed25519 signature over `{source_name, timestamp, idempotency_key, content_hash}`. Daemon signs on write path
+- **Hash-chained audit log** — genesis entry with daemon identity, `prev_audit_hash` chain, fail-closed on mismatch (exit code 2)
+- **`bubblefish audit recover`** — forensic inspection of corrupted chain, truncate-or-abort operator choice
+- **Automatic MCP idempotency** — `SHA-256(session_id || content || timestamp_second)` auto-generated for `nexus_write` calls without explicit key
+- **Verify endpoint + CLI** — `GET /verify/{memory_id}` returns proof bundle. `bubblefish verify <proof.json>` with parallel chain verification
+- **Python verifier** — `tools/verify-python/verify.py`, independent implementation proving the proof format is spec, not trick
+- **Daily Merkle root** — midnight UTC computation, daemon-signed, persisted to `data/merkle-roots/`. `bubblefish anchor setup --gist` for external anchoring
+- **Query attestation** — `POST /api/prove` returns daemon-signed proof of query result set
+- **Timeline command** — `bubblefish timeline <memory_id>` for forensic audit history
+- **Dashboard Proofs tab** — live chain status, verification, proof export
+- **60-second cross-vendor demo** — `examples/cryptographic-provenance/` with demo.sh, demo.ps1, agent configs
 
-### Viral Features + Testing Infrastructure
-- **`bubblefish chaos`** — fault injection tool. Concurrent writers + random faults (network timeout, connection reset, write burst). Measures data loss. Machine-readable JSON report.
-- **`bubblefish simulate`** — FoundationDB-style deterministic testing. Real WAL + real SQLite in temp dirs. Seeded fault injection (crash recovery, write delays). `--seed N` for reproduction.
-- **`bubblefish sentinel`** — continuous drift detection. Samples delivered entries, verifies existence in destination. Prometheus metrics. Wirable as daemon goroutine.
-- **Pluggable audit sinks** — syslog (RFC 5424 over UDP/TCP), Fluent Bit (JSON forward protocol), OpenTelemetry (OTLP/HTTP JSON). No new dependencies.
-- **`bubblefish backup verify`** — full checksum verification against manifest without restoring.
-- **`bubblefish destination rebuild`** — replays WAL into fresh destination. Documented recovery for destination corruption.
-- **OAuth routes unregistered when disabled** — zero disabled-code attack surface.
+### Agent Gateway (AG.1–AG.8)
+- **Agent identity and registration** — `agents` SQLite table, UUID-based identity, `bubblefish agent register|list|suspend|retire|show` CLI
+- **Agent session management** — in-memory session tracking per agent, idle timeout, `GET /api/agents/{id}/sessions`, Prometheus gauge
+- **Credential gateway** — synthetic API keys (`bfn_sk_`) route to real provider keys. OpenAI-compatible `/v1/chat/completions` and Anthropic-compatible `/v1/messages` proxy endpoints. Model allowlist, per-key rate limiting, streaming passthrough. Real keys never in logs
+- **Tool-use policy enforcement** — per-agent tool allowlist/denylist in agent TOML, parameter limits (max_content_bytes, max_limit, allowed_profiles), hot-reloadable
+- **Agent-to-agent coordination** — `agent_broadcast`, `agent_pull_signals`, `agent_status_query` MCP tools. Ephemeral signal queue (max 1000) with optional persistent signals via WAL
+- **Per-agent rate limiting and quotas** — requests/min, bytes/sec, writes/day, tool_calls/day per agent TOML. Quota state persisted hourly, resets at UTC midnight
+- **Agent activity telemetry** — `EntryTypeAgentActivity` WAL entry, `GET /api/agents/{id}/activity`, dashboard Agents tab, 7-day retention with background pruning
+- **Agent health and lifecycle** — heartbeat tracking (inferred from requests), stale/inactive/dormant state transitions, `bubblefish agent health` CLI, dashboard color-coded status
 
----
+### Chaos A+B Verification
+- Two complementary verification paths: direct SQLite DB read (ground truth) + admin API cursor walk
+- New `GET /admin/memories` endpoint with stable `(created_at, payload_id)` tuple cursor
+- Cross-check distinguishes durability bugs, read-path bugs, phantom data, cursor instability
+- `waitForDrain()` polls queue depth before verification to prevent false positives
+- Required `-db` flag pointing at memories.db; removes old `-destination` flag
 
-## v0.1.3 — Phase 2: Trust Boundary Layer
+### Testing Infrastructure
+- **`bubblefish chaos`** — fault injection tool. Concurrent writers + random faults (network timeout, connection reset, write burst). Machine-readable JSON report with A+B cross-check
+- **`bubblefish simulate`** — FoundationDB-style deterministic testing. Real WAL + real SQLite in temp dirs. Seeded fault injection. `--seed N` for reproduction
+- **`bubblefish sentinel`** — continuous drift detection. Samples delivered entries, verifies existence in destination. Prometheus metrics
+- **Pluggable audit sinks** — syslog (RFC 5424), Fluent Bit (JSON forward), OpenTelemetry (OTLP/HTTP JSON). No new dependencies
+- **`bubblefish backup verify`** — full checksum verification against manifest
+- **`bubblefish destination rebuild`** — replays WAL into fresh destination
 
-### Added — Phase 2.1 (Tier Partitions with SQL-layer Enforcement)
-- `tier` column (INTEGER, 0-3, default 1) on all memory entries.
-- Non-destructive migration via `ALTER TABLE memories ADD COLUMN tier`.
-- SQL `AND tier <= ?` in every query WHERE clause — enforcement is in the
-  database engine, not post-filter. Eliminates timing side-channels.
-- Source `tier` field (0-3, default 3 = unrestricted) and
-  `default_write_tier` field (0-3, default 1) in source TOML.
-- Admin tokens bypass tier filtering; source tokens see only `tier <= source.Tier`.
-- Full test coverage in `internal/destination/tier_test.go`.
+### Other
+- **`nexus_status` MCP auto-teaching tool** — returns daemon version, available tools with examples, retrieval profiles, active sources, and ingest state in one call
+- **`wake` retrieval profile** — alias for `fast` with `top_k=20`, tuned for low-latency critical-context loading (~170 tokens)
+- **Release rehearsal scripts** — `scripts/release/rehearsal.ps1`, `capture_benchmark.ps1`, `capture_chaos.ps1`, `sign_artifacts.ps1`
+- **OAuth routes unregistered when disabled** — zero disabled-code attack surface
+- **Test deadline flush tolerance** — increased to 500ms for Windows scheduler (`ac991b6`)
 
-### Added — Phase 2.2 (LSH Tier-Scoped Seeds)
-- `internal/lsh` package: `TierSeeds`, `LoadOrGenerate`, `HyperplaneVectors`,
-  `BucketID` — 16-hyperplane SimHash foundation for Phase 3.
-- Seeds are per-tier (0-3), 32 bytes each, persisted in
-  `$BUBBLEFISH_HOME/secrets/lsh-tier-N.seed` (0600).
-- Same content in different tiers always maps to different bucket IDs
-  (cross-tier collision impossible by construction).
+### Security (OAuth 2.1 Hardening)
+- **Consent page XSS fixed** — untrusted OAuth query parameters migrated from `fmt.Fprintf` to `html/template`. All user-supplied values HTML-escaped
+- **CORS on OAuth endpoints** — `Access-Control-Allow-Origin` headers on all `/oauth/*` and `/.well-known/oauth-*` endpoints
+- `scopes_supported` in OAuth server metadata, `OPTIONS` preflight on all OAuth endpoints
+- `handleAllow` and `handleDeny` now strictly validate `state` and `code_challenge` presence
 
-### Added — Phase 2.3 (Review Token Classes)
-- `bfn_review_list_` token class: list quarantined memory IDs
-  (`GET /api/review/quarantine`).
-- `bfn_review_read_` token class: read content of specific quarantined IDs
-  (`GET /api/review/quarantine/{id}`).
-- Both classes constant-time compared in the auth path.
-- Both return 401 `wrong_token_class` on all other endpoints.
-- Config: `[daemon.review] list_token` and `read_token`.
-- For the Phase 5 governance UI.
+### Release (Shawn)
+- **RL.2** — 24-hour chaos run with Ingest active (release gate, Sunday night)
+- **SX.5** — Discord server live with #general, #install-help, #showcase, #bugs, #roadmap channels. Invite link in README
+- **RL.3** — Tag v0.1.3, build binaries for Windows/macOS(Intel+ARM)/Linux, GitHub release page with SHA-256 checksums and Ed25519-signed artifacts
+- **SX.4** — Python pipx launcher at `python/bubblefish_nexus/` (deferred until after RL.3 — wrapper needs release download URL)
+- **RL.4** — HN post (Tuesday 7am Pacific), LinkedIn (Wednesday), r/LocalLLaMA and r/programming cross-posts
 
-### Added — Phase 2.4 (Per-Tier Rate Limiting)
-- `[[daemon.tiers]]` config blocks with `level`, `requests_per_minute`,
-  `bytes_per_second` fields.
-- Precedence chain: source config → tier config → global config.
-- Source-level overrides take priority; tier fills the gap between global and per-source.
-
-### Added — Phase 2.5 (Embedding Validation Envelope)
-- `embeddingValidator` in daemon package (internal):
-  - **Shape check**: validates `len(embedding) == configured_dimensions`.
-  - **Content-hash integrity**: SHA-256 of content text stamped on every entry.
-  - **Provider-identity stamping**: records which provider generated the embedding.
-  - **Drift detection**: Welford online variance, 3-sigma threshold per provider.
-  - **Fresh baseline rule**: first 1000 embeddings per provider never trigger alarm.
-  - **Quarantine state**: in-memory map exposed via `/api/review/quarantine`.
-
-### Added — Phase 2.6 (Secrets Directory)
-- `internal/secrets` package: `Open`, `LoadOrGenerateLSHSeed`,
-  `LoadOrGenerateAllLSHSeeds`, `WriteSecret`, `ReadSecret`.
-- Directory created at `$BUBBLEFISH_HOME/secrets/` with 0700 permissions.
-- All secret files written at 0600 via atomic temp-file + rename.
-- Path traversal guard: rejects names containing path separators.
+### Measured (fill in after release rehearsal)
+- Writes: TBD/sec steady state, p99 TBD ms
+- Queries: TBD/sec steady state, p99 TBD ms
+- Resident: ~TBD MB after 10K writes + 10K reads
+- Chaos: TBD kill-9 iterations, zero data loss
 
 ---
-
-## v0.1.3 — Phase 1.5: Critical Hardening
-
-### Added — Phase 1.5 (Subtask 1.5: Dual Integrity Sentinels)
-- 8-byte start sentinel (`BFBFBFBFBFBFBFBF`) and end sentinel
-  (`FBFBFBFBFBFBFBFB`) on every WAL entry for torn-sector-write detection.
-- Backward compatible: replay auto-detects old-format entries (v0.1.2 and
-  Phase 1 entries load cleanly).
-- Fail-closed: missing or corrupt end sentinel rejects the entry
-  unconditionally.
-- `SentinelFailures()` Prometheus counter for monitoring.
-
-### Added — Phase 1.5 (Subtask 1.8: Goroutine Heartbeat Supervisor)
-- `internal/supervisor` package with per-goroutine heartbeat tracking.
-- Monitors group commit consumer, queue workers, and WAL watchdog.
-- On stall (30s without heartbeat): logs fatal, dumps all goroutine stacks
-  to `logs/deadlock-<timestamp>.log`, exits with code 3.
-- Converts silent deadlock into visible crash + systemd restart.
-- Graceful shutdown suppresses stall detection during drain.
-
-### Added — Phase 1.5 (Subtask 1.9: Monotonic Sequence Counter)
-- `internal/seq` package with atomic int64 counter for ordering WAL entries
-  independently of wall-clock time.
-- `MonotonicSeq` field on WAL entries, assigned on every Append.
-- Persisted to `$BUBBLEFISH_HOME/seq.state` on shutdown, restored on start
-  as `max(persisted, highest_seq_in_wal) + 1`.
-- `TODO(monotonic)` audit comments at ordering-ambiguous timestamp sites.
-- No ordering-sensitive wall-clock comparisons found in current codebase.
-
----
-
-## v0.1.3 — OAuth 2.1 Hardening
-
-### Added
-- `internal/oauth/cors.go` — shared CORS helper for all OAuth endpoints,
-  enabling browser-based OAuth clients (Claude Web UI, SPAs).
-- `docs/OAUTH_KNOWN_LIMITATIONS.md` — honest documentation of per-client
-  source mapping deferral, JWT revocation window, and single-tenant
-  assumption.
-- `scopes_supported` field in OAuth server metadata response.
-- `OPTIONS` preflight handling on all `/oauth/*` and
-  `/.well-known/oauth-*` endpoints.
-
-### Changed
-- `internal/oauth/authorize.go` — consent page rendering migrated from
-  `fmt.Fprintf` with raw `%s` to `html/template`, HTML-escaping all
-  untrusted query parameters. Consent page footer now reads the version
-  from `internal/version` instead of a hardcoded string.
-- `handleAllow` and `handleDeny` now strictly validate `state` and
-  `code_challenge` presence, matching `handleAuthorize` strictness.
-
-### Security
-- **HIGH — Consent page XSS fixed.** Untrusted OAuth query parameters
-  (`state`, `redirect_uri`, `code_challenge`, `scope`) were rendered into
-  the consent page via `fmt.Fprintf` with no HTML escaping. A malicious
-  OAuth flow with a crafted `state` parameter could execute arbitrary
-  JavaScript in the context of the consent page origin. Fixed by
-  migrating to `html/template`.
-- **MEDIUM — CORS on OAuth endpoints.** OAuth endpoints did not emit
-  `Access-Control-Allow-Origin` headers, silently blocking browser-based
-  OAuth clients. Fixed with a shared CORS helper applied to all
-  handlers.
-
-### Unchanged
-- `bfn_mcp_` static bearer auth — byte-identical behavior.
-- `?key=` query parameter fallback — byte-identical behavior.
-- MCP JSON-RPC protocol, tools, CORS on `/mcp`, SSE transport, stdio
-  bridge — all unchanged.
 
 ## [0.1.2] — 2026-04-07
 
@@ -209,27 +151,6 @@ Four moat phases + extreme durability hardening + viral differentiators.
 
 Initial public release.
 
-### Pre-Launch Polish (v0.1.0)
-
-**Test reliability:**
-- Replaced timing-based constant-time auth tests with structural verification (eliminated 3 flaky tests sensitive to OS scheduler noise)
-- Converted firewall benchmark assertion to a proper Go benchmark with separate correctness test
-- Made TestThroughputStability opt-in via NEXUS_RUN_FLAKY=1 environment variable
-
-**Reliability fixes:**
-- Windows WAL rename race in MarkDelivered was already fixed via fsutil.RobustRename (retry-on-sharing-violation logic with exponential backoff)
-
-**Performance:**
-- Added SQLite indexes for namespace/destination/timestamp and subject/timestamp query patterns
-- Cached firewall string sets at config-load time, removing per-request allocation from the read hot path
-
-**Code clarity:**
-- Documented the durability contract on WAL fsync (why batched fsyncs must not be used)
-- Documented the bounded-key invariant on the rate limiter map
-- Documented the O(N) audit reader characteristic and its bounds
-- Documented the MarkDelivered hot-path warning to use MarkDeliveredBatch
-- Documented the WAL 10MB scanner buffer allocation rationale
-
 ### Added
 
 - **Core daemon** with 3-stage graceful shutdown (HTTP stop, queue drain, WAL close)
@@ -254,17 +175,11 @@ Initial public release.
 - **Provenance fields** — `actor_type` (user/agent/system) + `actor_id` on every write
 - **MCP server** — JSON-RPC 2.0 (`nexus_write`, `nexus_search`, `nexus_status`) for Claude Desktop and Cursor
 - **Web dashboard** — admin-authenticated UI with security tab, metrics, and pipeline visualization
-- **Security tab** — source policies, auth failure history, lint findings in dashboard
-- **Live pipeline visualization** — lossy event channel, never blocks hot paths
 - **Structured security events** — dedicated security event log for SIEM integration
-- **Security metrics** — auth failures, policy denials, rate limits, admin call counts
 - **Prometheus metrics** — daemon up, queue depth, request duration, cache hit/miss rates
 - **Health doctor** — disk space, database connectivity, embedding provider checks
 - **Simple mode install** — `bubblefish install --mode simple` for zero-friction setup
-- **Install profiles** — Open WebUI, PostgreSQL, OpenBrain starter configs
 - **`bubblefish dev`** — daemon with debug logging and auto-reload
-- **`bubblefish build`** — compile policies and validate configuration
-- **`bubblefish lint`** — check configuration for dangerous or suboptimal settings
 - **`bubblefish backup`** — create and restore backups of config, WAL, and database
 - **`bubblefish bench`** — throughput, latency, and retrieval evaluation benchmarks
 - **`bubblefish demo`** — reliability demo with 50-memory crash-recovery scenario
@@ -272,13 +187,9 @@ Initial public release.
 - **Consistency assertions** — background WAL-to-destination consistency checks
 - **WAL health watchdog** — background disk/permissions/latency monitoring
 - **Blessed integration configs** — pre-built templates for Claude Code, Claude Desktop, Open WebUI, Perplexity
-- **Reference architectures** — dev laptop, home lab, air-gapped deployment docs
 - **TLS/mTLS support** — optional TLS with configurable cert, key, and client CA
-- **Trusted proxies** — CIDR allowlist with forwarded header parsing
 - **Event sink (webhooks)** — optional async webhook notifications from WAL
-- **Debug stages** — optional `_nexus.debug` response block with admin auth
-- **System tray** — Windows tray icon with status and dashboard launch (headless Linux: graceful skip)
-- **Threat model** — documented in THREAT_MODEL.md
+- **System tray** — Windows tray icon with status and dashboard launch
 
 ### Known Issues
 

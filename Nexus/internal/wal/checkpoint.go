@@ -33,6 +33,7 @@ const (
 	EntryTypeData       = ""           // default — regular data entries
 	EntryTypeCheckpoint = "checkpoint" // checkpoint marker
 	EntryTypeAudit      = "audit"      // audit/interaction log entry
+	EntryTypeSignal     = "signal"     // agent coordination signal (AG.5)
 )
 
 // CheckpointData is the payload stored inside a checkpoint WAL entry.

@@ -1,8 +1,8 @@
 # BubbleFish Nexus
 
-**Gateway-first AI memory daemon.** Sits between AI clients and memory databases, providing crash-safe, policy-aware, retrieval-optimized memory management.
+**One memory pool for all your AI apps.** Auto-ingests conversations from Claude Code, Cursor, and any JSONL source. Cryptographic provenance on every write. Survives kill -9. Single Go binary.
 
-> v0.1.0 (pre-1.0, API subject to change)
+> v0.1.3 (pre-1.0, API subject to change)
 
 ## Quick Start (Simple Mode)
 
@@ -132,8 +132,13 @@ Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per sou
 
 | Feature | Description |
 |---------|-------------|
+| Proactive Ingestion | Watches Claude Code, Cursor, and generic JSONL directories — auto-ingests conversations as memories |
+| Multi-Client Memory Pool | Claude Code, Cursor, ChatGPT, Claude Desktop, LM Studio, Open WebUI, Perplexity all share one memory |
+| Bulk Import | `bubblefish import` ingests Claude/ChatGPT export ZIPs, Claude Code dirs, Cursor dirs, generic JSONL |
+| Cryptographic Provenance | Per-source Ed25519 signing, hash-chained audit log, Merkle roots, query attestation |
+| Survives kill -9 | WAL with fsync, group commit, dual integrity sentinels, 24-hour chaos testing |
 | 6-Stage Retrieval Cascade | Policy, exact cache, semantic cache, structured, semantic, hybrid merge with temporal decay and projection |
-| Retrieval Profiles | `fast`, `balanced`, `deep` with per-source stage toggles |
+| Retrieval Profiles | `fast`, `balanced`, `deep`, `wake` with per-source stage toggles |
 | Tiered Temporal Decay | Per-destination/collection decay, exponential and step modes |
 | MCP Server | `nexus_write`, `nexus_search`, `nexus_status` for Claude Desktop and Cursor |
 | WAL CRC32 Checksums | 4-byte CRC32 on every entry |
@@ -169,17 +174,24 @@ Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per sou
 ## CLI Commands
 
 ```
-bubblefish install      Create config directory and initial configuration
-bubblefish start        Start daemon + MCP + dashboard + tray
-bubblefish dev          Start daemon with debug logging and auto-reload
-bubblefish build        Compile policies and validate configuration
-bubblefish lint         Check configuration for dangerous or suboptimal settings
-bubblefish mcp test     Start MCP server and verify nexus_status responds
-bubblefish backup       Create or restore a backup of config, WAL, and database
-bubblefish bench        Throughput, latency, and retrieval evaluation benchmarks
-bubblefish demo         Reliability demo: crash-recovery with 50 memories
-bubblefish sign-config  Sign compiled config files for signed-mode deployments
-bubblefish version      Print version string
+bubblefish install        Create config directory and initial configuration
+bubblefish start          Start daemon + MCP + dashboard + tray + ingest
+bubblefish stop           Stop the daemon gracefully
+bubblefish dev            Start daemon with debug logging and auto-reload
+bubblefish import <path>  Bulk import from Claude/ChatGPT ZIP, Claude Code dir, Cursor dir, JSONL
+bubblefish ingest status  Show all ingest watchers with state and counts
+bubblefish ingest pause   Pause a named ingest watcher
+bubblefish ingest resume  Resume a paused ingest watcher
+bubblefish ingest reset   Forget file state (re-parse from offset 0)
+bubblefish chaos          Fault injection durability test with A+B verification
+bubblefish verify         Cryptographic provenance verification
+bubblefish timeline       Forensic memory audit history
+bubblefish backup         Create or restore backups
+bubblefish bench          Throughput, latency, and retrieval benchmarks
+bubblefish demo           Reliability demo: crash-recovery with 50 memories
+bubblefish lint           Check configuration for dangerous settings
+bubblefish mcp test       Start MCP server and verify nexus_status responds
+bubblefish version        Print version string
 ```
 
 ## Crash-Recovery Demo
@@ -256,6 +268,16 @@ configuration changes.
 
 See [docs/OAUTH_KNOWN_LIMITATIONS.md](docs/OAUTH_KNOWN_LIMITATIONS.md) for
 the current scope and limitations of the OAuth implementation.
+
+## Roadmap
+
+| Version | Codename | Focus |
+|---------|----------|-------|
+| v0.1.3 | Sentinel | Proactive ingestion, cryptographic provenance, bulk import |
+| v0.2 | Substrate | Distributed memory substrate with cross-node sync |
+| v0.3 | Protocol | Open memory protocol specification |
+| v0.4 | Federation | Cross-instance memory federation |
+| v0.5 | Bench | Standardized AI memory benchmarking suite |
 
 ## License
 

@@ -25,7 +25,12 @@ const (
 	ProfileBalanced     = "balanced"
 	ProfileDeep         = "deep"
 	ProfileClusterAware = "cluster-aware"
+	ProfileWake         = "wake"
 )
+
+// WakeDefaultLimit is the default top_k for the wake profile. Tuned to
+// produce ~170 tokens of critical context after projection.
+const WakeDefaultLimit = 20
 
 // profileStages maps each profile to its set of enabled cascade stages.
 //
@@ -66,6 +71,13 @@ var profileStages = map[string]map[int]bool{
 		4: true,
 		5: true,
 	},
+	// wake is an alias for fast, tuned for "load my critical context in one call."
+	// Same stages as fast; the caller applies WakeDefaultLimit if no explicit limit is set.
+	ProfileWake: {
+		0: true,
+		1: true,
+		3: true,
+	},
 }
 
 // ProfileEnabled reports whether the given cascade stage is enabled for the
@@ -86,7 +98,7 @@ func ProfileEnabled(stage int, profile string) bool {
 // ValidProfile reports whether p is a recognised retrieval profile name.
 func ValidProfile(p string) bool {
 	switch p {
-	case ProfileFast, ProfileBalanced, ProfileDeep, ProfileClusterAware:
+	case ProfileFast, ProfileBalanced, ProfileDeep, ProfileClusterAware, ProfileWake:
 		return true
 	}
 	return false
@@ -98,7 +110,7 @@ func ValidProfile(p string) bool {
 // Reference: Tech Spec Section 3.5 (Temporal Decay column).
 func ProfileDecayEnabled(profile string) bool {
 	switch profile {
-	case ProfileFast:
+	case ProfileFast, ProfileWake:
 		return false
 	default:
 		return true

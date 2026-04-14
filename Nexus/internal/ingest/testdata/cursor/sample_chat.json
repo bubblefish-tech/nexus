@@ -1,0 +1,10 @@
+{
+  "id": "chat-001",
+  "title": "Go concurrency patterns",
+  "messages": [
+    {"role": "user", "content": "Explain goroutines vs threads", "timestamp": "2026-04-10T10:00:00.000Z"},
+    {"role": "assistant", "content": "Goroutines are lightweight green threads managed by the Go runtime. They use a segmented stack that starts small (a few KB) and grows as needed, unlike OS threads which typically allocate 1-8 MB of stack space.", "timestamp": "2026-04-10T10:00:05.000Z"},
+    {"role": "user", "content": "What about channels?", "timestamp": "2026-04-10T10:01:00.000Z"},
+    {"role": "assistant", "content": "Channels are Go's primary synchronization primitive. They provide typed, thread-safe communication between goroutines.", "timestamp": "2026-04-10T10:01:03.000Z"}
+  ]
+}

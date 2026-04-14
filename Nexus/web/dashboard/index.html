@@ -1865,6 +1865,9 @@ body{
     <button class="nav-btn" data-view="proofs" data-tip="Proofs">
       <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
     </button>
+    <button class="nav-btn" data-view="agents" data-tip="Agents">
+      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </button>
     <button class="nav-btn" data-view="settings" data-tip="Effective Config">
       <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
     </button>
@@ -2313,6 +2316,35 @@ body{
           <div class="empty-state">loading effective config…</div>
         </div>
         <div class="cfg-readonly-note">read-only · edit <code>daemon.toml</code> on disk and restart the daemon to apply changes</div>
+      </div>
+    </div>
+
+    <!-- ════════════ AGENTS VIEW ════════════ -->
+    <div class="view" id="view-agents">
+      <div class="view-pad">
+        <div class="page-head">
+          <div class="page-head-l">
+            <div class="page-title">
+              <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Agent Gateway
+            </div>
+            <div class="page-sub">Registered agents, sessions, and activity</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head">Registered Agents</div>
+          <div class="card-body" id="agentsTable">
+            <div class="empty-state">Agent data will appear when the daemon has agents registered.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">Recent Activity</div>
+          <div class="card-body" id="agentsActivity">
+            <div class="empty-state">Activity events will appear as agents make requests.</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -3314,6 +3346,65 @@ const settingsView = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════════
+   AGENTS VIEW (AG.7/AG.8)
+═══════════════════════════════════════════════════════════════════ */
+const agentsView = (() => {
+  let timer = null;
+
+  const healthColor = (h) => {
+    switch(h) {
+      case 'active':   return 'var(--green)';
+      case 'stale':    return 'var(--amber)';
+      case 'inactive': return 'var(--red)';
+      case 'dormant':  return 'var(--text-tertiary)';
+      default:         return 'var(--text-dim)';
+    }
+  };
+
+  const healthLabel = (lastSeen) => {
+    if (!lastSeen) return 'dormant';
+    const elapsed = Date.now() - new Date(lastSeen).getTime();
+    if (elapsed < 5 * 60000)     return 'active';
+    if (elapsed < 60 * 60000)    return 'stale';
+    if (elapsed < 24 * 3600000)  return 'inactive';
+    return 'dormant';
+  };
+
+  async function refresh() {
+    const status = await nx.fetch('/api/status');
+    if (!status) return;
+
+    const agentsEl = $('agentsTable');
+    const activityEl = $('agentsActivity');
+
+    // Fetch agents list (if the daemon exposes it via status or a dedicated endpoint).
+    // For now, show a summary from status if available, or indicate no agents.
+    if (agentsEl) {
+      // Try the admin list; the daemon may not expose /api/agents yet.
+      // We show whatever we can from the status endpoint.
+      agentsEl.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:12px">
+          <div class="stat-box"><div class="stat-val">${fmt.num(status.queue_depth)}</div><div class="stat-label">queue depth</div></div>
+          <div class="stat-box"><div class="stat-val">${status.version || DASH}</div><div class="stat-label">version</div></div>
+        </div>
+        <div class="empty-state" style="margin-top:12px">
+          Use <code>bubblefish agent list</code> to see registered agents.
+          Activity and session data appears when agents make requests via the MCP layer.
+        </div>`;
+    }
+
+    if (activityEl) {
+      activityEl.innerHTML = '<div class="empty-state">Activity events stream here when agents call MCP tools (nexus_write, nexus_search, agent_broadcast).</div>';
+    }
+  }
+
+  return {
+    mount()   { refresh(); timer = setInterval(refresh, CONFIG.REFRESH_MS); },
+    unmount() { clearInterval(timer); timer = null; }
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
    ROUTER
 ═══════════════════════════════════════════════════════════════════ */
 const router = (() => {
@@ -3323,6 +3414,7 @@ const router = (() => {
     security:  securityView,
     pipeline:  pipelineView,
     conflicts: conflictsView,
+    agents:    agentsView,
     settings:  settingsView
   };
   let current = null;
