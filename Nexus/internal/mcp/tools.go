@@ -183,8 +183,8 @@ type propDef struct {
 	Description string `json:"description"`
 }
 
-// toolList returns the three MCP tool definitions.
-// Reference: Tech Spec Section 14.3.
+// toolList returns all MCP tool definitions including agent coordination tools.
+// Reference: Tech Spec Section 14.3, AG.5.
 func toolList() []toolDef {
 	return []toolDef{
 		{
@@ -223,6 +223,42 @@ func toolList() []toolDef {
 			InputSchema: inputSchema{
 				Type:       "object",
 				Properties: map[string]propDef{},
+			},
+		},
+		// Agent coordination tools (AG.5).
+		{
+			Name:        "agent_broadcast",
+			Description: "Broadcast a signal to other agents. Signals can be ephemeral (in-memory) or persistent (WAL-backed, survives restart).",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]propDef{
+					"type":       {Type: "string", Description: "Signal type identifier (required)."},
+					"payload":    {Type: "object", Description: "Signal payload (optional)."},
+					"persistent": {Type: "boolean", Description: "If true, signal is written to WAL and survives restart (default false)."},
+					"targets":    {Type: "array", Description: "Target agent IDs. Empty = broadcast to all active agents."},
+				},
+				Required: []string{"type"},
+			},
+		},
+		{
+			Name:        "agent_pull_signals",
+			Description: "Retrieve pending signals for the calling agent. Signals are removed from the queue after delivery.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]propDef{
+					"max_n": {Type: "integer", Description: "Maximum number of signals to retrieve (default 100)."},
+				},
+			},
+		},
+		{
+			Name:        "agent_status_query",
+			Description: "Query the status of another registered agent by ID or name.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]propDef{
+					"agent_id": {Type: "string", Description: "Agent ID or name to query (required)."},
+				},
+				Required: []string{"agent_id"},
 			},
 		},
 	}

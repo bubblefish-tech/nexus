@@ -460,7 +460,7 @@ func TestMCPTools_NexusSearch_CallsPipeline(t *testing.T) {
 // CHECK MCP-6: tools/list returns 3 tools
 // ---------------------------------------------------------------------------
 
-func TestMCPTools_List_Returns3Tools(t *testing.T) {
+func TestMCPTools_List_Returns6Tools(t *testing.T) {
 	pipeline := newTestPipeline()
 	_, baseURL, stop := startServer(t, pipeline, "list-key")
 	defer stop()
@@ -474,18 +474,25 @@ func TestMCPTools_List_Returns3Tools(t *testing.T) {
 
 	result, _ := resp["result"].(map[string]interface{})
 	tools, _ := result["tools"].([]interface{})
-	if len(tools) != 3 {
-		t.Fatalf("CHECK MCP-6 FAIL: got %d tools, want 3", len(tools))
+	if len(tools) != 6 {
+		t.Fatalf("CHECK MCP-6 FAIL: got %d tools, want 6", len(tools))
 	}
 
-	names := make([]string, 0, 3)
+	names := make([]string, 0, 6)
 	for _, tool := range tools {
 		m, _ := tool.(map[string]interface{})
 		name, _ := m["name"].(string)
 		names = append(names, name)
 	}
 
-	wantNames := map[string]bool{"nexus_write": true, "nexus_search": true, "nexus_status": true}
+	wantNames := map[string]bool{
+		"nexus_write":        true,
+		"nexus_search":       true,
+		"nexus_status":       true,
+		"agent_broadcast":    true,
+		"agent_pull_signals": true,
+		"agent_status_query": true,
+	}
 	for _, name := range names {
 		if !wantNames[name] {
 			t.Errorf("CHECK MCP-6 FAIL: unexpected tool name %q", name)
@@ -496,7 +503,7 @@ func TestMCPTools_List_Returns3Tools(t *testing.T) {
 		t.Errorf("CHECK MCP-6 FAIL: missing tool %q", missing)
 	}
 
-	t.Logf("CHECK MCP-6 PASS: tools/list returned 3 tools: %v", names)
+	t.Logf("CHECK MCP-6 PASS: tools/list returned 6 tools: %v", names)
 }
 
 // ---------------------------------------------------------------------------

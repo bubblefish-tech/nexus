@@ -46,8 +46,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"database/sql"
+
 	"github.com/BubbleFish-Nexus/internal/agent"
 	"github.com/BubbleFish-Nexus/internal/audit"
+	"github.com/BubbleFish-Nexus/internal/coordination"
+	"github.com/BubbleFish-Nexus/internal/credentials"
 	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/destination"
@@ -61,6 +65,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/firewall"
 	"github.com/BubbleFish-Nexus/internal/jwtauth"
 	"github.com/BubbleFish-Nexus/internal/oauth"
+	"github.com/BubbleFish-Nexus/internal/policy"
 	"github.com/BubbleFish-Nexus/internal/provenance"
 	"github.com/BubbleFish-Nexus/internal/queue"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
@@ -199,6 +204,14 @@ type Daemon struct {
 	// healthTracker monitors agent liveness for health state transitions.
 	// Always initialized. Reference: AG.8.
 	healthTracker *agent.HealthTracker
+
+	// ── Agent Gateway subsystems (AG.1–AG.8) ────────────────────────────
+	agentDB            *sql.DB                       // separate connection for agent registry
+	agentRegistry      *agent.Registry               // AG.1
+	credentialGateway  *credentials.Gateway           // AG.3
+	toolPolicyChecker  *policy.ToolPolicyChecker      // AG.4
+	signalQueue        *coordination.SignalQueue      // AG.5
+	quotaManager       *agent.QuotaManager            // AG.6
 
 	stopOnce    sync.Once
 	stopped     chan struct{}
@@ -710,6 +723,10 @@ func (d *Daemon) Start() error {
 	// Reference: Tech Spec Section 14.3 — "Startup failure does NOT crash daemon."
 	d.startMCPServer(cfg)
 
+	// Start Agent Gateway subsystems (AG.1–AG.8). Must be after MCP server
+	// start so we can wire coordination provider and policy checker.
+	d.startAgentGateway()
+
 	// Initialise JWT validator if enabled.
 	// Reference: Tech Spec Section 6.6.
 	if cfg.Daemon.JWT.Enabled {
@@ -953,6 +970,9 @@ func (d *Daemon) Stop() error {
 		if d.healthTracker != nil {
 			d.healthTracker.Stop()
 		}
+
+		// Stop agent gateway subsystems.
+		d.stopAgentGateway()
 
 		// Stop the goroutine heartbeat supervisor.
 		if d.supervisor != nil {
