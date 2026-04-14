@@ -529,6 +529,26 @@ func (d *Daemon) Start() error {
 				d.exactCache.InvalidateDest(dest)
 				d.semanticCache.InvalidateDest(dest)
 			},
+			OnSubstrateWrite: func(tp destination.TranslatedPayload) {
+				// Substrate write hook: compute sketch + encrypt embedding.
+				// d.substrate is captured by reference and checked at call time
+				// (it's set later in the startup sequence).
+				if d.substrate == nil || !d.substrate.Enabled() {
+					return
+				}
+				// Convert float32 embedding to float64 for canonical pipeline.
+				emb := make([]float64, len(tp.Embedding))
+				for i, v := range tp.Embedding {
+					emb[i] = float64(v)
+				}
+				if err := d.substrate.ComputeAndStoreSketch(tp.PayloadID, emb, tp.Source); err != nil {
+					d.logger.Warn("substrate sketch write failed",
+						"component", "queue",
+						"memory_id", tp.PayloadID,
+						"error", err,
+					)
+				}
+			},
 			BeatFn: func() { d.supervisor.Beat("queue") },
 		},
 		d.logger,

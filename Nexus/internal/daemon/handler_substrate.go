@@ -96,3 +96,53 @@ func (d *Daemon) handleSubstrateProveDeletion(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(proof)
 }
+
+// handleSubstrateShred performs forward-secure deletion: shreds the memory's
+// substrate key material and advances the ratchet.
+// Endpoint: POST /api/substrate/shred?memory_id=<id>
+func (d *Daemon) handleSubstrateShred(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	if d.substrate == nil || !d.substrate.Enabled() {
+		http.Error(w, `{"error":"substrate_disabled","message":"substrate is not enabled"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	memoryID := r.URL.Query().Get("memory_id")
+	if memoryID == "" {
+		http.Error(w, `{"error":"missing_parameter","message":"memory_id is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Shred the memory's substrate data
+	if err := d.substrate.ShredMemory(memoryID); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"shred_error","message":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Advance the ratchet to ensure forward security
+	newState, err := d.substrate.RotateRatchet("shred-seed-" + memoryID)
+	if err != nil {
+		// Shred succeeded but ratchet advance failed — log but don't fail
+		d.logger.Error("substrate: ratchet advance after shred failed",
+			"component", "daemon", "memory_id", memoryID, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "partial",
+			"memory_id": memoryID,
+			"message":   "memory shredded but ratchet advance failed",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":         "ok",
+		"memory_id":      memoryID,
+		"new_state_id":   newState.StateID,
+		"message":        "memory shredded and ratchet advanced",
+	})
+}

@@ -94,6 +94,14 @@ type Config struct {
 	// Must be safe to call concurrently. If nil, no callback is made.
 	OnDelivered func(destination string)
 
+	// OnSubstrateWrite is an optional callback invoked after each entry
+	// with a non-empty embedding is successfully written to the destination.
+	// Used by the substrate to compute sketches and encrypt embeddings.
+	// Must be safe to call concurrently. If nil, no callback is made.
+	// Substrate errors are logged but do NOT fail the primary write.
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Step 6.
+	OnSubstrateWrite func(tp destination.TranslatedPayload)
+
 	// BeatFn is an optional heartbeat callback called each iteration of
 	// the worker loop. Used by the supervisor to detect stalled workers.
 	BeatFn func()
@@ -109,9 +117,10 @@ type Queue struct {
 	logger      *slog.Logger
 	dest        destination.DestinationWriter
 	updater     wal.WALUpdater
-	onProcessed func()             // optional; called after each successful write
-	onDelivered func(dest string)  // optional; called with destination name after successful write
-	beatFn      func()             // optional; supervisor heartbeat
+	onProcessed      func()                                    // optional; called after each successful write
+	onDelivered      func(dest string)                         // optional; called with destination name after successful write
+	onSubstrateWrite func(tp destination.TranslatedPayload)    // optional; called after successful write when substrate enabled
+	beatFn           func()                                    // optional; supervisor heartbeat
 }
 
 // New creates a Queue with the given configuration and starts the worker
@@ -145,9 +154,10 @@ func New(cfg Config, logger *slog.Logger, dest destination.DestinationWriter, up
 		logger:      logger,
 		dest:        dest,
 		updater:     updater,
-		onProcessed: cfg.OnProcessed,
-		onDelivered: cfg.OnDelivered,
-		beatFn:      cfg.BeatFn,
+		onProcessed:      cfg.OnProcessed,
+		onDelivered:      cfg.OnDelivered,
+		onSubstrateWrite: cfg.OnSubstrateWrite,
+		beatFn:           cfg.BeatFn,
 	}
 
 	for i := 0; i < workers; i++ {
@@ -320,6 +330,13 @@ func (q *Queue) processEntry(entry wal.Entry) string {
 			// Notify cache invalidator with the destination name.
 			if q.onDelivered != nil {
 				q.onDelivered(entry.Destination)
+			}
+			// Substrate hook: compute sketch + encrypt embedding after
+			// successful destination write. Substrate failures log WARN
+			// but do NOT fail the primary write (fail-open on write path).
+			// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Step 6.
+			if q.onSubstrateWrite != nil && len(tp.Embedding) > 0 {
+				q.onSubstrateWrite(tp)
 			}
 			return entry.PayloadID
 		}

@@ -33,6 +33,7 @@ func runSubstrate(args []string) {
 		fmt.Fprintln(os.Stderr, "  status           show substrate status")
 		fmt.Fprintln(os.Stderr, "  rotate-ratchet   manually advance the ratchet")
 		fmt.Fprintln(os.Stderr, "  prove-deletion   produce a deletion proof for a memory")
+		fmt.Fprintln(os.Stderr, "  shred            forward-secure delete a memory (shred seed + rotate ratchet)")
 		os.Exit(1)
 	}
 
@@ -43,6 +44,8 @@ func runSubstrate(args []string) {
 		runSubstrateRotateRatchet(args[1:])
 	case "prove-deletion":
 		runSubstrateProveDeletion(args[1:])
+	case "shred":
+		runSubstrateShred(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish substrate: unknown subcommand %q\n", args[0])
 		os.Exit(1)
@@ -141,6 +144,30 @@ func runSubstrateProveDeletion(args []string) {
 	}
 	pretty, _ := json.MarshalIndent(proof, "", "  ")
 	fmt.Println(string(pretty))
+}
+
+func runSubstrateShred(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: bubblefish substrate shred <memory_id>")
+		os.Exit(1)
+	}
+	memoryID := args[0]
+
+	resp, err := daemonPost("/api/substrate/shred?memory_id="+memoryID, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "error: %s\n", string(body))
+		os.Exit(1)
+	}
+
+	fmt.Println(string(body))
+	fmt.Printf("\nDeletion proof available via: bubblefish substrate prove-deletion %s\n", memoryID)
 }
 
 // daemonGet performs a GET request to the daemon's HTTP API.

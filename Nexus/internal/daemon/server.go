@@ -179,6 +179,7 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Get("/api/substrate/status", d.handleSubstrateStatus)
 		r.Post("/api/substrate/rotate-ratchet", d.handleSubstrateRotateRatchet)
 		r.Post("/api/substrate/prove-deletion", d.handleSubstrateProveDeletion)
+		r.Post("/api/substrate/shred", d.handleSubstrateShred)
 
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),
