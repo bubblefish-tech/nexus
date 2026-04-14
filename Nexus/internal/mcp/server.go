@@ -201,12 +201,28 @@ type Server struct {
 	oauthHandlers  HandlerRegistrar // optional; registers OAuth HTTP endpoints
 	oauthIssuerURL string           // set when OAuth is enabled; used for WWW-Authenticate header
 
+	// toolPolicyChecker evaluates per-agent tool-use policies before dispatch.
+	// Nil when no tool policies are configured. Reference: AG.4.
+	toolPolicyChecker ToolPolicyCheckerIface
+
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
 	stopOnce   sync.Once
 
 	sseReg *sseRegistry
+}
+
+// ToolPolicyCheckerIface is the interface for tool-use policy enforcement.
+// Implemented by policy.ToolPolicyChecker.
+type ToolPolicyCheckerIface interface {
+	Check(agentID, toolName string, args json.RawMessage) ToolPolicyDecision
+}
+
+// ToolPolicyDecision mirrors policy.ToolPolicyDecision to avoid circular imports.
+type ToolPolicyDecision struct {
+	Allowed bool
+	Reason  string
 }
 
 func New(bind string, port int, resolvedKey []byte, sourceName string, pipeline Pipeline, logger *slog.Logger) *Server {
@@ -236,6 +252,13 @@ func (s *Server) SetOAuthServer(v JWTValidator) {
 // method will be called on the MCP server's HTTP mux.
 func (s *Server) SetOAuthHandlers(reg HandlerRegistrar) {
 	s.oauthHandlers = reg
+}
+
+// SetToolPolicyChecker configures the per-agent tool-use policy checker.
+// When set, every tools/call request is checked against the agent's policy
+// before dispatch. Must be called before Start(). Reference: AG.4.
+func (s *Server) SetToolPolicyChecker(checker ToolPolicyCheckerIface) {
+	s.toolPolicyChecker = checker
 }
 
 // SetOAuthIssuerURL sets the OAuth issuer URL used in WWW-Authenticate headers
@@ -721,6 +744,22 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		s.writeRPCError(w, r, req.ID, rpcInvalidParams, "invalid params: "+err.Error())
 		return
+	}
+
+	// Tool-use policy enforcement (AG.4). Check before dispatch.
+	if s.toolPolicyChecker != nil {
+		agentID := r.Header.Get("X-Agent-ID")
+		decision := s.toolPolicyChecker.Check(agentID, params.Name, params.Arguments)
+		if !decision.Allowed {
+			s.logger.Warn("mcp: tool-use policy denied",
+				"component", "mcp",
+				"agent_id", agentID,
+				"tool", params.Name,
+				"reason", decision.Reason,
+			)
+			s.writeRPCError(w, r, req.ID, rpcInvalidParams, decision.Reason)
+			return
+		}
 	}
 
 	switch params.Name {
