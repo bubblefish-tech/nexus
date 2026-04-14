@@ -32,6 +32,7 @@ type Config struct {
 	Consistency    ConsistencyConfig    `toml:"consistency"`
 	SecurityEvents SecurityEventsConfig `toml:"security_events"`
 	Ingest         IngestConfig         `toml:"ingest"`
+	Credentials    CredentialsConfig    `toml:"credentials"`
 
 	// Sources and Destinations are populated by scanning the sources/ and
 	// destinations/ sub-directories. Not decoded from daemon.toml itself.
@@ -336,6 +337,27 @@ type ConsistencyConfig struct {
 type SecurityEventsConfig struct {
 	Enabled bool   `toml:"enabled"`
 	LogFile string `toml:"log_file"`
+}
+
+// CredentialsConfig models the [credentials] TOML section. Controls the
+// Agent Gateway credential proxy that substitutes synthetic keys for real
+// provider keys at upstream dispatch time.
+// Reference: AG.3.
+type CredentialsConfig struct {
+	Enabled  bool                     `toml:"enabled"`
+	Mappings []CredentialMappingConfig `toml:"mappings"`
+}
+
+// CredentialMappingConfig models [[credentials.mappings]].
+// The real_key_ref uses the env:/file: reference scheme — the resolved value
+// is NEVER stored in config structs or logged.
+type CredentialMappingConfig struct {
+	SyntheticPrefix string   `toml:"synthetic_prefix"`
+	RealKeyRef      string   `toml:"real_key_ref"`
+	Provider        string   `toml:"provider"` // "openai" or "anthropic"
+	AllowedAgents   []string `toml:"allowed_agents"`
+	AllowedModels   []string `toml:"allowed_models"`
+	RateLimitRPM    int      `toml:"rate_limit_rpm"`
 }
 
 // IngestConfig models the [ingest] TOML section. Controls proactive

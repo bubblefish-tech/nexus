@@ -120,6 +120,13 @@ func (p *OpenAIProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Agent allowlist check.
+	agentID := r.Header.Get("X-Agent-ID")
+	if err := CheckAgentAllowed(result.AllowedAgents, agentID); err != nil {
+		writeProxyError(w, http.StatusForbidden, "agent_denied", err.Error())
+		return
+	}
+
 	// Read and parse request body to extract model for allowlist check.
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
 	if err != nil {
@@ -172,9 +179,6 @@ func (p *OpenAIProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Clear realKey from this scope as soon as the header is set.
 	// (Go doesn't guarantee zeroing, but this makes intent clear.)
 	realKey = ""
-
-	// Extract agent ID from original request for audit.
-	agentID := r.Header.Get("X-Agent-ID")
 
 	// Execute upstream request.
 	upResp, err := p.httpClient.Do(upReq)

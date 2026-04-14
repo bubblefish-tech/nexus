@@ -46,7 +46,8 @@ type Mapping struct {
 	SyntheticPrefix  string
 	Provider         Provider
 	RealKeyRef       string   // "env:VAR" or "file:/path" — NEVER resolved at config time
-	AllowedModels    []string // empty = allow all
+	AllowedAgents    []string // empty = allow all agents
+	AllowedModels    []string // empty = allow all models
 	RateLimitRPM     int
 	RateLimitTokens  int64 // tokens per day; 0 = unlimited
 }
@@ -96,11 +97,12 @@ func (g *Gateway) ReloadMappings(mappings []Mapping) {
 
 // ValidateResult is returned by Validate on success.
 type ValidateResult struct {
-	Provider    Provider
-	RealKeyRef  string   // still a reference — resolve only at call time
-	AllowedModels []string
+	Provider        Provider
+	RealKeyRef      string   // still a reference — resolve only at call time
+	AllowedAgents   []string
+	AllowedModels   []string
 	SyntheticPrefix string
-	RateLimitRPM int
+	RateLimitRPM    int
 }
 
 // Validate checks a bearer token against all configured synthetic key prefixes.
@@ -128,6 +130,7 @@ func (g *Gateway) Validate(bearerToken string) (*ValidateResult, error) {
 			return &ValidateResult{
 				Provider:        m.Provider,
 				RealKeyRef:      m.RealKeyRef,
+				AllowedAgents:   m.AllowedAgents,
 				AllowedModels:   m.AllowedModels,
 				SyntheticPrefix: m.SyntheticPrefix,
 				RateLimitRPM:    m.RateLimitRPM,
@@ -136,6 +139,23 @@ func (g *Gateway) Validate(bearerToken string) (*ValidateResult, error) {
 	}
 
 	return nil, fmt.Errorf("invalid synthetic key")
+}
+
+// CheckAgentAllowed returns nil if the agent is in the allowlist,
+// or an error with the denial reason.
+func CheckAgentAllowed(allowed []string, agentID string) error {
+	if len(allowed) == 0 {
+		return nil // empty allowlist = all agents allowed
+	}
+	if agentID == "" {
+		return fmt.Errorf("agent identity required for this credential mapping")
+	}
+	for _, a := range allowed {
+		if a == agentID {
+			return nil
+		}
+	}
+	return fmt.Errorf("agent %q not authorized for this credential", agentID)
 }
 
 // CheckModelAllowed returns nil if the model is in the allowlist,

@@ -125,6 +125,36 @@ func TestCheckModelAllowed_EmptyList(t *testing.T) {
 	}
 }
 
+func TestCheckAgentAllowed_InList(t *testing.T) {
+	if err := CheckAgentAllowed([]string{"agent-a", "agent-b"}, "agent-a"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckAgentAllowed_NotInList(t *testing.T) {
+	if err := CheckAgentAllowed([]string{"agent-a"}, "agent-c"); err == nil {
+		t.Fatal("expected error for unauthorized agent")
+	}
+}
+
+func TestCheckAgentAllowed_EmptyList(t *testing.T) {
+	if err := CheckAgentAllowed(nil, "any-agent"); err != nil {
+		t.Fatal("empty allowlist should allow all agents")
+	}
+}
+
+func TestCheckAgentAllowed_EmptyAgentID(t *testing.T) {
+	if err := CheckAgentAllowed([]string{"agent-a"}, ""); err == nil {
+		t.Fatal("expected error when agent_id required but empty")
+	}
+}
+
+func TestCheckAgentAllowed_EmptyListEmptyAgent(t *testing.T) {
+	if err := CheckAgentAllowed(nil, ""); err != nil {
+		t.Fatal("empty allowlist should allow even empty agent_id")
+	}
+}
+
 func TestRateLimit_AllowedThenDenied(t *testing.T) {
 	gw := NewGateway([]Mapping{
 		{

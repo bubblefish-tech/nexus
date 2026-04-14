@@ -72,6 +72,14 @@ func (d *Daemon) buildRouter() http.Handler {
 	r.Get("/health", d.handleHealth)
 	r.Get("/ready", d.handleReady)
 
+	// Credential gateway proxy — authenticated by synthetic key, not admin
+	// or data token. The proxy handlers validate the Bearer token internally.
+	// Reference: AG.3.
+	if d.credentialGateway != nil {
+		r.Post("/v1/chat/completions", d.credentialOpenAIProxy().ServeHTTP)
+		r.Post("/v1/messages", d.credentialAnthropicProxy().ServeHTTP)
+	}
+
 	// Admin routes — require admin token.
 	// Reference: Tech Spec Section 12, Phase 0D Behavioral Contract item 4.
 	r.Group(func(r chi.Router) {

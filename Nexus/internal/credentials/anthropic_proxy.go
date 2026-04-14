@@ -98,6 +98,13 @@ func (p *AnthropicProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Agent allowlist check.
+	agentID := r.Header.Get("X-Agent-ID")
+	if err := CheckAgentAllowed(result.AllowedAgents, agentID); err != nil {
+		writeProxyError(w, http.StatusForbidden, "agent_denied", err.Error())
+		return
+	}
+
 	// Read and parse request body.
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
 	if err != nil {
@@ -144,8 +151,6 @@ func (p *AnthropicProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upReq.Header.Set("anthropic-version", anthropicAPIVersion)
 	upReq.Header.Set("Content-Type", "application/json")
 	realKey = ""
-
-	agentID := r.Header.Get("X-Agent-ID")
 
 	// Execute upstream request.
 	upResp, err := p.httpClient.Do(upReq)

@@ -90,10 +90,25 @@ func (d *Daemon) startAgentGateway() {
 	}
 
 	// ── Credential Gateway (AG.3) ──────────────────────────────────────────
-	d.credentialGateway = credentials.NewGateway(nil, d.logger)
-	// Mappings loaded from config if [credentials] section exists.
-	// (Config schema for credentials.mappings is defined but loading is
-	// deferred until the config type includes the mappings field.)
+	cfg := d.getConfig()
+	var mappings []credentials.Mapping
+	if cfg.Credentials.Enabled {
+		for _, m := range cfg.Credentials.Mappings {
+			mappings = append(mappings, credentials.Mapping{
+				SyntheticPrefix: m.SyntheticPrefix,
+				Provider:        credentials.Provider(m.Provider),
+				RealKeyRef:      m.RealKeyRef,
+				AllowedAgents:   m.AllowedAgents,
+				AllowedModels:   m.AllowedModels,
+				RateLimitRPM:    m.RateLimitRPM,
+			})
+		}
+		d.logger.Info("daemon: credential gateway loaded",
+			"component", "agent_gateway",
+			"mappings", len(mappings),
+		)
+	}
+	d.credentialGateway = credentials.NewGateway(mappings, d.logger)
 
 	// ── Wire into MCP Server (AG.4, AG.5) ──────────────────────────────────
 	if d.mcpServer != nil {
@@ -136,6 +151,40 @@ func (d *Daemon) stopAgentGateway() {
 	if d.agentDB != nil {
 		d.agentDB.Close()
 	}
+}
+
+// ── Credential proxy factories (AG.3) ──────────────────────────────────────
+
+// credentialOpenAIProxy returns an http.Handler for POST /v1/chat/completions.
+func (d *Daemon) credentialOpenAIProxy() *credentials.OpenAIProxy {
+	return credentials.NewOpenAIProxy(d.credentialGateway, d.logger, func(e credentials.AuditEntry) {
+		d.activityLog.Record(agent.ActivityEvent{
+			AgentID:   e.AgentID,
+			EventType: "credential_proxy",
+			Resource:  string(e.Provider) + "/" + e.Model,
+			LatencyMs: e.Latency.Milliseconds(),
+			Result:    "ok",
+		})
+		if d.healthTracker != nil {
+			d.healthTracker.Touch(e.AgentID)
+		}
+	})
+}
+
+// credentialAnthropicProxy returns an http.Handler for POST /v1/messages.
+func (d *Daemon) credentialAnthropicProxy() *credentials.AnthropicProxy {
+	return credentials.NewAnthropicProxy(d.credentialGateway, d.logger, func(e credentials.AuditEntry) {
+		d.activityLog.Record(agent.ActivityEvent{
+			AgentID:   e.AgentID,
+			EventType: "credential_proxy",
+			Resource:  string(e.Provider) + "/" + e.Model,
+			LatencyMs: e.Latency.Milliseconds(),
+			Result:    "ok",
+		})
+		if d.healthTracker != nil {
+			d.healthTracker.Touch(e.AgentID)
+		}
+	})
 }
 
 // ── CoordinationProvider implementation (AG.5) ─────────────────────────────
