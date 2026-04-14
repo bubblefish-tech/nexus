@@ -69,6 +69,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/policy"
 	"github.com/BubbleFish-Nexus/internal/provenance"
 	"github.com/BubbleFish-Nexus/internal/queue"
+	"github.com/BubbleFish-Nexus/internal/secrets"
 	"github.com/BubbleFish-Nexus/internal/securitylog"
 	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/BubbleFish-Nexus/internal/substrate"
@@ -807,16 +808,54 @@ func (d *Daemon) Start() error {
 		}
 
 		d.canonical = canonical.NewManager(canonicalCfg)
-		sub, err := substrate.New(substrateCfg, d.logger)
-		if err != nil {
-			d.logger.Warn("substrate initialization failed, disabling substrate",
-				"component", "daemon", "error", err)
-			disabledCfg := substrate.DefaultConfig()
-			sub, _ = substrate.New(disabledCfg, d.logger)
-		}
-		d.substrate = sub
+		if d.canonical != nil && substrateCfg.Enabled {
+			// Canonical needs Init with secrets dir
+			home, homeErr := os.UserHomeDir()
+			if homeErr == nil {
+				basePath := filepath.Join(home, ".bubblefish", "Nexus")
+				sd, sdErr := secrets.Open(basePath)
+				if sdErr == nil {
+					if initErr := d.canonical.Init(sd, d.logger); initErr != nil {
+						d.logger.Warn("canonical init failed, disabling substrate",
+							"component", "daemon", "error", initErr)
+						substrateCfg.Enabled = false
+					}
 
-		if d.substrate.Enabled() {
+					if substrateCfg.Enabled {
+						// Get the SQLite DB handle for substrate operations
+						var sqlDB *sql.DB
+						if sqliteDst, ok := d.dest.(*destination.SQLiteDestination); ok {
+							sqlDB = sqliteDst.DB()
+						}
+						sub, subErr := substrate.New(
+							substrateCfg, sqlDB, sd,
+							d.daemonKeyPair, d.canonical,
+							d.chainState, d.logger,
+						)
+						if subErr != nil {
+							d.logger.Warn("substrate initialization failed, disabling substrate",
+								"component", "daemon", "error", subErr)
+						} else {
+							d.substrate = sub
+						}
+					}
+				} else {
+					d.logger.Warn("substrate: cannot open secrets dir, disabling",
+						"component", "daemon", "error", sdErr)
+				}
+			} else {
+				d.logger.Warn("substrate: cannot resolve home dir, disabling",
+					"component", "daemon", "error", homeErr)
+			}
+		}
+
+		if d.canonical == nil || !substrateCfg.Enabled {
+			// Disabled path — create disabled stub
+			disabledCfg := substrate.DefaultConfig()
+			d.substrate, _ = substrate.New(disabledCfg, nil, nil, nil, nil, nil, d.logger)
+		}
+
+		if d.substrate != nil && d.substrate.Enabled() {
 			d.logger.Info("substrate enabled", "component", "daemon")
 		}
 	}

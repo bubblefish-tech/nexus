@@ -27,22 +27,12 @@ import (
 func TestSubstrateDisabledByDefault(t *testing.T) {
 	t.Helper()
 	cfg := DefaultConfig()
-	s, err := New(cfg, slog.Default())
+	s, err := New(cfg, nil, nil, nil, nil, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.Enabled() {
 		t.Fatal("expected disabled by default")
-	}
-}
-
-func TestSubstrateFailClosedOnEnable(t *testing.T) {
-	t.Helper()
-	cfg := DefaultConfig()
-	cfg.Enabled = true
-	_, err := New(cfg, slog.Default())
-	if err == nil {
-		t.Fatal("expected error when enabling substrate at BS.1")
 	}
 }
 
@@ -55,12 +45,30 @@ func TestSubstrateNilSafe(t *testing.T) {
 	if err := s.Shutdown(); err != nil {
 		t.Fatalf("nil shutdown should not error: %v", err)
 	}
+	if s.CuckooLookup("any") {
+		t.Fatal("nil cuckoo lookup should return false")
+	}
+	if s.CurrentRatchetState() != nil {
+		t.Fatal("nil ratchet state should return nil")
+	}
+	_, err := s.RotateRatchet("test")
+	if err != ErrDisabled {
+		t.Fatalf("nil rotate should return ErrDisabled, got %v", err)
+	}
+	_, err = s.ProveDeletion("test")
+	if err != ErrDisabled {
+		t.Fatalf("nil prove should return ErrDisabled, got %v", err)
+	}
+	status := s.Status()
+	if status.Enabled {
+		t.Fatal("nil status should be disabled")
+	}
 }
 
 func TestSubstrateDisabledShutdown(t *testing.T) {
 	t.Helper()
 	cfg := DefaultConfig()
-	s, err := New(cfg, slog.Default())
+	s, err := New(cfg, nil, nil, nil, nil, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}

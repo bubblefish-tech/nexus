@@ -870,6 +870,13 @@ func (d *SQLiteDestination) Close() error {
 	return nil
 }
 
+// DB returns the underlying *sql.DB handle. Used by the substrate coordinator
+// to execute substrate-specific queries on the same database.
+// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Step 2.
+func (d *SQLiteDestination) DB() *sql.DB {
+	return d.db
+}
+
 // QueryClusterMembers returns all members of the given cluster. Results are
 // ordered by cluster_role (primary first) then timestamp descending.
 // Implements ClusterQuerier.
