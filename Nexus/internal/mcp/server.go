@@ -205,6 +205,10 @@ type Server struct {
 	// Nil when no tool policies are configured. Reference: AG.4.
 	toolPolicyChecker ToolPolicyCheckerIface
 
+	// coordinationProvider handles agent-to-agent coordination MCP tools.
+	// Nil when coordination is not enabled. Reference: AG.5.
+	coordinationProvider CoordinationProvider
+
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
@@ -769,6 +773,12 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 		s.callNexusSearch(w, r, req, params.Arguments)
 	case "nexus_status":
 		s.callNexusStatus(w, r, req)
+	case "agent_broadcast":
+		s.callAgentBroadcast(w, r, req, params.Arguments)
+	case "agent_pull_signals":
+		s.callAgentPullSignals(w, r, req, params.Arguments)
+	case "agent_status_query":
+		s.callAgentStatusQuery(w, r, req, params.Arguments)
 	default:
 		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
 	}
