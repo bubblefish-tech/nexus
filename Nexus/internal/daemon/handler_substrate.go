@@ -19,20 +19,9 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
-
-// SubstrateStatusResponse is the JSON payload for GET /api/substrate/status.
-type SubstrateStatusResponse struct {
-	Enabled bool `json:"enabled"`
-
-	// Only populated when enabled:
-	RatchetStateID uint32  `json:"ratchet_state_id,omitempty"`
-	SketchCount    int     `json:"sketch_count,omitempty"`
-	CuckooCount    uint    `json:"cuckoo_count,omitempty"`
-	CuckooCapacity uint    `json:"cuckoo_capacity,omitempty"`
-	CuckooLoadFactor float64 `json:"cuckoo_load_factor,omitempty"`
-}
 
 // handleSubstrateStatus returns the current substrate status.
 // Endpoint: GET /api/substrate/status
@@ -42,12 +31,14 @@ func (d *Daemon) handleSubstrateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := SubstrateStatusResponse{
-		Enabled: d.substrate != nil && d.substrate.Enabled(),
+	if d.substrate == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"enabled": false})
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(d.substrate.Status())
 }
 
 // handleSubstrateRotateRatchet manually advances the ratchet.
@@ -59,16 +50,21 @@ func (d *Daemon) handleSubstrateRotateRatchet(w http.ResponseWriter, r *http.Req
 	}
 
 	if d.substrate == nil || !d.substrate.Enabled() {
-		http.Error(w, `{"error":"substrate_disabled","message":"substrate is not enabled"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"substrate_disabled","message":"substrate is not enabled"}`, http.StatusServiceUnavailable)
 		return
 	}
 
-	// Ratchet rotation will be wired when the Substrate coordinator exposes
-	// the ratchet manager via a public method (future commit).
+	newState, err := d.substrate.RotateRatchet("manual")
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"ratchet_error","message":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "not_implemented",
-		"message": "ratchet rotation via API will be available when substrate is fully wired",
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":       "ok",
+		"new_state_id": newState.StateID,
+		"created_at":   newState.CreatedAt,
 	})
 }
 
@@ -81,7 +77,7 @@ func (d *Daemon) handleSubstrateProveDeletion(w http.ResponseWriter, r *http.Req
 	}
 
 	if d.substrate == nil || !d.substrate.Enabled() {
-		http.Error(w, `{"error":"substrate_disabled","message":"substrate is not enabled"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"substrate_disabled","message":"substrate is not enabled"}`, http.StatusServiceUnavailable)
 		return
 	}
 
@@ -91,12 +87,12 @@ func (d *Daemon) handleSubstrateProveDeletion(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Deletion proof will be wired when the Substrate coordinator exposes
-	// the required sub-components via public methods (future commit).
+	proof, err := d.substrate.ProveDeletion(memoryID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"prove_deletion_error","message":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":    "not_implemented",
-		"memory_id": memoryID,
-		"message":   "deletion proof via API will be available when substrate is fully wired",
-	})
+	json.NewEncoder(w).Encode(proof)
 }
