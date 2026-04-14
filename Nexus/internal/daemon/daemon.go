@@ -192,6 +192,10 @@ type Daemon struct {
 	// Reference: AG.2.
 	sessionMgr *agent.SessionManager
 
+	// activityLog records agent activity events for telemetry and dashboard.
+	// Always initialized. Reference: AG.7.
+	activityLog *agent.ActivityLog
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -224,6 +228,9 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 
 	// Agent session manager with 30-minute idle timeout (AG.2).
 	d.sessionMgr = agent.NewSessionManager(30*time.Minute, logger)
+
+	// Agent activity log with 7-day retention (AG.7).
+	d.activityLog = agent.NewActivityLog(7*24*time.Hour, logger)
 
 	return d
 }
@@ -928,6 +935,11 @@ func (d *Daemon) Stop() error {
 		// Stop agent session manager reap goroutine.
 		if d.sessionMgr != nil {
 			d.sessionMgr.Stop()
+		}
+
+		// Stop activity log pruner.
+		if d.activityLog != nil {
+			d.activityLog.Stop()
 		}
 
 		// Stop the goroutine heartbeat supervisor.
