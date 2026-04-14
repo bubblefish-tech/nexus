@@ -761,7 +761,7 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 				"tool", params.Name,
 				"reason", decision.Reason,
 			)
-			s.writeRPCError(w, r, req.ID, rpcInvalidParams, decision.Reason)
+			s.writeRPCError(w, r, req.ID, rpcAuthError, decision.Reason)
 			return
 		}
 	}

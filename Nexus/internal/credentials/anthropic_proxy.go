@@ -244,7 +244,7 @@ func (p *AnthropicProxy) streamResponse(w http.ResponseWriter, upResp *http.Resp
 			SyntheticKeyPrefix: syntheticPrefix,
 			Provider:           ProviderAnthropic,
 			Model:              model,
-			Latency:            time.Since(time.Now().Add(-latency)),
+			Latency:            latency,
 			StatusCode:         upResp.StatusCode,
 		})
 	}

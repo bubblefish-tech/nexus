@@ -212,6 +212,9 @@ func (p *OpenAIProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(respBody, &usage)
 
+	// Sanitize upstream response — defense-in-depth against key reference leaks.
+	respBody = sanitizeResponseBody(respBody, result.RealKeyRef)
+
 	// Copy upstream headers.
 	for k, vv := range upResp.Header {
 		for _, v := range vv {
@@ -275,7 +278,7 @@ func (p *OpenAIProxy) streamResponse(w http.ResponseWriter, upResp *http.Respons
 			SyntheticKeyPrefix: syntheticPrefix,
 			Provider:           ProviderOpenAI,
 			Model:              model,
-			Latency:            time.Since(time.Now().Add(-latency)),
+			Latency:            latency,
 			StatusCode:         upResp.StatusCode,
 		})
 	}
