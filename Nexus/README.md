@@ -170,6 +170,7 @@ Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per sou
 | Security Tab | Dashboard tab with source policies and auth failure history |
 | Debug Stages | Optional `_nexus.debug` with admin auth |
 | System Tray | Windows tray icon with status and dashboard launch |
+| Sketch Substrate | Optional compact binary sketches with per-memory encryption and forward-secure deletion. See [Docs/substrate.md](Docs/substrate.md) |
 
 ## CLI Commands
 

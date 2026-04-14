@@ -1,0 +1,62 @@
+name: substrate-crossplatform
+
+on:
+  push:
+    branches: [main, 'v0.1.*']
+    paths:
+      - 'internal/canonical/**'
+      - 'internal/substrate/**'
+  pull_request:
+    paths:
+      - 'internal/canonical/**'
+      - 'internal/substrate/**'
+
+jobs:
+  determinism:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+      - name: Run cross-platform determinism tests
+        shell: bash
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          go test ./internal/substrate/... -race -count=1 -run TestCrossPlatform -v 2>&1 | tee test-output.txt
+      - name: Extract determinism hashes
+        shell: bash
+        run: |
+          grep "output hash:\|bytes hash:\|coefficients hash:\|estimate:\|key hash:\|Kahan sum:" test-output.txt > hashes-${{ matrix.os }}.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hashes-${{ matrix.os }}
+          path: hashes-${{ matrix.os }}.txt
+
+  compare:
+    needs: determinism
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Compare hashes across platforms
+        run: |
+          echo "=== Ubuntu hashes ==="
+          cat hashes-ubuntu-latest/hashes-ubuntu-latest.txt
+          echo "=== Windows hashes ==="
+          cat hashes-windows-latest/hashes-windows-latest.txt
+          echo "=== macOS hashes ==="
+          cat hashes-macos-latest/hashes-macos-latest.txt
+          echo "=== Comparing ==="
+          if ! diff -q hashes-ubuntu-latest/hashes-ubuntu-latest.txt hashes-windows-latest/hashes-windows-latest.txt; then
+            echo "::error::Hash mismatch between ubuntu and windows"
+            exit 1
+          fi
+          if ! diff -q hashes-ubuntu-latest/hashes-ubuntu-latest.txt hashes-macos-latest/hashes-macos-latest.txt; then
+            echo "::error::Hash mismatch between ubuntu and macos"
+            exit 1
+          fi
+          echo "All platforms produce identical deterministic hashes"
