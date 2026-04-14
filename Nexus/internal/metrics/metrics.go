@@ -218,6 +218,11 @@ type Metrics struct {
 	// FirewallLatency is the retrieval firewall filtering duration, labeled by
 	// source. Reference: Tech Spec Addendum Section A3.8.
 	FirewallLatency *prometheus.HistogramVec
+
+	// ── Agent Gateway ──────────────────────────────────────────────────────
+	// AgentSessionsActive is the number of active agent sessions, labeled by
+	// agent_id. Reference: AG.2.
+	AgentSessionsActive *prometheus.GaugeVec
 }
 
 // New creates a Metrics with a private Prometheus registry. All metrics are
@@ -480,6 +485,15 @@ func New() *Metrics {
 		[]string{"source"},
 	)
 
+	// ── Agent Gateway ───────────────────────────────────────────────────────
+	m.AgentSessionsActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nexus_agent_sessions_active",
+			Help: "Number of active agent sessions.",
+		},
+		[]string{"agent_id"},
+	)
+
 	// Register all application metrics on the private registry.
 	reg.MustRegister(
 		m.PayloadProcessingLatency,
@@ -521,6 +535,7 @@ func New() *Metrics {
 		m.FirewallFilteredTotal,
 		m.FirewallDeniedTotal,
 		m.FirewallLatency,
+		m.AgentSessionsActive,
 	)
 
 	return m

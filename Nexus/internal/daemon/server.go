@@ -163,6 +163,7 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Get("/api/audit/export", d.handleAuditExport)
 		r.Get("/admin/memories", d.handleAdminList)
 		r.Post("/api/shutdown", d.handleShutdown)
+		r.Get("/api/agents/{agent_id}/sessions", d.handleAgentSessions)
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),
 			promhttp.HandlerOpts{EnableOpenMetrics: false},

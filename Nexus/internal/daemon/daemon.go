@@ -46,6 +46,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/BubbleFish-Nexus/internal/agent"
 	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/cache"
 	"github.com/BubbleFish-Nexus/internal/config"
@@ -187,6 +188,10 @@ type Daemon struct {
 	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.1.
 	sourceKeys map[string]*provenance.KeyPair
 
+	// sessionMgr tracks active agent sessions in memory. Always initialized.
+	// Reference: AG.2.
+	sessionMgr *agent.SessionManager
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -216,6 +221,10 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	}
 	// -1.0 means "not yet computed". Overwritten on first check.
 	d.consistencyScore.Store(math.Float64bits(-1.0))
+
+	// Agent session manager with 30-minute idle timeout (AG.2).
+	d.sessionMgr = agent.NewSessionManager(30*time.Minute, logger)
+
 	return d
 }
 
@@ -914,6 +923,11 @@ func (d *Daemon) Stop() error {
 					"error", err,
 				)
 			}
+		}
+
+		// Stop agent session manager reap goroutine.
+		if d.sessionMgr != nil {
+			d.sessionMgr.Stop()
 		}
 
 		// Stop the goroutine heartbeat supervisor.
