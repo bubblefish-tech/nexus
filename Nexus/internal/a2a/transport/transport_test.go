@@ -1147,3 +1147,171 @@ func (f handlerFunc) HandleRequest(ctx context.Context, req *jsonrpc.Request) *j
 type discardWriter struct{}
 
 func (w *discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// -----------------------------------------------------------------------
+// Bearer token env resolution tests
+// -----------------------------------------------------------------------
+
+func TestBearerTokenEnv_HeaderSent(t *testing.T) {
+	t.Helper()
+
+	const testToken = "secret-bearer-value-12345"
+
+	// Capture the Authorization header the client sends.
+	var gotAuth string
+	srv := http.Server{}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/a2a/jsonrpc", func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		// Return a valid agent/ping response.
+		resp := jsonrpc.Response{
+			JSONRPC: "2.0",
+			Result:  json.RawMessage(`{"status":"ok"}`),
+			ID:      jsonrpc.NumberID(1),
+		}
+		json.NewEncoder(w).Encode(resp)
+	})
+	srv.Handler = mux
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	t.Setenv("TEST_A2A_TOKEN", testToken)
+
+	cfg := TransportConfig{
+		Kind:           "http",
+		URL:            "http://" + ln.Addr().String(),
+		AuthType:       "bearer",
+		BearerTokenEnv: "TEST_A2A_TOKEN",
+	}
+
+	tr := &HTTPTransport{}
+	conn, err := tr.Dial(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	req, _ := jsonrpc.NewRequest(jsonrpc.NumberID(1), "agent/ping", nil)
+	_, err = conn.Send(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	expected := "Bearer " + testToken
+	if gotAuth != expected {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, expected)
+	}
+}
+
+func TestBearerTokenEnv_MissingEnvVar_FailsClosed(t *testing.T) {
+	t.Helper()
+
+	// Ensure the env var is NOT set.
+	t.Setenv("TEST_A2A_TOKEN_MISSING", "")
+	os.Unsetenv("TEST_A2A_TOKEN_MISSING")
+
+	cfg := TransportConfig{
+		Kind:           "http",
+		URL:            "http://127.0.0.1:9999",
+		AuthType:       "bearer",
+		BearerTokenEnv: "TEST_A2A_TOKEN_MISSING",
+	}
+
+	tr := &HTTPTransport{}
+	_, err := tr.Dial(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected error when bearer_token_env is set but env var is empty, got nil")
+	}
+
+	// Error message should name the missing env var.
+	errMsg := err.Error()
+	if !contains(errMsg, "TEST_A2A_TOKEN_MISSING") {
+		t.Errorf("error should mention env var name, got: %s", errMsg)
+	}
+}
+
+func TestBearerTokenEnv_DirectToken_StillWorks(t *testing.T) {
+	t.Helper()
+
+	const testToken = "direct-token-value"
+
+	var gotAuth string
+	srv := http.Server{}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/a2a/jsonrpc", func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		resp := jsonrpc.Response{
+			JSONRPC: "2.0",
+			Result:  json.RawMessage(`{"status":"ok"}`),
+			ID:      jsonrpc.NumberID(1),
+		}
+		json.NewEncoder(w).Encode(resp)
+	})
+	srv.Handler = mux
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	cfg := TransportConfig{
+		Kind:      "http",
+		URL:       "http://" + ln.Addr().String(),
+		AuthType:  "bearer",
+		AuthToken: testToken,
+	}
+
+	tr := &HTTPTransport{}
+	conn, err := tr.Dial(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	req, _ := jsonrpc.NewRequest(jsonrpc.NumberID(1), "agent/ping", nil)
+	_, err = conn.Send(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	expected := "Bearer " + testToken
+	if gotAuth != expected {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, expected)
+	}
+}
+
+func TestResolveBearerToken_NonBearerAuth_ReturnsEmpty(t *testing.T) {
+	cfg := TransportConfig{
+		Kind:           "http",
+		URL:            "http://localhost:9999",
+		AuthType:       "none",
+		BearerTokenEnv: "SHOULD_NOT_MATTER",
+	}
+	token, err := cfg.ResolveBearerToken()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token != "" {
+		t.Errorf("expected empty token for non-bearer auth, got %q", token)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

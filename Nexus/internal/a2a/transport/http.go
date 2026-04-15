@@ -43,6 +43,13 @@ func (t *HTTPTransport) Dial(ctx context.Context, config TransportConfig) (Conn,
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+
+	// Resolve bearer token from env var if configured.
+	token, err := config.ResolveBearerToken()
+	if err != nil {
+		return nil, err
+	}
+
 	timeout := 30 * time.Second
 	if config.TimeoutMs > 0 {
 		timeout = time.Duration(config.TimeoutMs) * time.Millisecond
@@ -50,7 +57,7 @@ func (t *HTTPTransport) Dial(ctx context.Context, config TransportConfig) (Conn,
 	return &httpClientConn{
 		url:       strings.TrimSuffix(config.URL, "/"),
 		authType:  config.AuthType,
-		authToken: config.AuthToken,
+		authToken: token,
 		client: &http.Client{
 			Timeout: timeout,
 		},

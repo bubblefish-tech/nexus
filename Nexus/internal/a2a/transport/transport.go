@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
 )
@@ -71,13 +72,32 @@ type Transport interface {
 
 // TransportConfig holds the configuration for dialing or listening.
 type TransportConfig struct {
-	Kind      string   `json:"kind" toml:"kind"`           // "http", "stdio", "tunnel", "wsl"
-	URL       string   `json:"url,omitempty" toml:"url"`   // for HTTP/tunnel/WSL
-	AuthType  string   `json:"authType,omitempty" toml:"auth_type"` // "bearer", "mtls", "none"
-	AuthToken string   `json:"authToken,omitempty" toml:"auth_token"`
-	Command   string   `json:"command,omitempty" toml:"command"` // for stdio: executable path
-	Args      []string `json:"args,omitempty" toml:"args"`      // for stdio: command args
-	TimeoutMs int64    `json:"timeoutMs,omitempty" toml:"timeout_ms"`
+	Kind           string   `json:"kind" toml:"kind"`           // "http", "stdio", "tunnel", "wsl"
+	URL            string   `json:"url,omitempty" toml:"url"`   // for HTTP/tunnel/WSL
+	AuthType       string   `json:"authType,omitempty" toml:"auth_type"` // "bearer", "mtls", "none"
+	AuthToken      string   `json:"authToken,omitempty" toml:"auth_token"`
+	BearerTokenEnv string   `json:"bearerTokenEnv,omitempty" toml:"bearer_token_env"` // env var name for bearer token
+	Command        string   `json:"command,omitempty" toml:"command"` // for stdio: executable path
+	Args           []string `json:"args,omitempty" toml:"args"`      // for stdio: command args
+	TimeoutMs      int64    `json:"timeoutMs,omitempty" toml:"timeout_ms"`
+}
+
+// ResolveBearerToken resolves the bearer token from either AuthToken or
+// BearerTokenEnv. If BearerTokenEnv is set, the token is read from the
+// named environment variable at call time. Returns an error if
+// BearerTokenEnv is set but the env var is empty or unset.
+func (c *TransportConfig) ResolveBearerToken() (string, error) {
+	if c.AuthType != "bearer" {
+		return "", nil
+	}
+	if c.BearerTokenEnv != "" {
+		token := os.Getenv(c.BearerTokenEnv)
+		if token == "" {
+			return "", fmt.Errorf("transport: bearer auth configured but env var %q is empty or unset", c.BearerTokenEnv)
+		}
+		return token, nil
+	}
+	return c.AuthToken, nil
 }
 
 // Validate checks that the config is well-formed.
