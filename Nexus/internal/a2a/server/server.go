@@ -117,6 +117,7 @@ type Server struct {
 	governance    GovernanceEngine
 	auditSink     AuditSink
 	pushNotifier  PushNotifier
+	clientPool    ClientPool
 	router        *jsonrpc.MethodRouter
 	logger        *slog.Logger
 

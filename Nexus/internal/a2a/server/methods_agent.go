@@ -46,10 +46,4 @@ func (s *Server) handleAgentPing(_ context.Context, _ string, _ json.RawMessage)
 	}, nil
 }
 
-// handleAgentInvoke is a placeholder. Full implementation in A2A.11.
-func (s *Server) handleAgentInvoke(_ context.Context, _ string, _ json.RawMessage) (interface{}, *jsonrpc.ErrorObject) {
-	return nil, &jsonrpc.ErrorObject{
-		Code:    a2a.CodeMethodNotFound,
-		Message: "agent/invoke is not implemented yet",
-	}
-}
+// handleAgentInvoke is implemented in methods_invoke.go (A2A.11).

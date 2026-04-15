@@ -722,15 +722,17 @@ func TestAgentPingVersion(t *testing.T) {
 
 // --- agent/invoke tests ---
 
-func TestAgentInvoke(t *testing.T) {
+func TestAgentInvokeNilParams(t *testing.T) {
 	deps := NewTestServer()
 	resp := dispatch(t, deps.Server, "agent/invoke", nil)
 
 	if resp.Error == nil {
-		t.Fatal("expected not-implemented error")
+		t.Fatal("expected error for nil params")
 	}
-	if resp.Error.Code != a2a.CodeMethodNotFound {
-		t.Errorf("want code %d, got %d", a2a.CodeMethodNotFound, resp.Error.Code)
+	// With no params, the handler returns INVALID_PARAMS because
+	// json.Unmarshal(nil, ...) fails.
+	if resp.Error.Code != a2a.CodeInvalidParams {
+		t.Errorf("want code %d, got %d", a2a.CodeInvalidParams, resp.Error.Code)
 	}
 }
 
