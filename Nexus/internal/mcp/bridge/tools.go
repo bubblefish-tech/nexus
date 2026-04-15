@@ -584,11 +584,20 @@ func transformTasksSendResponse(raw map[string]interface{}, agentName string) ma
 	if runID, ok := raw["runId"].(string); ok {
 		result["runId"] = runID
 	}
+	if taskID, ok := raw["taskId"].(string); ok {
+		result["taskId"] = taskID
+	}
 	if dur, ok := raw["durationMs"].(float64); ok {
 		result["durationMs"] = dur
 	}
 
-	// Walk messages backwards to find the last assistant text.
+	// New async format: result is a plain string at top level.
+	if text, ok := raw["result"].(string); ok && text != "" {
+		result["response"] = text
+		return result
+	}
+
+	// Legacy sync format: walk messages backwards to find the last assistant text.
 	messages, ok := raw["messages"].([]interface{})
 	if !ok || len(messages) == 0 {
 		result["response"] = "(no response)"
