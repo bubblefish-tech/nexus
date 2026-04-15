@@ -71,7 +71,8 @@ func (b *Bridge) ToolDefinitions() []ToolDefinition {
 						"description": "Skill to invoke on the target agent.",
 					},
 					"input": map[string]interface{}{
-						"description": "Message content. Can be a string or structured object.",
+						"type":        "string",
+						"description": "Message content to send to the agent.",
 					},
 					"blocking": map[string]interface{}{
 						"type":        "boolean",
@@ -101,6 +102,7 @@ func (b *Bridge) ToolDefinitions() []ToolDefinition {
 						"description": "Skill to invoke.",
 					},
 					"input": map[string]interface{}{
+						"type":        "string",
 						"description": "Message content.",
 					},
 				},
@@ -137,6 +139,7 @@ func (b *Bridge) ToolDefinitions() []ToolDefinition {
 						"description": "The task ID to resume.",
 					},
 					"input": map[string]interface{}{
+						"type":        "string",
 						"description": "Follow-up input.",
 					},
 				},
