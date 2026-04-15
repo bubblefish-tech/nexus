@@ -50,7 +50,7 @@ const (
 )
 
 // MCP protocol version this server advertises.
-const mcpProtocolVersion = "2024-11-05"
+const mcpProtocolVersion = "2025-11-25"
 
 // ---------------------------------------------------------------------------
 // CORS constants
@@ -741,7 +741,9 @@ func (s *Server) handleInitialize(w http.ResponseWriter, r *http.Request, req rp
 	s.writeRPCResult(w, r, req.ID, initializeResult{
 		ProtocolVersion: mcpProtocolVersion,
 		Capabilities: map[string]interface{}{
-			"tools": map[string]interface{}{},
+			"tools": map[string]interface{}{
+				"listChanged": true,
+			},
 		},
 		ServerInfo: serverInfo{
 			Name:    "bubblefish-nexus",
