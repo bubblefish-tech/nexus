@@ -140,8 +140,9 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 // agentTOML is the TOML structure for agent registration files.
 type agentTOML struct {
 	Agent struct {
-		Name    string `toml:"name"`
-		AgentID string `toml:"agent_id"`
+		Name    string   `toml:"name"`
+		AgentID string   `toml:"agent_id"`
+		Methods []string `toml:"methods"` // supported JSON-RPC methods (e.g., ["tasks/send", "agent/card"])
 	} `toml:"agent"`
 	Transport struct {
 		Kind string `toml:"kind"`
@@ -219,10 +220,13 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 		}
 
 		agent := registry.RegisteredAgent{
-			AgentID:         agentID,
-			Name:            raw.Agent.Name,
-			DisplayName:     raw.Agent.Name,
-			AgentCard:       a2a.AgentCard{Name: raw.Agent.Name},
+			AgentID:     agentID,
+			Name:        raw.Agent.Name,
+			DisplayName: raw.Agent.Name,
+			AgentCard: a2a.AgentCard{
+				Name:    raw.Agent.Name,
+				Methods: raw.Agent.Methods,
+			},
 			TransportConfig: tc,
 			Status:          registry.StatusActive,
 			CreatedAt:       time.Now(),

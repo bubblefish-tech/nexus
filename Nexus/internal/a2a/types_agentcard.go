@@ -139,4 +139,5 @@ type AgentCard struct {
 	Signature           *CardSignature    `json:"signature,omitempty"`
 	DocumentationURL    string            `json:"documentationUrl,omitempty"`
 	TermsOfServiceURL   string            `json:"termsOfServiceUrl,omitempty"`
+	Methods             []string          `json:"methods,omitempty"`
 }

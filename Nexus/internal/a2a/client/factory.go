@@ -86,10 +86,16 @@ func (f *Factory) NewClient(ctx context.Context, agent registry.RegisteredAgent)
 
 	c := NewClient(conn, agent.AgentID, f.logger)
 
-	// Verify connectivity with a ping.
-	if err := c.Ping(ctx); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("client: ping %s failed: %w", agent.AgentID, err)
+	// Verify connectivity with agent/card (preferred) or agent/ping.
+	// Non-fatal: some agents only implement a subset of methods.
+	if _, err := c.GetAgentCard(ctx); err != nil {
+		if pingErr := c.Ping(ctx); pingErr != nil {
+			f.logger.Warn("client: agent health check failed (continuing anyway)",
+				"agent_id", agent.AgentID,
+				"card_error", err,
+				"ping_error", pingErr,
+			)
+		}
 	}
 
 	f.logger.Info("client: connected to agent",

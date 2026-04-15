@@ -201,6 +201,12 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
+// Call sends an arbitrary JSON-RPC request and returns the raw response.
+// Use this for methods not covered by the typed helpers (e.g., tasks/send).
+func (c *Client) Call(ctx context.Context, method string, params interface{}) (*jsonrpc.Response, error) {
+	return c.call(ctx, method, params)
+}
+
 // call builds a JSON-RPC request, sends it, and checks for errors.
 func (c *Client) call(ctx context.Context, method string, params interface{}) (*jsonrpc.Response, error) {
 	req, err := jsonrpc.NewRequest(nextID(), method, params)

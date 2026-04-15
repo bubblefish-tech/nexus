@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/BubbleFish-Nexus/internal/a2a/client"
 	"github.com/BubbleFish-Nexus/internal/a2a/registry"
 	"github.com/BubbleFish-Nexus/internal/a2a/server"
 )
@@ -194,6 +195,13 @@ func (b *Bridge) HandleA2ASendToAgent(ctx context.Context, args map[string]inter
 	c, err := b.clientPool.Get(ctx, *agent)
 	if err != nil {
 		return nil, fmt.Errorf("bridge: connect to %s: %w", agent.Name, err)
+	}
+
+	// Check if the agent uses tasks/send (OpenClaw-style) instead of
+	// message/send (A2A v1.0). If so, send a simplified request with
+	// the message as a plain string.
+	if agentUsesTasksSend(agent) {
+		return b.sendViaTasksSend(ctx, c, args, agent)
 	}
 
 	task, err := c.SendMessage(ctx, msg, skill, cfg)
@@ -418,4 +426,59 @@ func (b *Bridge) lookupAgent(ctx context.Context, nameOrID string) (*registry.Re
 		return nil, fmt.Errorf("bridge: agent %q not found", nameOrID)
 	}
 	return agent, nil
+}
+
+// agentUsesTasksSend returns true if the agent's card declares tasks/send
+// (OpenClaw-style) as a supported method instead of message/send (A2A v1.0).
+func agentUsesTasksSend(agent *registry.RegisteredAgent) bool {
+	for _, m := range agent.AgentCard.Methods {
+		if m == "tasks/send" {
+			return true
+		}
+	}
+	return false
+}
+
+// sendViaTasksSend dispatches a message using the OpenClaw tasks/send format.
+// OpenClaw expects: {"message": "plain string"} as params.
+func (b *Bridge) sendViaTasksSend(ctx context.Context, c *client.Client, args map[string]interface{}, agent *registry.RegisteredAgent) (interface{}, error) {
+	// Extract the message as a plain string.
+	var messageStr string
+	switch v := args["input"].(type) {
+	case string:
+		messageStr = v
+	case map[string]interface{}:
+		// If input is a structured object, marshal it to JSON string.
+		data, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("bridge: marshal input: %w", err)
+		}
+		messageStr = string(data)
+	default:
+		data, err := json.Marshal(args["input"])
+		if err != nil {
+			return nil, fmt.Errorf("bridge: marshal input: %w", err)
+		}
+		messageStr = string(data)
+	}
+
+	params := map[string]interface{}{
+		"message": messageStr,
+	}
+	if skill, ok := args["skill"].(string); ok && skill != "" {
+		params["agentId"] = skill
+	}
+
+	resp, err := c.Call(ctx, "tasks/send", params)
+	if err != nil {
+		return nil, fmt.Errorf("bridge: tasks/send to %s: %w", agent.Name, err)
+	}
+
+	// Parse the response.
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		return nil, fmt.Errorf("bridge: unmarshal tasks/send result: %w", err)
+	}
+
+	return result, nil
 }
