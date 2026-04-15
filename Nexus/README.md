@@ -270,6 +270,10 @@ configuration changes.
 See [docs/OAUTH_KNOWN_LIMITATIONS.md](docs/OAUTH_KNOWN_LIMITATIONS.md) for
 the current scope and limitations of the OAuth implementation.
 
+## Nexus A2A
+
+Nexus A2A is a governed agent-to-agent protocol that lets any MCP-compatible AI assistant (Claude Desktop, ChatGPT, Perplexity, LM Studio, Open WebUI) invoke registered agents through Nexus without code changes. Every task is governed by capability-scope grants you control, every destructive action requires explicit approval, and every action is recorded in the tamper-evident audit chain. Nexus A2A is wire-compatible with the public A2A v1.0 specification. See [docs/a2a/overview.md](docs/a2a/overview.md) for details and the [quickstart guide](docs/a2a/quickstart.md) to get running in 10 minutes.
+
 ## Roadmap
 
 | Version | Codename | Focus |
