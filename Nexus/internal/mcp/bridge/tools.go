@@ -441,6 +441,8 @@ func agentUsesTasksSend(agent *registry.RegisteredAgent) bool {
 
 // sendViaTasksSend dispatches a message using the OpenClaw tasks/send format.
 // OpenClaw expects: {"message": "plain string"} as params.
+// The response is transformed: only the last assistant text is returned to
+// the MCP client, not the full session history.
 func (b *Bridge) sendViaTasksSend(ctx context.Context, c *client.Client, args map[string]interface{}, agent *registry.RegisteredAgent) (interface{}, error) {
 	// Extract the message as a plain string.
 	var messageStr string
@@ -448,7 +450,6 @@ func (b *Bridge) sendViaTasksSend(ctx context.Context, c *client.Client, args ma
 	case string:
 		messageStr = v
 	case map[string]interface{}:
-		// If input is a structured object, marshal it to JSON string.
 		data, err := json.Marshal(v)
 		if err != nil {
 			return nil, fmt.Errorf("bridge: marshal input: %w", err)
@@ -474,11 +475,74 @@ func (b *Bridge) sendViaTasksSend(ctx context.Context, c *client.Client, args ma
 		return nil, fmt.Errorf("bridge: tasks/send to %s: %w", agent.Name, err)
 	}
 
-	// Parse the response.
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
+	// Parse the raw response.
+	var raw map[string]interface{}
+	if err := json.Unmarshal(resp.Result, &raw); err != nil {
 		return nil, fmt.Errorf("bridge: unmarshal tasks/send result: %w", err)
 	}
 
-	return result, nil
+	// Transform: extract the last assistant text from the full session history.
+	return transformTasksSendResponse(raw, agent.Name), nil
+}
+
+// transformTasksSendResponse extracts a clean response from the OpenClaw
+// tasks/send result. It finds the last assistant message's text content
+// and returns a concise result suitable for an MCP tool response.
+func transformTasksSendResponse(raw map[string]interface{}, agentName string) map[string]interface{} {
+	result := map[string]interface{}{
+		"agent":  agentName,
+		"status": raw["status"],
+	}
+
+	if runID, ok := raw["runId"].(string); ok {
+		result["runId"] = runID
+	}
+	if dur, ok := raw["durationMs"].(float64); ok {
+		result["durationMs"] = dur
+	}
+
+	// Walk messages backwards to find the last assistant text.
+	messages, ok := raw["messages"].([]interface{})
+	if !ok || len(messages) == 0 {
+		result["response"] = "(no response)"
+		return result
+	}
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, ok := messages[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if msg["role"] != "assistant" {
+			continue
+		}
+
+		// Check for error.
+		if errMsg, ok := msg["errorMessage"].(string); ok && errMsg != "" {
+			result["response"] = "(error: " + errMsg + ")"
+			result["error"] = true
+			return result
+		}
+
+		// Extract text parts from content array.
+		content, ok := msg["content"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, part := range content {
+			p, ok := part.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if p["type"] == "text" {
+				if text, ok := p["text"].(string); ok {
+					result["response"] = text
+					return result
+				}
+			}
+		}
+	}
+
+	result["response"] = "(no text in response)"
+	return result
 }
