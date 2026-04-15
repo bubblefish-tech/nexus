@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BubbleFish-Nexus/internal/mcp/bridge"
 	"github.com/BubbleFish-Nexus/internal/version"
 )
 
@@ -209,6 +210,9 @@ type Server struct {
 	// Nil when coordination is not enabled. Reference: AG.5.
 	coordinationProvider CoordinationProvider
 
+	// a2aBridge dispatches A2A bridge tool calls. Nil when A2A is disabled.
+	a2aBridge *bridge.Bridge
+
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
@@ -269,6 +273,13 @@ func (s *Server) SetToolPolicyChecker(checker ToolPolicyCheckerIface) {
 // on 401 responses. Must be called before Start() when OAuth is enabled.
 func (s *Server) SetOAuthIssuerURL(url string) {
 	s.oauthIssuerURL = url
+}
+
+// SetBridge configures the A2A bridge. When set, the 9 a2a_* MCP tools
+// are advertised in tools/list and dispatched through the bridge.
+// Must be called before Start(). Pass nil to disable A2A tools.
+func (s *Server) SetBridge(b *bridge.Bridge) {
+	s.a2aBridge = b
 }
 
 func (s *Server) Start() error {
@@ -740,7 +751,11 @@ func (s *Server) handleInitialize(w http.ResponseWriter, r *http.Request, req rp
 }
 
 func (s *Server) handleToolsList(w http.ResponseWriter, r *http.Request, req rpcRequest) {
-	s.writeRPCResult(w, r, req.ID, toolsListResult{Tools: toolList()})
+	tools := toolList()
+	if s.a2aBridge != nil {
+		tools = append(tools, a2aToolDefs(s.a2aBridge)...)
+	}
+	s.writeRPCResult(w, r, req.ID, toolsListResult{Tools: tools})
 }
 
 func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpcRequest) {
@@ -779,6 +794,10 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 		s.callAgentPullSignals(w, r, req, params.Arguments)
 	case "agent_status_query":
 		s.callAgentStatusQuery(w, r, req, params.Arguments)
+	case "a2a_list_agents", "a2a_describe_agent", "a2a_send_to_agent",
+		"a2a_stream_to_agent", "a2a_get_task", "a2a_resume_task",
+		"a2a_cancel_task", "a2a_list_pending_approvals", "a2a_list_grants":
+		s.callA2ABridgeTool(w, r, req, params.Name, params.Arguments)
 	default:
 		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
 	}

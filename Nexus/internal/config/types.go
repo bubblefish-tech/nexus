@@ -33,6 +33,7 @@ type Config struct {
 	SecurityEvents SecurityEventsConfig `toml:"security_events"`
 	Ingest         IngestConfig         `toml:"ingest"`
 	Credentials    CredentialsConfig    `toml:"credentials"`
+	A2A            A2AConfig            `toml:"a2a"`
 
 	// Substrate holds the [substrate] section for BF-Sketch.
 	// Reference: v0.1.3 BF-Sketch Substrate Build Plan.
@@ -142,6 +143,11 @@ type OAuthClientConfig struct {
 	RedirectURIs    []string `toml:"redirect_uris"`
 	OAuthSourceName string   `toml:"oauth_source_name"`
 	AllowedScopes   []string `toml:"allowed_scopes"`
+}
+
+// A2AConfig models the top-level [a2a] section. Defaults to disabled.
+type A2AConfig struct {
+	Enabled bool `toml:"enabled"`
 }
 
 // AuditConfig models [daemon.audit].
