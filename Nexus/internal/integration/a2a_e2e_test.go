@@ -45,11 +45,12 @@ import (
 // mockNA2AAgent is a minimal NA2A-compliant HTTP server for integration tests.
 // It registers one skill (echo_message) that echoes input back as output.
 type mockNA2AAgent struct {
-	srv    *http.Server
-	ln     net.Listener
-	card   a2a.AgentCard
-	logger *slog.Logger
-	a2aSrv *server.Server
+	srv      *http.Server
+	ln       net.Listener
+	card     a2a.AgentCard
+	logger   *slog.Logger
+	a2aSrv   *server.Server
+	executor *server.InMemorySkillExecutor
 }
 
 // newMockNA2AAgent creates and starts a mock agent on a random port.
@@ -149,11 +150,12 @@ func newMockNA2AAgent(t *testing.T) *mockNA2AAgent {
 	go httpSrv.Serve(ln)
 
 	return &mockNA2AAgent{
-		srv:    httpSrv,
-		ln:     ln,
-		card:   card,
-		logger: slog.Default(),
-		a2aSrv: a2aSrv,
+		srv:      httpSrv,
+		ln:       ln,
+		card:     card,
+		logger:   slog.Default(),
+		a2aSrv:   a2aSrv,
+		executor: skillExec,
 	}
 }
 
