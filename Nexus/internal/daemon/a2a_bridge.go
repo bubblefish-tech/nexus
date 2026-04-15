@@ -20,14 +20,19 @@ package daemon
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/BubbleFish-Nexus/internal/a2a"
 	"github.com/BubbleFish-Nexus/internal/a2a/client"
 	"github.com/BubbleFish-Nexus/internal/a2a/governance"
 	"github.com/BubbleFish-Nexus/internal/a2a/registry"
 	"github.com/BubbleFish-Nexus/internal/a2a/server"
+	"github.com/BubbleFish-Nexus/internal/a2a/transport"
 	"github.com/BubbleFish-Nexus/internal/config"
 	"github.com/BubbleFish-Nexus/internal/mcp/bridge"
+	"github.com/BurntSushi/toml"
 	_ "modernc.org/sqlite"
 )
 
@@ -102,6 +107,9 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 		return
 	}
 
+	// Load agents from TOML files in <configDir>/a2a/agents/*.toml.
+	d.loadA2AAgents(configDir, regStore)
+
 	// Client pool.
 	factory := client.NewFactory(d.logger)
 	pool := client.NewPool(factory, d.logger)
@@ -127,4 +135,114 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 		"component", "a2a",
 		"agents", agentCount,
 	)
+}
+
+// agentTOML is the TOML structure for agent registration files.
+type agentTOML struct {
+	Agent struct {
+		Name    string `toml:"name"`
+		AgentID string `toml:"agent_id"`
+	} `toml:"agent"`
+	Transport struct {
+		Kind string `toml:"kind"`
+		HTTP struct {
+			URL            string `toml:"url"`
+			Auth           string `toml:"auth"`
+			BearerTokenEnv string `toml:"bearer_token_env"`
+		} `toml:"http"`
+	} `toml:"transport"`
+}
+
+// loadA2AAgents reads agent TOML files from <configDir>/a2a/agents/ and
+// upserts them into the registry. Errors for individual files are logged
+// and skipped — one bad TOML must not prevent other agents from loading.
+func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
+	agentsDir := filepath.Join(configDir, "a2a", "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		d.logger.Warn("daemon: cannot read a2a/agents directory",
+			"component", "a2a",
+			"error", err,
+		)
+		return
+	}
+
+	ctx := context.Background()
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".toml" {
+			continue
+		}
+
+		path := filepath.Join(agentsDir, entry.Name())
+		var raw agentTOML
+		if _, err := toml.DecodeFile(path, &raw); err != nil {
+			d.logger.Warn("daemon: skip bad agent TOML",
+				"component", "a2a",
+				"file", entry.Name(),
+				"error", err,
+			)
+			continue
+		}
+
+		if raw.Agent.Name == "" {
+			d.logger.Warn("daemon: skip agent TOML with empty name",
+				"component", "a2a",
+				"file", entry.Name(),
+			)
+			continue
+		}
+
+		agentID := raw.Agent.AgentID
+		if agentID == "" {
+			agentID = "agt_" + a2a.NewTaskID()[4:] // generate if not set
+		}
+
+		// Build transport config.
+		tc := transport.TransportConfig{
+			Kind:           raw.Transport.Kind,
+			URL:            raw.Transport.HTTP.URL,
+			AuthType:       raw.Transport.HTTP.Auth,
+			BearerTokenEnv: raw.Transport.HTTP.BearerTokenEnv,
+		}
+
+		// Check if already registered (idempotent on restart).
+		existing, _ := regStore.GetByName(ctx, raw.Agent.Name)
+		if existing != nil {
+			d.logger.Debug("daemon: agent already registered, skipping",
+				"component", "a2a",
+				"name", raw.Agent.Name,
+			)
+			continue
+		}
+
+		agent := registry.RegisteredAgent{
+			AgentID:         agentID,
+			Name:            raw.Agent.Name,
+			DisplayName:     raw.Agent.Name,
+			AgentCard:       a2a.AgentCard{Name: raw.Agent.Name},
+			TransportConfig: tc,
+			Status:          registry.StatusActive,
+			CreatedAt:       time.Now(),
+			UpdatedAt:       time.Now(),
+		}
+
+		if err := regStore.Register(ctx, agent); err != nil {
+			d.logger.Warn("daemon: failed to register agent from TOML",
+				"component", "a2a",
+				"name", raw.Agent.Name,
+				"error", err,
+			)
+			continue
+		}
+
+		d.logger.Info("daemon: registered A2A agent from TOML",
+			"component", "a2a",
+			"name", raw.Agent.Name,
+			"agent_id", agentID,
+			"url", tc.URL,
+		)
+	}
 }
