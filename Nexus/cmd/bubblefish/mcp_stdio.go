@@ -98,7 +98,7 @@ func runMCPStdio(args []string) {
 	logger.Info("bridge configured", "target", targetURL)
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 120 * time.Second,
 		Transport: &http.Transport{
 			MaxIdleConns:        2,
 			MaxIdleConnsPerHost: 2,
