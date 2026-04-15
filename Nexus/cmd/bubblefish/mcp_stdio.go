@@ -28,6 +28,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/config"
@@ -119,15 +120,28 @@ func runMCPStdio(args []string) {
 	stdout := bufio.NewWriter(os.Stdout)
 	defer func() { _ = stdout.Flush() }()
 
+	// Mutex protects stdout writes so concurrent goroutines don't
+	// interleave JSON-RPC response lines.
+	var stdoutMu sync.Mutex
+	var wg sync.WaitGroup
+
 	for scanner.Scan() {
-		line := scanner.Bytes()
+		// Copy the line — scanner reuses the buffer.
+		line := make([]byte, len(scanner.Bytes()))
+		copy(line, scanner.Bytes())
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		if err := forward(client, targetURL, authHeader, line, stdout, logger); err != nil {
-			logger.Warn("forward failed", "error", err)
-		}
+		wg.Add(1)
+		go func(reqLine []byte) {
+			defer wg.Done()
+			if err := forward(client, targetURL, authHeader, reqLine, stdout, &stdoutMu, logger); err != nil {
+				logger.Warn("forward failed", "error", err)
+			}
+		}(line)
 	}
+
+	wg.Wait()
 
 	if err := scanner.Err(); err != nil && err != io.EOF {
 		logger.Warn("stdin scanner error", "error", err)
@@ -136,23 +150,23 @@ func runMCPStdio(args []string) {
 	logger.Info("stdin closed, bridge exiting")
 }
 
-func forward(client *http.Client, targetURL, authHeader string, reqLine []byte, stdout *bufio.Writer, logger *slog.Logger) error {
+func forward(client *http.Client, targetURL, authHeader string, reqLine []byte, stdout *bufio.Writer, stdoutMu *sync.Mutex, logger *slog.Logger) error {
 	httpReq, err := http.NewRequest(http.MethodPost, targetURL, bytes.NewReader(reqLine))
 	if err != nil {
-		return writeBridgeError(stdout, reqLine, -32603, "bridge: build http request: "+err.Error())
+		return writeBridgeErrorMu(stdout, stdoutMu, reqLine, -32603, "bridge: build http request: "+err.Error())
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", authHeader)
 
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
-		return writeBridgeError(stdout, reqLine, -32603, "bridge: http transport: "+err.Error())
+		return writeBridgeErrorMu(stdout, stdoutMu, reqLine, -32603, "bridge: http transport: "+err.Error())
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
 	body, err := io.ReadAll(httpResp.Body)
 	if err != nil {
-		return writeBridgeError(stdout, reqLine, -32603, "bridge: read response body: "+err.Error())
+		return writeBridgeErrorMu(stdout, stdoutMu, reqLine, -32603, "bridge: read response body: "+err.Error())
 	}
 
 	// HTTP 204 No Content (or any 2xx with empty body) means the request was a
@@ -166,15 +180,15 @@ func forward(client *http.Client, targetURL, authHeader string, reqLine []byte, 
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		if isJSONRPCResponse(body) {
-			// Strip trailing newline added by Go's json.NewEncoder before
-			// writing — we add exactly one \n ourselves below.
 			body = bytes.TrimRight(body, "\r\n")
+			stdoutMu.Lock()
 			_, _ = stdout.Write(body)
 			_ = stdout.WriteByte('\n')
 			_ = stdout.Flush()
+			stdoutMu.Unlock()
 			return nil
 		}
-		return writeBridgeError(stdout, reqLine, -32603, fmt.Sprintf("bridge: daemon returned HTTP %d: %s", httpResp.StatusCode, truncate(string(body), 200)))
+		return writeBridgeErrorMu(stdout, stdoutMu, reqLine, -32603, fmt.Sprintf("bridge: daemon returned HTTP %d: %s", httpResp.StatusCode, truncate(string(body), 200)))
 	}
 
 	// Strip trailing newline added by Go's json.NewEncoder(w).Encode() before
@@ -183,13 +197,16 @@ func forward(client *http.Client, targetURL, authHeader string, reqLine []byte, 
 	// readMessage calls JSON.parse on each line, hits the empty line, and
 	// throws "Unexpected end of JSON input".
 	body = bytes.TrimRight(body, "\r\n")
-	if _, err := stdout.Write(body); err != nil {
-		return err
+	stdoutMu.Lock()
+	_, writeErr := stdout.Write(body)
+	if writeErr == nil {
+		writeErr = stdout.WriteByte('\n')
 	}
-	if err := stdout.WriteByte('\n'); err != nil {
-		return err
+	if writeErr == nil {
+		writeErr = stdout.Flush()
 	}
-	return stdout.Flush()
+	stdoutMu.Unlock()
+	return writeErr
 }
 
 func preflight(client *http.Client, targetURL, authHeader string) error {
@@ -207,6 +224,12 @@ func preflight(client *http.Client, targetURL, authHeader string) error {
 	}
 	_ = resp.Body.Close()
 	return nil
+}
+
+func writeBridgeErrorMu(stdout *bufio.Writer, mu *sync.Mutex, reqLine []byte, code int, message string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	return writeBridgeError(stdout, reqLine, code, message)
 }
 
 func writeBridgeError(stdout *bufio.Writer, reqLine []byte, code int, message string) error {
