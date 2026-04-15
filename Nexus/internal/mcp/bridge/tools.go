@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/a2a/client"
@@ -415,13 +416,21 @@ func (b *Bridge) HandleA2AListGrants(ctx context.Context, _ map[string]interface
 	}, nil
 }
 
-// lookupAgent finds an agent by name or ID. It tries name first, then ID.
+// lookupAgent finds an agent by name or ID (case-insensitive name match).
 func (b *Bridge) lookupAgent(ctx context.Context, nameOrID string) (*registry.RegisteredAgent, error) {
+	// Try exact name first.
 	agent, err := b.registry.GetByName(ctx, nameOrID)
 	if err == nil {
 		return agent, nil
 	}
 
+	// Try lowercase name (handles "OpenClaw" -> "openclaw").
+	agent, err = b.registry.GetByName(ctx, strings.ToLower(nameOrID))
+	if err == nil {
+		return agent, nil
+	}
+
+	// Try by ID.
 	agent, err = b.registry.Get(ctx, nameOrID)
 	if err != nil {
 		return nil, fmt.Errorf("bridge: agent %q not found", nameOrID)
