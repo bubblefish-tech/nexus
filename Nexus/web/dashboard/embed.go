@@ -26,6 +26,16 @@ import "embed"
 //go:embed index.html
 var HTML string
 
+// A2APermissionsHTML is the A2A permissions management page.
+//
+//go:embed a2a_permissions.html
+var A2APermissionsHTML string
+
+// OpenClawHTML is the OpenClaw agent control page.
+//
+//go:embed openclaw.html
+var OpenClawHTML string
+
 // LogoPNG is the BubbleFish logo used in the sidebar and witness HUD.
 //
 //go:embed assets/logo_metal.png
