@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/BubbleFish-Nexus/internal/a2a/client"
 	"github.com/BubbleFish-Nexus/internal/a2a/registry"
@@ -441,8 +442,10 @@ func agentUsesTasksSend(agent *registry.RegisteredAgent) bool {
 
 // sendViaTasksSend dispatches a message using the OpenClaw tasks/send format.
 // OpenClaw expects: {"message": "plain string"} as params.
-// The response is transformed: only the last assistant text is returned to
-// the MCP client, not the full session history.
+//
+// Flow: send → get taskId → poll tasks/get until status !== "pending" → return.
+// If tasks/send returns a completed result directly (legacy sync mode), the
+// response is used immediately without polling.
 func (b *Bridge) sendViaTasksSend(ctx context.Context, c *client.Client, args map[string]interface{}, agent *registry.RegisteredAgent) (interface{}, error) {
 	// Extract the message as a plain string.
 	var messageStr string
@@ -475,14 +478,98 @@ func (b *Bridge) sendViaTasksSend(ctx context.Context, c *client.Client, args ma
 		return nil, fmt.Errorf("bridge: tasks/send to %s: %w", agent.Name, err)
 	}
 
-	// Parse the raw response.
 	var raw map[string]interface{}
 	if err := json.Unmarshal(resp.Result, &raw); err != nil {
 		return nil, fmt.Errorf("bridge: unmarshal tasks/send result: %w", err)
 	}
 
-	// Transform: extract the last assistant text from the full session history.
-	return transformTasksSendResponse(raw, agent.Name), nil
+	// If the response is already complete (sync mode), return immediately.
+	status, _ := raw["status"].(string)
+	if status != "pending" && status != "running" {
+		return transformTasksSendResponse(raw, agent.Name), nil
+	}
+
+	// Async mode: extract identifiers and poll tasks/get until done.
+	// OpenClaw returns taskId (always) and optionally runId and sessionKey.
+	taskID, _ := raw["taskId"].(string)
+	sessionKey, _ := raw["sessionKey"].(string)
+	runID, _ := raw["runId"].(string)
+
+	if taskID == "" && sessionKey == "" && runID == "" {
+		return nil, fmt.Errorf("bridge: tasks/send returned pending but no taskId, sessionKey, or runId")
+	}
+
+	b.logger.Info("bridge: polling for task completion",
+		"agent", agent.Name,
+		"taskId", taskID,
+		"runId", runID,
+		"sessionKey", sessionKey,
+	)
+
+	return b.pollTasksGet(ctx, c, agent, taskID, sessionKey, runID)
+}
+
+const (
+	pollInterval   = 1500 * time.Millisecond
+	pollMaxWait    = 120 * time.Second
+)
+
+// pollTasksGet polls tasks/get until the task is no longer pending/running.
+func (b *Bridge) pollTasksGet(ctx context.Context, c *client.Client, agent *registry.RegisteredAgent, taskID, sessionKey, runID string) (interface{}, error) {
+	deadline := time.Now().Add(pollMaxWait)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("bridge: context cancelled while polling %s: %w", agent.Name, ctx.Err())
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return map[string]interface{}{
+					"agent":    agent.Name,
+					"status":   "timeout",
+					"taskId":   taskID,
+					"runId":    runID,
+					"response": "(timed out waiting for agent response)",
+				}, nil
+			}
+
+			// Build poll params — use taskId first, fall back to sessionKey/runId.
+			params := map[string]interface{}{}
+			if taskID != "" {
+				params["taskId"] = taskID
+			}
+			if sessionKey != "" {
+				params["sessionKey"] = sessionKey
+			}
+			if runID != "" {
+				params["runId"] = runID
+			}
+
+			resp, err := c.Call(ctx, "tasks/get", params)
+			if err != nil {
+				b.logger.Warn("bridge: poll error (retrying)",
+					"agent", agent.Name,
+					"error", err,
+				)
+				continue
+			}
+
+			var raw map[string]interface{}
+			if err := json.Unmarshal(resp.Result, &raw); err != nil {
+				continue
+			}
+
+			status, _ := raw["status"].(string)
+			if status == "pending" || status == "running" {
+				continue
+			}
+
+			// Terminal state — transform and return.
+			return transformTasksSendResponse(raw, agent.Name), nil
+		}
+	}
 }
 
 // transformTasksSendResponse extracts a clean response from the OpenClaw
