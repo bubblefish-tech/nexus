@@ -41,3 +41,12 @@ loadtest*
 # OS
 .DS_Store
 Thumbs.db
+
+# Build ledger (local-only, never tracked)
+BUILD_LEDGER.md
+
+# Planning & session artifacts (not product code)
+.claude/*.md
+.claude/settings.local.json
+.a2a-debug/
+*.bak

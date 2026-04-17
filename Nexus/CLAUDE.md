@@ -5,6 +5,15 @@ BubbleFish Nexus v2.2 is a gateway-first AI memory daemon written in Go.
 It sits between AI clients and memory databases, providing crash-safe,
 policy-aware, retrieval-optimized memory management.
 
+## Work Ledger (MANDATORY)
+
+This repo maintains a build ledger at `BUILD_LEDGER.md` (repo root).
+
+- **Before any code work:** read `BUILD_LEDGER.md` and confirm the current subtask against it.
+- **After every subtask commit:** update `BUILD_LEDGER.md` in the same commit or in the immediately following commit.
+
+The ledger is the single source of truth for which phase/subtask is active, which branches are in-flight, and what's merged. If the ledger and reality disagree, stop and reconcile before continuing.
+
 ## Go Module
 github.com/BubbleFish-Nexus
 
