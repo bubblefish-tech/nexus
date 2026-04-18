@@ -67,6 +67,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  sentinel     continuous drift detection between WAL and destinations")
 		fmt.Fprintln(os.Stderr, "  destination  manage destinations (rebuild)")
 		fmt.Fprintln(os.Stderr, "  agent        manage agent identities (register, list, show, suspend, retire)")
+		fmt.Fprintln(os.Stderr, "  substrate    BF-Sketch substrate management (status, rotate-ratchet, prove-deletion)")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
 	}
@@ -139,6 +140,8 @@ func main() {
 		runDestination(os.Args[2:])
 	case "agent":
 		runAgent(os.Args[2:])
+	case "substrate":
+		runSubstrate(os.Args[2:])
 	case "version", "--version":
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:

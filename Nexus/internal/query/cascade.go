@@ -167,6 +167,7 @@ type CascadeRunner struct {
 	debug            bool // when true, populate DebugInfo in CascadeResult
 	fw               *firewall.RetrievalFirewall  // Phase R-31: retrieval firewall
 	clusterQuerier   destination.ClusterQuerier   // Phase 3: cluster expansion
+	sketchPrefilter  *SketchPrefilterConfig       // Stage 3.5: BF-Sketch prefilter (nil = disabled)
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -269,6 +270,15 @@ func (cr *CascadeRunner) WithClusterQuerier(cq destination.ClusterQuerier) *Casc
 // Reference: Tech Spec Addendum Section A3.5.
 func (cr *CascadeRunner) WithFirewall(fw *firewall.RetrievalFirewall) *CascadeRunner {
 	cr.fw = fw
+	return cr
+}
+
+// WithSketchPrefilter attaches a BF-Sketch prefilter configuration, enabling
+// Stage 3.5 in the cascade. Returns the runner for method chaining.
+//
+// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.7.
+func (cr *CascadeRunner) WithSketchPrefilter(cfg *SketchPrefilterConfig) *CascadeRunner {
+	cr.sketchPrefilter = cfg
 	return cr
 }
 
@@ -539,6 +549,22 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 	records, nextCursor, hasMore, err := runStage3(ctx, cr.querier, overSampledQ)
 	if err != nil {
 		return CascadeResult{}, err
+	}
+
+	// ── Stage 3.5: Sketch Prefilter (BF-Sketch) ────────────────────────────
+	// Active when: substrate enabled, query has embedding, candidate set
+	// exceeds threshold. Reduces candidates via sketch inner-product ranking.
+	// Rule 18: errors fall through to Stage 4 with original candidates.
+	//
+	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.7.
+	if cr.sketchPrefilter != nil && queryVecOK {
+		records = stage35SketchPrefilter(
+			cr.sketchPrefilter,
+			queryVec,
+			records,
+			200, // prefilter threshold
+			100, // top-K
+		)
 	}
 
 	// ── Stage 4: Semantic Retrieval ─────────────────────────────────────────

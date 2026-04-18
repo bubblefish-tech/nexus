@@ -95,6 +95,18 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **`bubblefish backup verify`** — full checksum verification against manifest
 - **`bubblefish destination rebuild`** — replays WAL into fresh destination
 
+### Substrate (BF-Sketch, experimental, disabled by default)
+- **Sketch-based compact embedding representation** alongside full-precision storage. Binary quantization with 1-bit signs and a small set of correction factors per sketch, producing approximately 160 bytes per memory at canonical_d=1024. Sketches participate in the retrieval cascade as a prefilter stage on corpora above 200 memories
+- **Embedding canonicalization pipeline** — dimension normalization, L2 normalization, and per-source anisotropy correction. Consistent sketches regardless of embedding source (OpenAI, Cohere, BGE, Voyage, custom)
+- **Per-memory cryptographic erasure** — every embedding encrypted at rest with AES-256-GCM. Per-memory encryption key derived via HKDF-SHA-256 (RFC 5869) from the current forward-secure ratchet state. When the ratchet is advanced past a state and the associated state is shredded, the key cannot be re-derived
+- **Forward-secure deletion via seed shredding** — sketch projection seeded by a forward-secure HMAC-SHA-256 hash ratchet. When a memory is deleted with `--shred-seed`, the ratchet advances and the prior state is zeroed on disk and in memory. Sketch-based retrieval for memories under the shredded state becomes mathematically impossible
+- **Cuckoo filter deletion oracle** — live memories tracked in a cuckoo filter for defense-in-depth set membership. Deletion removes entries in O(1)
+- **Audit log composition** — every substrate operation (sketch write, ratchet advance, shred, cuckoo rebuild) logged via the hash-chained audit log
+- `bubblefish substrate status`, `bubblefish substrate rotate-ratchet`, `bubblefish substrate prove-deletion <id>` CLI commands
+- New SQLite columns: `sketch`, `embedding_ciphertext`, `embedding_nonce` on `memories` table
+- New SQLite tables: `substrate_ratchet_states`, `substrate_memory_state`, `substrate_canonical_whitening`, `substrate_cuckoo_filter`
+- All substrate functionality behind `[substrate] enabled` feature flag. When disabled, the daemon is bit-for-bit identical to a pre-substrate build
+
 ### Other
 - **`nexus_status` MCP auto-teaching tool** — returns daemon version, available tools with examples, retrieval profiles, active sources, and ingest state in one call
 - **`wake` retrieval profile** — alias for `fast` with `top_k=20`, tuned for low-latency critical-context loading (~170 tokens)
