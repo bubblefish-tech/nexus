@@ -43,6 +43,10 @@ type Config struct {
 	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
 	Canonical CanonicalConfig `toml:"canonical"`
 
+	// Control holds the [control] section for the Nexus-native policy engine.
+	// Reference: v0.1.3 Moat-Takeover Build Plan, MT.3.
+	Control ControlConfig `toml:"control"`
+
 	// Sources and Destinations are populated by scanning the sources/ and
 	// destinations/ sub-directories. Not decoded from daemon.toml itself.
 	Sources      []*Source
@@ -644,4 +648,19 @@ type CanonicalConfig struct {
 	CanonicalDim         int  `toml:"canonical_dim"`
 	WhiteningWarmup      int  `toml:"whitening_warmup"`
 	QueryCacheTTLSeconds int  `toml:"query_cache_ttl_seconds"`
+}
+
+// ControlConfig models the [control] TOML section for the MT.3 policy engine.
+// Defaults to disabled — set enabled = true to activate control-plane stores
+// and policy evaluation.
+type ControlConfig struct {
+	Enabled      bool                      `toml:"enabled"`
+	Capabilities ControlCapabilitiesConfig `toml:"capabilities"`
+}
+
+// ControlCapabilitiesConfig models [control.capabilities].
+type ControlCapabilitiesConfig struct {
+	// RequireApproval is a list of capability names that require an approved
+	// approval request before the policy engine will allow the action.
+	RequireApproval []string `toml:"require_approval"`
 }

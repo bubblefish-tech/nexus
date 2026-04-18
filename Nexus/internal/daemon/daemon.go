@@ -183,12 +183,17 @@ type Daemon struct {
 
 	// Control-plane stores (MT.1/MT.2). All four share registryStore.DB()
 	// so grants/approvals/tasks/actions foreign-key directly against the
-	// real a2a_agents table. Nil until Start() opens the registry; routes
-	// in handlers_control.go register only when grantStore is non-nil.
+	// real a2a_agents table. Nil until Start() opens the registry and
+	// cfg.Control.Enabled is true; routes in handlers_control.go register
+	// only when grantStore is non-nil.
 	grantStore    *grants.Store
 	approvalStore *approvals.Store
 	taskStore     *tasks.Store
 	actionStore   *actions.Store
+
+	// policyEngine is the MT.3 Nexus-native policy evaluation engine.
+	// Nil when cfg.Control.Enabled is false or registry failed to open.
+	policyEngine *policy.Engine
 
 	// exactStats and semanticStats hold cache counter references for the
 	// /api/status and /api/cache admin endpoints.
@@ -976,15 +981,24 @@ func (d *Daemon) Start() error {
 			)
 		} else {
 			d.registryStore = rs
-			db := rs.DB()
-			d.grantStore = grants.NewStore(db)
-			d.approvalStore = approvals.NewStore(db)
-			d.taskStore = tasks.NewStore(db)
-			d.actionStore = actions.NewStore(db)
-			d.logger.Info("daemon: control plane initialized",
-				"component", "control",
-				"path", regPath,
-			)
+			if cfg.Control.Enabled {
+				db := rs.DB()
+				d.grantStore = grants.NewStore(db)
+				d.approvalStore = approvals.NewStore(db)
+				d.taskStore = tasks.NewStore(db)
+				d.actionStore = actions.NewStore(db)
+				d.policyEngine = policy.NewEngine(rs, d.grantStore, d.approvalStore, d.actionStore,
+				policy.EngineConfig{RequireApproval: cfg.Control.Capabilities.RequireApproval},
+				d.logger)
+				d.logger.Info("daemon: control plane initialized",
+					"component", "control",
+					"path", regPath,
+				)
+			} else {
+				d.logger.Info("daemon: control plane disabled (control.enabled = false)",
+					"component", "control",
+				)
+			}
 		}
 	} else {
 		d.logger.Warn("daemon: skipping registry/control setup — cannot resolve config dir",
