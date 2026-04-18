@@ -135,6 +135,8 @@ func (d *Daemon) buildRouter() http.Handler {
 			r.Patch("/api/control/tasks/{id}", d.handleControlTaskUpdate)
 
 			r.Get("/api/control/actions", d.handleControlActionQuery)
+
+			r.Get("/api/control/lineage/{id}", d.handleControlLineage)
 		}
 
 		// Agent list — MT.5, gated on registryStore.
@@ -233,6 +235,8 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 			r.Patch("/api/control/tasks/{id}", d.handleControlTaskUpdate)
 
 			r.Get("/api/control/actions", d.handleControlActionQuery)
+
+			r.Get("/api/control/lineage/{id}", d.handleControlLineage)
 		}
 
 		// Agent list — MT.5, gated on registryStore.

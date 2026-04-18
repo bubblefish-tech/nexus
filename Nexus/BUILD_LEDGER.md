@@ -132,14 +132,24 @@
   - cmd/bubblefish: PASS (20 new control tests)
   - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
 
-## Current branch: v0.1.3-moat-takeover
-## Current subtask: MT.7 — PENDING
+## MT.7: COMPLETE — Audit integration and lineage graph for control plane
+- New file: internal/audit/control_events.go — ControlEventRecord struct + 8 event type constants (grant_created, grant_revoked, approval_requested, approval_decided, task_created, task_state_changed, action_executed, action_denied) + ComputeHash()
+- Modified: internal/audit/wal_writer.go — SubmitControl(ControlEventRecord) writes to WAL with hash-chaining via same ChainState as InteractionRecord
+- New file: internal/audit/control_events_test.go — 7 tests (event type uniqueness, JSON roundtrip, hash determinism, hash excludes self, prev-hash chaining, entity optional, all types marshal)
+- Modified: internal/daemon/handlers_control.go — emitControlEvent() helper; handleControlLineage() for GET /api/control/lineage/{id} — queries task → actions → grants → approvals with audit hashes; lineageResponse DTO
+- Modified: internal/daemon/server.go — GET /api/control/lineage/{id} added to buildRouter() and BuildAdminRouter() inside grantStore gate
+- Modified: internal/daemon/handlers_control_test.go — 9 lineage tests (not_found, missing_id, no_control_plane, empty_chain, with_actions, with_grant_and_approval, response_shape, task_fields_populated, duplicate_grant_deduped) + lineage route in routeThrough()
+- Transport harness fixes (all 31 pre-existing failures resolved):
+  - internal/a2a/transport/http.go: httpClientConn.Send() posts to /a2a/jsonrpc, Stream() posts to /a2a/stream
+  - internal/a2a/transport/transport_test.go: TestHTTPSSEStream rewritten to use Accept mode instead of chi route override
+  - internal/a2a/client/factory.go: Factory.NewClient returns error (and closes conn) when both GetAgentCard AND Ping fail; fixes TestFactory_PingFail
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 61 packages PASS — ZERO failures (all 31 pre-existing transport harness failures fixed)
 
-### Known pre-existing failures (a2a transport harness):
-- internal/a2a/client: 1 (TestFactory_PingFail)
-- internal/a2a/transport: 7 (HTTP 404)
-- internal/integration: 23 (HTTP 404)
-- Root cause: test harness route registration — tracked for fix on moat-takeover
+## Current branch: v0.1.3-moat-takeover
+## Current subtask: MT.8 — PENDING
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

@@ -79,6 +79,7 @@ func routeThrough(d *Daemon) http.Handler {
 	r.Get("/api/control/tasks", d.handleControlTaskList)
 	r.Patch("/api/control/tasks/{id}", d.handleControlTaskUpdate)
 	r.Get("/api/control/actions", d.handleControlActionQuery)
+	r.Get("/api/control/lineage/{id}", d.handleControlLineage)
 	return r
 }
 
@@ -755,5 +756,302 @@ func TestControl_Unavailable_Returns503(t *testing.T) {
 				t.Fatalf("status = %d, want 503", w.Code)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MT.7 — Lineage endpoint tests
+// ---------------------------------------------------------------------------
+
+func TestControlLineage_NotFound(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/does-not-exist", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestControlLineage_MissingID(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	// The chi router routes /api/control/lineage/{id}, so an empty path segment
+	// won't match — we hit 404 from chi, which is acceptable.
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/", nil)
+	if w.Code == http.StatusOK {
+		t.Fatal("expected non-200 for missing id")
+	}
+}
+
+func TestControlLineage_NoControlPlane(t *testing.T) {
+	d := &Daemon{
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		// taskStore and actionStore are nil
+	}
+	r := chi.NewRouter()
+	r.Get("/api/control/lineage/{id}", d.handleControlLineage)
+	w := doJSON(t, r, http.MethodGet, "/api/control/lineage/task-1", nil)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+}
+
+func TestControlLineage_EmptyChain(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	// Create a task.
+	ctx := context.Background()
+	task, err := d.taskStore.Create(ctx, tasks.Task{
+		AgentID:    "agent-lin-1",
+		Capability: "nexus_write",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/"+task.TaskID, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var resp lineageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.TaskID != task.TaskID {
+		t.Errorf("task_id = %q, want %q", resp.TaskID, task.TaskID)
+	}
+	if resp.AgentID != "agent-lin-1" {
+		t.Errorf("agent_id = %q, want %q", resp.AgentID, "agent-lin-1")
+	}
+	if len(resp.Actions) != 0 {
+		t.Errorf("actions = %d, want 0", len(resp.Actions))
+	}
+	if len(resp.Grants) != 0 {
+		t.Errorf("grants = %d, want 0", len(resp.Grants))
+	}
+	if len(resp.Approvals) != 0 {
+		t.Errorf("approvals = %d, want 0", len(resp.Approvals))
+	}
+}
+
+func TestControlLineage_WithActions(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	ctx := context.Background()
+	task, err := d.taskStore.Create(ctx, tasks.Task{
+		AgentID:    "agent-lin-2",
+		Capability: "nexus_delete",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// Record two actions for the same agent+capability.
+	for i := 0; i < 2; i++ {
+		if _, err := d.actionStore.Record(ctx, actions.Action{
+			AgentID:        "agent-lin-2",
+			Capability:     "nexus_delete",
+			PolicyDecision: "allowed",
+			AuditHash:      "hash-" + task.TaskID + "-" + string(rune('0'+i)),
+		}); err != nil {
+			t.Fatalf("record action: %v", err)
+		}
+	}
+
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/"+task.TaskID, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var resp lineageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Actions) != 2 {
+		t.Errorf("actions = %d, want 2", len(resp.Actions))
+	}
+	if len(resp.AuditHashes) != 2 {
+		t.Errorf("audit_hashes = %d, want 2", len(resp.AuditHashes))
+	}
+}
+
+func TestControlLineage_WithGrantAndApproval(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	ctx := context.Background()
+
+	// Create grant — FK is not enforced in the test DB, so no agent row needed.
+	grant, err := d.grantStore.Create(ctx, grants.Grant{
+		AgentID:    "agent-lin-3",
+		Capability: "nexus_write",
+		GrantedBy:  "admin",
+	})
+	if err != nil {
+		t.Fatalf("create grant: %v", err)
+	}
+
+	// Create a task for this agent+capability.
+	task, err := d.taskStore.Create(ctx, tasks.Task{
+		AgentID:    "agent-lin-3",
+		Capability: "nexus_write",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// Record an action that references the grant.
+	if _, err := d.actionStore.Record(ctx, actions.Action{
+		AgentID:        "agent-lin-3",
+		Capability:     "nexus_write",
+		GrantID:        grant.GrantID,
+		PolicyDecision: "allowed",
+		AuditHash:      "hash-grant-ref",
+	}); err != nil {
+		t.Fatalf("record action: %v", err)
+	}
+
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/"+task.TaskID, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var resp lineageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Actions) != 1 {
+		t.Errorf("actions = %d, want 1", len(resp.Actions))
+	}
+	if len(resp.Grants) != 1 {
+		t.Errorf("grants = %d, want 1", len(resp.Grants))
+	}
+	if resp.Grants[0].GrantID != grant.GrantID {
+		t.Errorf("grant_id = %q, want %q", resp.Grants[0].GrantID, grant.GrantID)
+	}
+}
+
+func TestControlLineage_ResponseShape(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	ctx := context.Background()
+	task, err := d.taskStore.Create(ctx, tasks.Task{
+		AgentID:    "agent-shape",
+		Capability: "nexus_read",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/"+task.TaskID, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	// Ensure all four array fields are present (not null) in the response.
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(w.Body).Decode(&raw); err != nil {
+		t.Fatalf("decode raw: %v", err)
+	}
+	for _, field := range []string{"actions", "grants", "approvals", "audit_hashes"} {
+		if raw[field] == nil {
+			t.Errorf("field %q missing from lineage response", field)
+		}
+	}
+}
+
+func TestControlLineage_TaskFieldsPopulated(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	ctx := context.Background()
+	task, err := d.taskStore.Create(ctx, tasks.Task{
+		AgentID:    "agent-fields",
+		Capability: "cap_check",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/"+task.TaskID, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp lineageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Task == nil {
+		t.Fatal("task field is nil in lineage response")
+	}
+	if resp.Task.TaskID != task.TaskID {
+		t.Errorf("task.task_id = %q, want %q", resp.Task.TaskID, task.TaskID)
+	}
+	if resp.Task.AgentID != "agent-fields" {
+		t.Errorf("task.agent_id = %q, want %q", resp.Task.AgentID, "agent-fields")
+	}
+}
+
+func TestControlLineage_DuplicateGrantDeduped(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+
+	ctx := context.Background()
+
+	grant, err := d.grantStore.Create(ctx, grants.Grant{
+		AgentID:    "agent-dedup",
+		Capability: "nexus_list",
+		GrantedBy:  "admin",
+	})
+	if err != nil {
+		t.Fatalf("create grant: %v", err)
+	}
+
+	task, err := d.taskStore.Create(ctx, tasks.Task{
+		AgentID:    "agent-dedup",
+		Capability: "nexus_list",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	// Two actions both referencing the same grant.
+	for i := 0; i < 2; i++ {
+		if _, err := d.actionStore.Record(ctx, actions.Action{
+			AgentID:        "agent-dedup",
+			Capability:     "nexus_list",
+			GrantID:        grant.GrantID,
+			PolicyDecision: "allowed",
+		}); err != nil {
+			t.Fatalf("record action: %v", err)
+		}
+	}
+
+	w := doJSON(t, h, http.MethodGet, "/api/control/lineage/"+task.TaskID, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var resp lineageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Actions) != 2 {
+		t.Errorf("actions = %d, want 2", len(resp.Actions))
+	}
+	// Grant should appear only once even though two actions reference it.
+	if len(resp.Grants) != 1 {
+		t.Errorf("grants = %d, want 1 (deduped)", len(resp.Grants))
 	}
 }

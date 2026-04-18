@@ -96,7 +96,7 @@ func (c *httpClientConn) Send(ctx context.Context, req *jsonrpc.Request) (*jsonr
 		return nil, fmt.Errorf("transport: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/a2a/jsonrpc", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("transport: create request: %w", err)
 	}
@@ -135,7 +135,7 @@ func (c *httpClientConn) Stream(ctx context.Context, req *jsonrpc.Request) (<-ch
 		return nil, fmt.Errorf("transport: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/a2a/stream", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("transport: create request: %w", err)
 	}

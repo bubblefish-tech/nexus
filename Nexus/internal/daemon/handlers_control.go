@@ -678,3 +678,138 @@ func (d *Daemon) emitControlAudit(r *http.Request, op, agentID, capability, deci
 	}
 	d.emitAuditRecord(rec)
 }
+
+// emitControlEvent writes a typed ControlEventRecord to the WAL audit chain.
+// Never returns an error — audit failure must not break the request path.
+func (d *Daemon) emitControlEvent(eventType, actor, targetID, targetType, agentID, capability, decision, reason string, entity interface{}) {
+	if d.auditWAL == nil {
+		return
+	}
+	var entityJSON json.RawMessage
+	if entity != nil {
+		if b, err := json.Marshal(entity); err == nil {
+			entityJSON = b
+		}
+	}
+	rec := audit.ControlEventRecord{
+		RecordID:   audit.NewRecordID(),
+		EventType:  eventType,
+		Actor:      actor,
+		ActorType:  "admin",
+		TargetID:   targetID,
+		TargetType: targetType,
+		AgentID:    agentID,
+		Capability: capability,
+		EntityJSON: entityJSON,
+		Decision:   decision,
+		Reason:     reason,
+		Timestamp:  time.Now().UTC(),
+	}
+	if err := d.auditWAL.SubmitControl(rec); err != nil {
+		d.logger.Warn("control event audit write failed", "event_type", eventType, "error", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Lineage handler
+// ---------------------------------------------------------------------------
+
+// lineageResponse is the full provenance chain for a task.
+type lineageResponse struct {
+	TaskID      string              `json:"task_id"`
+	Task        *taskResponse       `json:"task,omitempty"`
+	Actions     []actionResponse    `json:"actions"`
+	Grants      []grantResponse     `json:"grants"`
+	Approvals   []approvalResponse  `json:"approvals"`
+	AgentID     string              `json:"agent_id,omitempty"`
+	AuditHashes []string            `json:"audit_hashes"`
+}
+
+// handleControlLineage serves GET /api/control/lineage/{id}.
+// Returns the full provenance chain: task → actions → grants → approvals.
+func (d *Daemon) handleControlLineage(w http.ResponseWriter, r *http.Request) {
+	if d.taskStore == nil || d.actionStore == nil {
+		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "control_unavailable", "control plane not initialized", 0)
+		return
+	}
+	taskID := chi.URLParam(r, "id")
+	if taskID == "" {
+		d.writeErrorResponse(w, r, http.StatusBadRequest, "missing_id", "task id required", 0)
+		return
+	}
+
+	task, err := d.taskStore.Get(r.Context(), taskID)
+	if errors.Is(err, tasks.ErrNotFound) {
+		d.writeErrorResponse(w, r, http.StatusNotFound, "not_found", "task not found", 0)
+		return
+	}
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "fetch_failed", err.Error(), 0)
+		return
+	}
+
+	// Collect actions related to this task's agent + capability.
+	actionList, err := d.actionStore.Query(r.Context(), actions.QueryFilter{
+		AgentID:    task.AgentID,
+		Capability: task.Capability,
+		Limit:      100,
+	})
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "actions_failed", err.Error(), 0)
+		return
+	}
+
+	// Collect unique grants and approvals referenced by those actions.
+	grantSeen := map[string]bool{}
+	approvalSeen := map[string]bool{}
+	var grantList []grantResponse
+	var approvalList []approvalResponse
+	var auditHashes []string
+
+	for _, a := range actionList {
+		if a.AuditHash != "" {
+			auditHashes = append(auditHashes, a.AuditHash)
+		}
+		if a.GrantID != "" && !grantSeen[a.GrantID] && d.grantStore != nil {
+			grantSeen[a.GrantID] = true
+			if g, err := d.grantStore.Get(r.Context(), a.GrantID); err == nil {
+				grantList = append(grantList, grantToResponse(*g))
+			}
+		}
+		if a.ApprovalID != "" && !approvalSeen[a.ApprovalID] && d.approvalStore != nil {
+			approvalSeen[a.ApprovalID] = true
+			if ap, err := d.approvalStore.Get(r.Context(), a.ApprovalID); err == nil {
+				approvalList = append(approvalList, approvalToResponse(*ap))
+			}
+		}
+	}
+
+	actionResponses := make([]actionResponse, len(actionList))
+	for i, a := range actionList {
+		actionResponses[i] = actionToResponse(a)
+	}
+
+	tr := taskToResponse(*task, nil)
+	resp := lineageResponse{
+		TaskID:      taskID,
+		Task:        &tr,
+		Actions:     actionResponses,
+		Grants:      grantList,
+		Approvals:   approvalList,
+		AgentID:     task.AgentID,
+		AuditHashes: auditHashes,
+	}
+	if resp.Actions == nil {
+		resp.Actions = []actionResponse{}
+	}
+	if resp.Grants == nil {
+		resp.Grants = []grantResponse{}
+	}
+	if resp.Approvals == nil {
+		resp.Approvals = []approvalResponse{}
+	}
+	if resp.AuditHashes == nil {
+		resp.AuditHashes = []string{}
+	}
+	d.writeJSON(w, http.StatusOK, resp)
+}

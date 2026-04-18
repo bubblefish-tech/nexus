@@ -103,3 +103,53 @@ func (aw *WALWriter) Submit(record InteractionRecord) error {
 
 	return aw.w.Append(entry)
 }
+
+// SubmitControl writes a ControlEventRecord to the WAL as an audit entry.
+// If a ChainState is configured, the record is hash-chained into the existing
+// audit log (same chain as InteractionRecords) and the record's Hash field is
+// set to the SHA-256 of the serialized record before WAL append.
+// Returns nil on success. Callers should treat errors as non-fatal.
+func (aw *WALWriter) SubmitControl(record ControlEventRecord) error {
+	if record.RecordID == "" {
+		record.RecordID = NewRecordID()
+	}
+	record.Timestamp = record.Timestamp.UTC()
+	if record.Timestamp.IsZero() {
+		record.Timestamp = time.Now().UTC()
+	}
+
+	if aw.chain != nil {
+		record.PrevHash = aw.chain.LastHash()
+		record.Hash = record.ComputeHash()
+
+		payload, err := json.Marshal(record)
+		if err != nil {
+			return fmt.Errorf("audit: marshal control record for WAL: %w", err)
+		}
+		aw.chain.Extend(payload)
+
+		entry := wal.Entry{
+			PayloadID: fmt.Sprintf("audit-ctrl-%s", record.RecordID),
+			Status:    wal.StatusDelivered,
+			Timestamp: record.Timestamp,
+			EntryType: wal.EntryTypeAudit,
+			Payload:   payload,
+		}
+		return aw.w.Append(entry)
+	}
+
+	record.Hash = record.ComputeHash()
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("audit: marshal control record for WAL: %w", err)
+	}
+
+	entry := wal.Entry{
+		PayloadID: fmt.Sprintf("audit-ctrl-%s", record.RecordID),
+		Status:    wal.StatusDelivered,
+		Timestamp: record.Timestamp,
+		EntryType: wal.EntryTypeAudit,
+		Payload:   payload,
+	}
+	return aw.w.Append(entry)
+}
