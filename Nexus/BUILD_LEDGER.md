@@ -115,8 +115,25 @@
   - internal/daemon: PASS (161 top-level tests including 15 new dashboard tests)
   - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
 
+## MT.6: COMPLETE — CLI for grants, approvals, tasks, actions
+- New file: cmd/bubblefish/control.go — controlClient (baseURL+token HTTP wrapper), parseFlags helper, msToTime/strOrDash/int64AsFloat formatters
+  - runGrant → doGrantCreate / doGrantList / doGrantRevoke
+  - runApproval → doApprovalList / doApprovalDecide
+  - runTask → doTaskList / doTaskInspect
+  - runAction → doActionLog
+  - All hit /api/control/* REST API (MT.2); human-readable tables by default, --json for machine parsing
+  - --since <duration> on action log converted to since_ms= millisecond timestamp
+- Modified: cmd/bubblefish/main.go — grant/approval/task/action commands wired + help text
+- New file: cmd/bubblefish/control_test.go — 20 tests via fakeControlServer (httptest.Server + custom handlers map)
+  - Tests: grant list/create/revoke, approval list/decide, task list/inspect, action log filters/duration/json, parseFlags
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - cmd/bubblefish: PASS (20 new control tests)
+  - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: MT.6 — PENDING
+## Current subtask: MT.7 — PENDING
 
 ### Known pre-existing failures (a2a transport harness):
 - internal/a2a/client: 1 (TestFactory_PingFail)

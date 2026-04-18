@@ -69,6 +69,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  agent        manage agent identities (register, list, show, suspend, retire)")
 		fmt.Fprintln(os.Stderr, "  substrate    BF-Sketch substrate management (status, rotate-ratchet, prove-deletion)")
 		fmt.Fprintln(os.Stderr, "  a2a          manage A2A agents, grants, tasks, and audit")
+		fmt.Fprintln(os.Stderr, "  grant        manage control-plane capability grants")
+		fmt.Fprintln(os.Stderr, "  approval     manage control-plane approval requests")
+		fmt.Fprintln(os.Stderr, "  task         manage control-plane tasks")
+		fmt.Fprintln(os.Stderr, "  action       query the control-plane action log")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
 	}
@@ -145,6 +149,14 @@ func main() {
 		runSubstrate(os.Args[2:])
 	case "a2a":
 		runA2A(os.Args[2:])
+	case "grant":
+		runGrant(os.Args[2:])
+	case "approval":
+		runApproval(os.Args[2:])
+	case "task":
+		runTask(os.Args[2:])
+	case "action":
+		runAction(os.Args[2:])
 	case "version", "--version":
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
