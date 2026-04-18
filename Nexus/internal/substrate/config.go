@@ -57,6 +57,11 @@ type Config struct {
 	// EncryptionEnabled controls per-memory AES-256-GCM embedding
 	// encryption. Default: true when substrate is enabled.
 	EncryptionEnabled bool `toml:"encryption_enabled"`
+
+	// AdminToken is the bearer token accepted by the default AuthProvider.
+	// Empty disables the default authenticator, requiring a custom
+	// AuthProvider via WithAuthProvider(). Default: empty.
+	AdminToken string `toml:"admin_token"`
 }
 
 // DefaultConfig returns a Config with all defaults applied.

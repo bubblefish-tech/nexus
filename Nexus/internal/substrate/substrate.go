@@ -51,6 +51,13 @@ type Substrate struct {
 	auditLog   *SubstrateAuditLog
 	signingKey ed25519.PrivateKey
 	logger     *slog.Logger
+
+	// Dependency-injection seams. Defaults are wired in New(). Callers
+	// may override via WithAuthProvider, WithAuditSink, and
+	// WithPermissionChecker options. See interfaces.go.
+	authProvider      AuthProvider
+	auditSink         AuditSink
+	permissionChecker PermissionChecker
 }
 
 // SubstrateStatus holds the operational state for CLI/API display.
@@ -79,9 +86,17 @@ func New(
 	canonicalMgr *canonical.Manager,
 	chainState *provenance.ChainState,
 	logger *slog.Logger,
+	opts ...Option,
 ) (*Substrate, error) {
 	if !cfg.Enabled {
-		return &Substrate{cfg: cfg, logger: logger}, nil
+		s := &Substrate{cfg: cfg, logger: logger}
+		applyDefaultInterfaces(s, cfg.AdminToken, logger)
+		for _, opt := range opts {
+			if opt != nil {
+				opt(s)
+			}
+		}
+		return s, nil
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -134,6 +149,14 @@ func New(
 		logger:     logger,
 	}
 
+	// Apply default interface implementations, then any caller overrides.
+	applyDefaultInterfaces(s, cfg.AdminToken, logger)
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+
 	logger.Info("substrate initialized",
 		"component", "substrate",
 		"ratchet_state_id", ratchet.Current().StateID,
@@ -141,6 +164,15 @@ func New(
 	)
 
 	return s, nil
+}
+
+// applyDefaultInterfaces wires the default AuthProvider, AuditSink, and
+// PermissionChecker implementations onto s. Callers can override any of
+// these by passing Option values to New.
+func applyDefaultInterfaces(s *Substrate, adminToken string, logger *slog.Logger) {
+	s.authProvider = newDefaultAuthProvider(adminToken)
+	s.auditSink = newDefaultAuditSink(logger)
+	s.permissionChecker = newDefaultPermissionChecker()
 }
 
 // CanonicalDim returns the canonical dimension from the canonical manager,
