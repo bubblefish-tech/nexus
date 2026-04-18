@@ -37,15 +37,19 @@ import (
 )
 
 // setupA2ABridge constructs the A2A bridge and wires it into the MCP server.
-// This is a no-op if [a2a] enabled is false or if the MCP server is nil.
-// Any error during A2A setup disables A2A and logs a warning (fail-safe:
-// A2A errors must never bring down the daemon).
+// Callers gate on cfg.A2A.Enabled. Requires d.registryStore to have been
+// opened earlier in Start(); if nil, A2A is disabled. Any error during A2A
+// setup disables A2A and logs a warning (fail-safe: A2A errors must never
+// bring down the daemon).
 func (d *Daemon) setupA2ABridge(cfg *config.Config) {
-	if !cfg.A2A.Enabled {
-		return
-	}
 	if d.mcpServer == nil {
 		d.logger.Warn("daemon: A2A enabled but MCP server not running — A2A disabled",
+			"component", "a2a",
+		)
+		return
+	}
+	if d.registryStore == nil {
+		d.logger.Warn("daemon: A2A enabled but registry store not open — A2A disabled",
 			"component", "a2a",
 		)
 		return
@@ -60,7 +64,8 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 		return
 	}
 
-	// Open a shared SQLite database for governance grants.
+	// Open a shared SQLite database for governance grants (separate from the
+	// agent registry — governance has its own migration path).
 	dbPath := filepath.Join(configDir, "nexus.db")
 	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout%3d5000")
 	if err != nil {
@@ -95,17 +100,8 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 	grantStore := governance.NewGrantStore(db)
 	govEngine := governance.NewEngine(grantStore)
 
-	// Agent registry.
-	regPath := filepath.Join(configDir, "a2a", "registry.db")
-	regStore, err := registry.NewStore(regPath)
-	if err != nil {
-		d.logger.Warn("daemon: A2A setup failed — registry store",
-			"component", "a2a",
-			"error", err,
-		)
-		db.Close()
-		return
-	}
+	// Reuse the already-opened agent registry store from daemon Start().
+	regStore := d.registryStore
 
 	// Load agents from TOML files in <configDir>/a2a/agents/*.toml.
 	d.loadA2AAgents(configDir, regStore)

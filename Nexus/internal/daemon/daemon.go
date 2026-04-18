@@ -48,7 +48,10 @@ import (
 
 	"database/sql"
 
+	"github.com/BubbleFish-Nexus/internal/a2a/registry"
+	"github.com/BubbleFish-Nexus/internal/actions"
 	"github.com/BubbleFish-Nexus/internal/agent"
+	"github.com/BubbleFish-Nexus/internal/approvals"
 	"github.com/BubbleFish-Nexus/internal/audit"
 	"github.com/BubbleFish-Nexus/internal/coordination"
 	"github.com/BubbleFish-Nexus/internal/credentials"
@@ -64,6 +67,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/metrics"
 	"github.com/BubbleFish-Nexus/internal/eventsink"
 	"github.com/BubbleFish-Nexus/internal/firewall"
+	"github.com/BubbleFish-Nexus/internal/grants"
 	"github.com/BubbleFish-Nexus/internal/jwtauth"
 	"github.com/BubbleFish-Nexus/internal/oauth"
 	"github.com/BubbleFish-Nexus/internal/policy"
@@ -74,6 +78,7 @@ import (
 	"github.com/BubbleFish-Nexus/internal/signing"
 	"github.com/BubbleFish-Nexus/internal/substrate"
 	"github.com/BubbleFish-Nexus/internal/supervisor"
+	"github.com/BubbleFish-Nexus/internal/tasks"
 	"github.com/BubbleFish-Nexus/internal/version"
 	"github.com/BubbleFish-Nexus/internal/vizpipe"
 	"github.com/BubbleFish-Nexus/internal/wal"
@@ -168,6 +173,22 @@ type Daemon struct {
 
 	// startedAt records when Start() was called, for uptime calculation.
 	startedAt time.Time
+
+	// registryStore holds the A2A agent registry (configDir/a2a/registry.db).
+	// Opened unconditionally early in Start(); owns the shared *sql.DB used
+	// by the control-plane stores below and — when [a2a] enabled — by the
+	// A2A bridge. Nil until Start() opens it; if the open fails the daemon
+	// logs a warning and proceeds without control/A2A features.
+	registryStore *registry.Store
+
+	// Control-plane stores (MT.1/MT.2). All four share registryStore.DB()
+	// so grants/approvals/tasks/actions foreign-key directly against the
+	// real a2a_agents table. Nil until Start() opens the registry; routes
+	// in handlers_control.go register only when grantStore is non-nil.
+	grantStore    *grants.Store
+	approvalStore *approvals.Store
+	taskStore     *tasks.Store
+	actionStore   *actions.Store
 
 	// exactStats and semanticStats hold cache counter references for the
 	// /api/status and /api/cache admin endpoints.
@@ -933,6 +954,50 @@ func (d *Daemon) Start() error {
 		return fmt.Errorf("daemon: %w", err)
 	}
 
+	// Open the A2A registry store unconditionally before the router is built.
+	// The registry holds agent identity (foundational infra) and its *sql.DB
+	// is shared with the control-plane stores so grants/approvals/tasks/actions
+	// foreign-key against the real a2a_agents table. A2A bridge setup later
+	// reuses the same store. Failure logs a warning and proceeds — control
+	// routes simply do not register, and A2A setup is skipped.
+	if configDir, cdErr := config.ConfigDir(); cdErr == nil {
+		regPath := filepath.Join(configDir, "a2a", "registry.db")
+		if err := os.MkdirAll(filepath.Dir(regPath), 0o700); err != nil {
+			d.logger.Warn("daemon: cannot create registry dir — control plane and A2A disabled",
+				"component", "registry",
+				"path", filepath.Dir(regPath),
+				"error", err,
+			)
+		} else if rs, err := registry.NewStore(regPath); err != nil {
+			d.logger.Warn("daemon: cannot open A2A registry — control plane and A2A disabled",
+				"component", "registry",
+				"path", regPath,
+				"error", err,
+			)
+		} else {
+			d.registryStore = rs
+			db := rs.DB()
+			d.grantStore = grants.NewStore(db)
+			d.approvalStore = approvals.NewStore(db)
+			d.taskStore = tasks.NewStore(db)
+			d.actionStore = actions.NewStore(db)
+			d.logger.Info("daemon: control plane initialized",
+				"component", "control",
+				"path", regPath,
+			)
+		}
+	} else {
+		d.logger.Warn("daemon: skipping registry/control setup — cannot resolve config dir",
+			"component", "registry",
+			"error", cdErr,
+		)
+	}
+
+	// Wire the A2A bridge if enabled. Uses the already-opened registryStore.
+	if cfg.A2A.Enabled {
+		d.setupA2ABridge(cfg)
+	}
+
 	// Build HTTP server.
 	router := d.buildRouter()
 	d.server = newHTTPServer(d.serverAddr(), router)
@@ -1144,6 +1209,16 @@ func (d *Daemon) Stop() error {
 
 		// Stop agent gateway subsystems.
 		d.stopAgentGateway()
+
+		// Close the A2A registry store (shared DB for control plane).
+		if d.registryStore != nil {
+			if err := d.registryStore.Close(); err != nil {
+				d.logger.Error("daemon: close registry store",
+					"component", "registry",
+					"error", err,
+				)
+			}
+		}
 
 		// Stop the goroutine heartbeat supervisor.
 		if d.supervisor != nil {

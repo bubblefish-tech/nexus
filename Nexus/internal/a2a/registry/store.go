@@ -169,6 +169,14 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying *sql.DB so other subsystems (control plane,
+// governance) can reuse the same connection pool and enforce foreign keys
+// against the a2a_agents table. The caller MUST NOT close this DB — the
+// registry Store owns its lifetime.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // Register inserts a new agent into the registry.
 func (s *Store) Register(ctx context.Context, agent RegisteredAgent) error {
 	if !ValidStatus(agent.Status) {

@@ -117,6 +117,26 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/admin/memories", d.handleAdminList)
 		// Shutdown — admin only.
 		r.Post("/api/shutdown", d.handleShutdown)
+
+		// Control-plane (MT.2) — grants, approvals, tasks, actions. Routes
+		// register only when setupControlPlane succeeded.
+		if d.grantStore != nil {
+			r.Post("/api/control/grants", d.handleControlGrantCreate)
+			r.Get("/api/control/grants", d.handleControlGrantList)
+			r.Delete("/api/control/grants/{id}", d.handleControlGrantRevoke)
+
+			r.Post("/api/control/approvals", d.handleControlApprovalCreate)
+			r.Get("/api/control/approvals", d.handleControlApprovalList)
+			r.Post("/api/control/approvals/{id}", d.handleControlApprovalDecide)
+
+			r.Post("/api/control/tasks", d.handleControlTaskCreate)
+			r.Get("/api/control/tasks/{id}", d.handleControlTaskGet)
+			r.Get("/api/control/tasks", d.handleControlTaskList)
+			r.Patch("/api/control/tasks/{id}", d.handleControlTaskUpdate)
+
+			r.Get("/api/control/actions", d.handleControlActionQuery)
+		}
+
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(
@@ -180,6 +200,24 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Post("/api/substrate/rotate-ratchet", d.handleSubstrateRotateRatchet)
 		r.Post("/api/substrate/prove-deletion", d.handleSubstrateProveDeletion)
 		r.Post("/api/substrate/shred", d.handleSubstrateShred)
+
+		// Control-plane (MT.2) — grants, approvals, tasks, actions.
+		if d.grantStore != nil {
+			r.Post("/api/control/grants", d.handleControlGrantCreate)
+			r.Get("/api/control/grants", d.handleControlGrantList)
+			r.Delete("/api/control/grants/{id}", d.handleControlGrantRevoke)
+
+			r.Post("/api/control/approvals", d.handleControlApprovalCreate)
+			r.Get("/api/control/approvals", d.handleControlApprovalList)
+			r.Post("/api/control/approvals/{id}", d.handleControlApprovalDecide)
+
+			r.Post("/api/control/tasks", d.handleControlTaskCreate)
+			r.Get("/api/control/tasks/{id}", d.handleControlTaskGet)
+			r.Get("/api/control/tasks", d.handleControlTaskList)
+			r.Patch("/api/control/tasks/{id}", d.handleControlTaskUpdate)
+
+			r.Get("/api/control/actions", d.handleControlActionQuery)
+		}
 
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),
