@@ -70,6 +70,23 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **Dashboard Proofs tab** — live chain status, verification, proof export
 - **60-second cross-vendor demo** — `examples/cryptographic-provenance/` with demo.sh, demo.ps1, agent configs
 
+### Nexus A2A (Agent-to-Agent Protocol)
+- **Governed agent-to-agent protocol** — register an agent once with Nexus, grant it scoped capabilities, and any MCP-compatible AI assistant can invoke it through Nexus. Wire-compatible with the public A2A v1.0 specification
+- **Capability-scope grant model** — 17 reserved capability prefixes with configurable default policies (auto-allow, approve-once-per-scope, always-approve). Glob patterns for flexible grant matching. Deny always wins
+- **Four physical transports** — local subprocess (stdio), direct HTTP, Cloudflare-style tunnel, and Windows-host-to-WSL2 loopback
+- **MCP-to-NA2A bridge** — nine MCP tools (`a2a_list_agents`, `a2a_send_to_agent`, `a2a_stream_to_agent`, etc.) expose A2A agents to Claude Desktop, ChatGPT, Perplexity, LM Studio, and Open WebUI with zero code changes on the AI side
+- **Governance engine** — SQLite-backed grant store, deterministic policy resolution, destructive skill escalation, expired/revoked grant enforcement
+- **Agent registry** — SQLite-backed registry with TOML hot-reload, Ed25519 Agent Card signing, periodic health checks via `agent/ping`
+- **NA2A client** — connection pool with lazy creation, `input-required` resumption, cancel/resubscribe support
+- **Bidirectional `agent/invoke`** — chain-depth limiting (max 4) prevents infinite callback loops between agents
+- **Web UI: A2A Permissions page** — registered agents, editable grant table, live pending approvals, audit feed with filters
+- **Web UI: OpenClaw Agent Control page** — connection panel, skill catalog with grant state, channel-aware grants, two-step ALL consent flow with reading-time delay and re-authentication
+- **`bubblefish a2a` CLI** — `agent add|list|show|test|suspend|retire|pin`, `grant add|list|revoke|elevate`, `task get|cancel|list`, `audit tail|verify`
+- **End-to-end integration tests** — Claude Desktop fixture, multi-transport roundtrip, chain callback, governance deny/escalate/resume paths
+- **Chaos and soak tests** — 20 chaos tests (agent kill/recovery, transport faults, flood, concurrent grant mutations), 4 soak tests (24-hour sustained load, burst recovery, memory stability, mixed workload)
+- **Cross-platform CI** — GitHub Actions workflow running A2A tests on Ubuntu, Windows, and macOS
+- Disabled by default. Enable with `[a2a] enabled = true` in `daemon.toml`
+
 ### Agent Gateway (AG.1–AG.8)
 - **Agent identity and registration** — `agents` SQLite table, UUID-based identity, `bubblefish agent register|list|suspend|retire|show` CLI
 - **Agent session management** — in-memory session tracking per agent, idle timeout, `GET /api/agents/{id}/sessions`, Prometheus gauge

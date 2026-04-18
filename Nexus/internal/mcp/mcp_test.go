@@ -528,8 +528,8 @@ func TestMCPTools_Initialize_Handshake(t *testing.T) {
 
 	result, _ := resp["result"].(map[string]interface{})
 	version, _ := result["protocolVersion"].(string)
-	if version != "2024-11-05" {
-		t.Fatalf("CHECK MCP-7 FAIL: protocolVersion=%q want 2024-11-05", version)
+	if version != "2025-11-25" {
+		t.Fatalf("CHECK MCP-7 FAIL: protocolVersion=%q want 2025-11-25", version)
 	}
 
 	serverInfo, _ := result["serverInfo"].(map[string]interface{})

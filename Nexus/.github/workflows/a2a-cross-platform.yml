@@ -1,0 +1,70 @@
+name: A2A Cross-Platform Tests
+
+on:
+  push:
+    branches: [main, "v0.1.3-*"]
+    paths:
+      - "internal/a2a/**"
+      - "internal/mcp/bridge/**"
+      - "internal/integration/**"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    branches: [main]
+    paths:
+      - "internal/a2a/**"
+      - "internal/mcp/bridge/**"
+      - "internal/integration/**"
+      - "go.mod"
+      - "go.sum"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./internal/a2a/... ./internal/mcp/bridge/... ./internal/integration/...
+
+      - name: Test A2A packages
+        env:
+          CGO_ENABLED: "1"
+        run: >-
+          go test
+          ./internal/a2a/...
+          ./internal/mcp/bridge/...
+          ./internal/integration/...
+          -race -count=1 -short
+          -timeout 10m
+
+      - name: Test A2A packages (no short, extended)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CGO_ENABLED: "1"
+        run: >-
+          go test
+          ./internal/a2a/...
+          ./internal/mcp/bridge/...
+          ./internal/integration/...
+          -race -count=1
+          -timeout 15m

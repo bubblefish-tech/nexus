@@ -105,6 +105,7 @@ func loadDaemonTOML(path string, logger *slog.Logger) (*Config, error) {
 		Consistency    ConsistencyConfig    `toml:"consistency"`
 		SecurityEvents SecurityEventsConfig `toml:"security_events"`
 		Credentials    CredentialsConfig    `toml:"credentials"`
+		A2A            A2AConfig            `toml:"a2a"`
 	}
 
 	var raw daemonTOML
@@ -177,6 +178,7 @@ func loadDaemonTOML(path string, logger *slog.Logger) (*Config, error) {
 		Consistency:    raw.Consistency,
 		SecurityEvents: raw.SecurityEvents,
 		Credentials:    raw.Credentials,
+		A2A:            raw.A2A,
 	}
 
 	if logger != nil {
