@@ -148,8 +148,26 @@
   - Vet: OK
   - 61 packages PASS — ZERO failures (all 31 pre-existing transport harness failures fixed)
 
+## MT.8: COMPLETE — 60-second control plane demo script
+- New file: scripts/demo_control_plane.ps1 — 10-step end-to-end PowerShell demo
+  - Step 1: bubblefish install --mode simple (idempotent)
+  - Step 2: bubblefish start + health poll (10s timeout)
+  - Step 3: POST /api/a2a/agents → register demo-agent
+  - Step 4: bubblefish grant create --capability nexus_write
+  - Step 5: POST /api/control/approvals → request nexus_delete
+  - Step 6: bubblefish approval decide --decision approve
+  - Step 7: create task → write memory → delete memory → mark task complete
+  - Step 8: bubblefish action log --agent + GET /api/control/lineage/{task_id}
+  - Step 9: GET /api/substrate/proof/{id} → save JSON → bubblefish verify (substrate-optional)
+  - Step 10: HTTP 200 checks on all 5 dashboard pages (/agents /grants /approvals /tasks /actions)
+- Style: matches demo-a2a-claude-desktop.ps1 (Step/Pass/Fail/Warn helpers, Elapsed timestamps, failure counter, summary block)
+- Substrate steps are warn-not-fail when substrate is disabled (simple mode compatible)
+- Exit gate:
+  - Build: N/A (script only)
+  - Script is syntactically valid PowerShell (no build artifacts changed)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: MT.8 — PENDING
+## Current subtask: MT.8 — COMPLETE (Operation Moat Takeover Phase 1 complete)
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
