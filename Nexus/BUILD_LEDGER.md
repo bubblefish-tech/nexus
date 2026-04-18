@@ -59,8 +59,29 @@
   - 58 packages PASS (including internal/daemon with 44 handler tests, +7 limit tests)
   - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures from Step 7. Zero new regressions.
 
+## MT.3: COMPLETE — Nexus-native policy evaluation engine
+- New file: internal/policy/engine.go — Engine + EngineConfig + Decision
+  - Evaluate(): fail-closed 6-step flow (agent status → active grant → scope → approval req → record)
+  - matchesScope(): JSON-compact key-value comparison; empty/"{}"/nil scope = unconstrained
+  - EngineConfig (not config.ControlConfig) avoids import cycle — internal/config already imports internal/policy
+  - record(): writes every decision to action_log via actions.Store
+- New file: internal/policy/engine_test.go — 25 tests (package policy_test)
+  - Uses t.TempDir() + registry.NewStore (file-based SQLite, not :memory:, because registry.NewStore takes a path)
+  - Covers: agent not found / suspended / retired, no grant / revoked, scope empty / match / mismatch /
+    nil action / multi-key partial, approval required without/with/pending, action-log recording,
+    two-agent independence, two-capability independence
+- internal/config/types.go: ControlConfig{Enabled, Capabilities.RequireApproval} + Control field on Config
+- internal/daemon/daemon.go: policyEngine *policy.Engine field; control-plane store init gated on
+  cfg.Control.Enabled; engine wired with EngineConfig{RequireApproval: cfg.Control.Capabilities.RequireApproval}
+- Commit: d5a3022
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 59 packages PASS (internal/policy +1 new engine tests, 58 pre-existing)
+  - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: MT.3 (feature flag + daemon wiring) — PENDING
+## Current subtask: MT.4 — PENDING
 
 ### Known pre-existing failures (a2a transport harness):
 - internal/a2a/client: 1 (TestFactory_PingFail)
