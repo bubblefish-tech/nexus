@@ -147,11 +147,13 @@ func New(cfg Config) *Dashboard {
 func (d *Dashboard) Start() error {
 	mux := http.NewServeMux()
 
-	// Delegate admin API routes to the daemon's admin handler when configured.
-	// This allows the v4 dashboard (served on this port) to call admin
-	// endpoints on the same origin without CORS.
+	// Delegate admin API routes and control-plane dashboard pages to the
+	// daemon's admin handler when configured. This allows the v4 dashboard
+	// (served on this port) to call admin endpoints and navigate to
+	// control-plane pages on the same origin without CORS.
 	if d.cfg.AdminHandler != nil {
 		mux.Handle("/api/", d.cfg.AdminHandler)
+		mux.Handle("/dashboard/", d.cfg.AdminHandler)
 	}
 
 	// Serve embedded logo PNG if available. The v4 HTML references it as

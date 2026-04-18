@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Action Log — BubbleFish Nexus</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0a0e17; color: #e0e6ed; }
+  .header { background: #131a2b; padding: 0.75rem 2rem; border-bottom: 1px solid #1e2a42; display: flex; align-items: center; gap: 2rem; }
+  .header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+  .nav a { color: #6b7fa3; text-decoration: none; font-size: 0.85rem; margin-right: 1rem; }
+  .nav a.active, .nav a:hover { color: #e0e6ed; }
+  .content { padding: 1.5rem 2rem; }
+  .page-title { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+  .filter-bar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  .filter-bar input { background: #131a2b; border: 1px solid #1e2a42; color: #e0e6ed; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.8rem; width: 220px; }
+  .filter-bar button { background: #1e2a42; color: #e0e6ed; border: 1px solid #1e2a42; padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+  .filter-bar button:hover { background: #2a3a5c; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e2a42; }
+  th { color: #6b7fa3; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  td { font-size: 0.875rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-ok { background: #064e3b; color: #34d399; }
+  .badge-error { background: #7f1d1d; color: #fca5a5; }
+  #msg { color: #6b7fa3; font-size: 0.85rem; padding: 0.5rem 0; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>BubbleFish Nexus</h1>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/dashboard/agents">Agents</a>
+    <a href="/dashboard/grants">Grants</a>
+    <a href="/dashboard/approvals">Approvals</a>
+    <a href="/dashboard/tasks">Tasks</a>
+    <a href="/dashboard/actions" class="active">Actions</a>
+  </nav>
+</div>
+<div class="content">
+  <div class="page-title">Action Log</div>
+  <div class="filter-bar">
+    <input type="text" id="agent-filter" placeholder="Filter by Agent ID (optional)">
+    <input type="text" id="capability-filter" placeholder="Capability (optional)">
+    <button id="load-btn">Load</button>
+  </div>
+  <div id="msg">Click Load to query the action log.</div>
+  <table id="tbl" style="display:none">
+    <thead><tr>
+      <th>Action ID</th><th>Agent ID</th><th>Capability</th><th>Decision</th><th>Reason</th><th>Grant ID</th><th>Executed At</th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+<script>
+(function() {
+  "use strict";
+  // INVARIANT: All dynamic content uses textContent. NEVER use innerHTML.
+  var CONFIG = { ADMIN_TOKEN: '', };
+  function getToken() {
+    if (CONFIG.ADMIN_TOKEN) { sessionStorage.setItem("nexus_admin_token", CONFIG.ADMIN_TOKEN); return CONFIG.ADMIN_TOKEN; }
+    return sessionStorage.getItem("nexus_admin_token") || "";
+  }
+  function clear(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
+  function td(text) { var e = document.createElement("td"); e.textContent = text || "—"; return e; }
+  function msToDate(ms) { return ms ? new Date(ms).toISOString() : "—"; }
+  function load() {
+    var agentID = document.getElementById("agent-filter").value.trim();
+    var cap = document.getElementById("capability-filter").value.trim();
+    var params = [];
+    if (agentID) params.push("agent_id=" + encodeURIComponent(agentID));
+    if (cap) params.push("capability=" + encodeURIComponent(cap));
+    var url = "/api/control/actions" + (params.length ? "?" + params.join("&") : "");
+    fetch(url, { headers: { "Authorization": "Bearer " + getToken() } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var acts = data.actions || [];
+      var msg = document.getElementById("msg");
+      var tbody = document.getElementById("tbody");
+      clear(tbody);
+      if (!acts.length) { msg.textContent = "No actions found."; document.getElementById("tbl").style.display = "none"; return; }
+      msg.textContent = "";
+      document.getElementById("tbl").style.display = "";
+      acts.forEach(function(a) {
+        var tr = document.createElement("tr");
+        tr.appendChild(td(a.action_id));
+        tr.appendChild(td(a.agent_id));
+        tr.appendChild(td(a.capability));
+        var tdD = document.createElement("td");
+        var b = document.createElement("span");
+        b.className = "badge " + (a.policy_decision === "allowed" ? "badge-ok" : "badge-error");
+        b.textContent = a.policy_decision;
+        tdD.appendChild(b);
+        tr.appendChild(tdD);
+        tr.appendChild(td(a.policy_reason));
+        tr.appendChild(td(a.grant_id));
+        tr.appendChild(td(msToDate(a.executed_at_ms)));
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function(err) { document.getElementById("msg").textContent = "Error: " + err.message; });
+  }
+  document.getElementById("load-btn").addEventListener("click", load);
+})();
+</script>
+</body>
+</html>

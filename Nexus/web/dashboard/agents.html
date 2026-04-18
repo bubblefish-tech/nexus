@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents — BubbleFish Nexus</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0a0e17; color: #e0e6ed; }
+  .header { background: #131a2b; padding: 0.75rem 2rem; border-bottom: 1px solid #1e2a42; display: flex; align-items: center; gap: 2rem; }
+  .header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+  .nav a { color: #6b7fa3; text-decoration: none; font-size: 0.85rem; margin-right: 1rem; }
+  .nav a.active, .nav a:hover { color: #e0e6ed; }
+  .content { padding: 1.5rem 2rem; }
+  .page-title { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e2a42; }
+  th { color: #6b7fa3; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  td { font-size: 0.875rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-ok { background: #064e3b; color: #34d399; }
+  .badge-warn { background: #78350f; color: #fbbf24; }
+  .badge-error { background: #7f1d1d; color: #fca5a5; }
+  #msg { color: #6b7fa3; font-size: 0.85rem; padding: 0.5rem 0; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>BubbleFish Nexus</h1>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/dashboard/agents" class="active">Agents</a>
+    <a href="/dashboard/grants">Grants</a>
+    <a href="/dashboard/approvals">Approvals</a>
+    <a href="/dashboard/tasks">Tasks</a>
+    <a href="/dashboard/actions">Actions</a>
+  </nav>
+</div>
+<div class="content">
+  <div class="page-title">Agent Registry</div>
+  <div id="msg">Loading...</div>
+  <table id="tbl" style="display:none">
+    <thead><tr>
+      <th>Agent ID</th><th>Name</th><th>Display Name</th><th>Status</th><th>Last Seen</th><th>Created</th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+<script>
+(function() {
+  "use strict";
+  // INVARIANT: All dynamic content uses textContent. NEVER use innerHTML.
+  var CONFIG = { ADMIN_TOKEN: '', };
+  function getToken() {
+    if (CONFIG.ADMIN_TOKEN) { sessionStorage.setItem("nexus_admin_token", CONFIG.ADMIN_TOKEN); return CONFIG.ADMIN_TOKEN; }
+    return sessionStorage.getItem("nexus_admin_token") || "";
+  }
+  function clear(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
+  function td(text) { var e = document.createElement("td"); e.textContent = text || "—"; return e; }
+  function load() {
+    fetch("/api/control/agents", { headers: { "Authorization": "Bearer " + getToken() } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var agents = data.agents || [];
+      var msg = document.getElementById("msg");
+      var tbody = document.getElementById("tbody");
+      clear(tbody);
+      if (!agents.length) { msg.textContent = "No agents registered."; return; }
+      msg.textContent = "";
+      document.getElementById("tbl").style.display = "";
+      agents.forEach(function(a) {
+        var tr = document.createElement("tr");
+        tr.appendChild(td(a.agent_id));
+        tr.appendChild(td(a.name));
+        tr.appendChild(td(a.display_name));
+        var tdS = document.createElement("td");
+        var b = document.createElement("span");
+        b.className = "badge " + (a.status === "active" ? "badge-ok" : a.status === "suspended" ? "badge-warn" : "badge-error");
+        b.textContent = a.status;
+        tdS.appendChild(b);
+        tr.appendChild(tdS);
+        tr.appendChild(td(a.last_seen_at || "never"));
+        tr.appendChild(td(a.created_at));
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function(err) { document.getElementById("msg").textContent = "Error: " + err.message; });
+  }
+  load();
+})();
+</script>
+</body>
+</html>

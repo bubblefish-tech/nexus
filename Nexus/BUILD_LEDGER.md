@@ -99,8 +99,24 @@
   - 60 packages PASS (internal/mcp +1 with 27 new control tests)
   - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
 
+## MT.5: COMPLETE — Dashboard control-plane pages
+- 5 new HTML files in web/dashboard/: agents.html, grants.html, approvals.html, tasks.html, actions.html
+  - Each page: dark theme, nav bar linking all 5 pages + main dashboard, fetch from /api/control/* APIs
+  - textContent only (NEVER innerHTML). ADMIN_TOKEN: '', injection point (same pattern as index.html)
+  - Token injected server-side by handler: extracts from Authorization header or ?token= query param
+- web/dashboard/embed.go: 5 new exported vars (AgentsHTML, GrantsHTML, ApprovalsHTML, TasksHTML, ActionsHTML)
+- internal/daemon/handlers_dashboard.go: serveDashboardPage helper + dashboardToken validator (header + query param) + 5 HTML handlers + handleControlAgentList (GET /api/control/agents)
+- internal/daemon/server.go: /dashboard/{agents,grants,approvals,tasks,actions} added to both buildRouter() and BuildAdminRouter() (outside requireAdminToken group, self-validates token) + /api/control/agents in both (inside requireAdminToken group, gated on registryStore != nil)
+- internal/web/dashboard.go: mux.Handle("/dashboard/", d.cfg.AdminHandler) added alongside existing /api/ delegation
+- internal/daemon/handlers_dashboard_test.go: 15 tests (5 page-OK, 5 no-token subtests, bad-token, ?token= happy, ?token= bad, token-injection, no-mock-data, agent-list-empty, agent-list-no-registry)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - internal/daemon: PASS (161 top-level tests including 15 new dashboard tests)
+  - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: MT.5 — PENDING
+## Current subtask: MT.6 — PENDING
 
 ### Known pre-existing failures (a2a transport harness):
 - internal/a2a/client: 1 (TestFactory_PingFail)

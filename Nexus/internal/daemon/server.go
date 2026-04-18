@@ -137,6 +137,11 @@ func (d *Daemon) buildRouter() http.Handler {
 			r.Get("/api/control/actions", d.handleControlActionQuery)
 		}
 
+		// Agent list — MT.5, gated on registryStore.
+		if d.registryStore != nil {
+			r.Get("/api/control/agents", d.handleControlAgentList)
+		}
+
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(
@@ -149,6 +154,17 @@ func (d *Daemon) buildRouter() http.Handler {
 	// OR ?token= query param (EventSource cannot send headers).
 	// Reference: dashboard-contract.md Authentication section.
 	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
+
+	// Control-plane dashboard HTML pages — MT.5. Accept token from
+	// Authorization header or ?token= query param (browser navigation).
+	// Gated on grantStore so they only appear when the control plane is up.
+	if d.grantStore != nil {
+		r.Get("/dashboard/agents", d.handleDashboardAgents)
+		r.Get("/dashboard/grants", d.handleDashboardGrants)
+		r.Get("/dashboard/approvals", d.handleDashboardApprovals)
+		r.Get("/dashboard/tasks", d.handleDashboardTasks)
+		r.Get("/dashboard/actions", d.handleDashboardActions)
+	}
 
 	// Review routes — require bfn_review_list_ or bfn_review_read_ tokens.
 	// Any other token class receives 401 wrong_token_class.
@@ -219,6 +235,11 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 			r.Get("/api/control/actions", d.handleControlActionQuery)
 		}
 
+		// Agent list — MT.5, gated on registryStore.
+		if d.registryStore != nil {
+			r.Get("/api/control/agents", d.handleControlAgentList)
+		}
+
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),
 			promhttp.HandlerOpts{EnableOpenMetrics: false},
@@ -227,6 +248,16 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 
 	// SSE with query-param auth.
 	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
+
+	// Control-plane dashboard HTML pages — MT.5. Accept token from
+	// Authorization header or ?token= query param (browser navigation).
+	if d.grantStore != nil {
+		r.Get("/dashboard/agents", d.handleDashboardAgents)
+		r.Get("/dashboard/grants", d.handleDashboardGrants)
+		r.Get("/dashboard/approvals", d.handleDashboardApprovals)
+		r.Get("/dashboard/tasks", d.handleDashboardTasks)
+		r.Get("/dashboard/actions", d.handleDashboardActions)
+	}
 
 	return r
 }

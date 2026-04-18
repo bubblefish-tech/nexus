@@ -36,6 +36,31 @@ var A2APermissionsHTML string
 //go:embed openclaw.html
 var OpenClawHTML string
 
+// AgentsHTML is the control-plane agent registry dashboard page.
+//
+//go:embed agents.html
+var AgentsHTML string
+
+// GrantsHTML is the control-plane capability grants dashboard page.
+//
+//go:embed grants.html
+var GrantsHTML string
+
+// ApprovalsHTML is the control-plane approval requests dashboard page.
+//
+//go:embed approvals.html
+var ApprovalsHTML string
+
+// TasksHTML is the control-plane tasks dashboard page.
+//
+//go:embed tasks.html
+var TasksHTML string
+
+// ActionsHTML is the control-plane action log dashboard page.
+//
+//go:embed actions.html
+var ActionsHTML string
+
 // LogoPNG is the BubbleFish logo used in the sidebar and witness HUD.
 //
 //go:embed assets/logo_metal.png
