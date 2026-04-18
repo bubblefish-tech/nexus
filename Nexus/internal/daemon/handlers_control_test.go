@@ -585,6 +585,60 @@ func TestControl_UpdateTask_NotFound(t *testing.T) {
 // Actions
 // ---------------------------------------------------------------------------
 
+func TestControl_ListGrants_LimitParam(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+	ctx := context.Background()
+	for range 5 {
+		_, _ = d.grantStore.Create(ctx, grants.Grant{AgentID: "a", Capability: "c", GrantedBy: "admin"})
+	}
+	w := doJSON(t, h, http.MethodGet, "/api/control/grants?limit=3", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp struct{ Grants []grantResponse }
+	decodeBody(t, w, &resp)
+	if len(resp.Grants) != 3 {
+		t.Fatalf("got %d, want 3 (limit)", len(resp.Grants))
+	}
+}
+
+func TestControl_ListApprovals_LimitParam(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+	ctx := context.Background()
+	for range 5 {
+		_, _ = d.approvalStore.Create(ctx, approvals.Request{AgentID: "a", Capability: "c", Action: json.RawMessage(`{}`)})
+	}
+	w := doJSON(t, h, http.MethodGet, "/api/control/approvals?limit=3", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp struct{ Approvals []approvalResponse }
+	decodeBody(t, w, &resp)
+	if len(resp.Approvals) != 3 {
+		t.Fatalf("got %d, want 3 (limit)", len(resp.Approvals))
+	}
+}
+
+func TestControl_ListTasks_LimitParam(t *testing.T) {
+	d := newControlTestDaemon(t)
+	h := routeThrough(d)
+	ctx := context.Background()
+	for range 5 {
+		_, _ = d.taskStore.Create(ctx, tasks.Task{AgentID: "a"})
+	}
+	w := doJSON(t, h, http.MethodGet, "/api/control/tasks?limit=3", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp struct{ Tasks []taskResponse }
+	decodeBody(t, w, &resp)
+	if len(resp.Tasks) != 3 {
+		t.Fatalf("got %d, want 3 (limit)", len(resp.Tasks))
+	}
+}
+
 func TestControl_QueryActions_Empty(t *testing.T) {
 	h := routeThrough(newControlTestDaemon(t))
 	w := doJSON(t, h, http.MethodGet, "/api/control/actions", nil)

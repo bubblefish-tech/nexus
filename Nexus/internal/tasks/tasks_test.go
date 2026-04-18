@@ -333,6 +333,21 @@ func TestListEvents_NotFound(t *testing.T) {
 	}
 }
 
+func TestList_Limit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for range 5 {
+		_, _ = s.Create(ctx, tasks.Task{AgentID: "a"})
+	}
+	got, err := s.List(ctx, tasks.ListFilter{Limit: 3})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d, want 3 (limit)", len(got))
+	}
+}
+
 func TestIsTerminal_TruthTable(t *testing.T) {
 	cases := []struct {
 		state    string

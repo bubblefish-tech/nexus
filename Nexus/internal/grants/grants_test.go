@@ -348,6 +348,21 @@ func TestCheckGrant_ReturnsMostRecentWhenMultiple(t *testing.T) {
 	}
 }
 
+func TestList_Limit(t *testing.T) {
+	s, _ := newTestStore(t)
+	ctx := context.Background()
+	for range 5 {
+		_, _ = s.Create(ctx, grants.Grant{AgentID: "a", Capability: "c", GrantedBy: "x"})
+	}
+	got, err := s.List(ctx, grants.ListFilter{Limit: 3})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d, want 3 (limit)", len(got))
+	}
+}
+
 func TestIsActive_TruthTable(t *testing.T) {
 	now := time.Now()
 	past := now.Add(-1 * time.Hour)

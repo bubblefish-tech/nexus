@@ -145,6 +145,7 @@ type ListFilter struct {
 	AgentID    string // restrict to this agent
 	Status     string // restrict to this status (e.g. "pending")
 	Capability string // restrict to this capability
+	Limit      int    // max rows to return; 0 = no cap
 }
 
 // List returns requests matching filter, ordered by requested_at_ms DESC.
@@ -164,6 +165,10 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]Request, error) 
 		args = append(args, filter.Capability)
 	}
 	query += ` ORDER BY requested_at_ms DESC`
+	if filter.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, filter.Limit)
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

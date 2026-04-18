@@ -195,6 +195,7 @@ type ListFilter struct {
 	State        string
 	ParentTaskID string // use "" for no filter; use the sentinel returned by NoParent() to restrict to top-level tasks
 	TopLevelOnly bool   // if true, only return tasks where parent_task_id IS NULL
+	Limit        int    // max rows to return; 0 = no cap
 }
 
 // List returns tasks matching filter, ordered by created_at_ms DESC.
@@ -216,6 +217,10 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]Task, error) {
 		args = append(args, filter.ParentTaskID)
 	}
 	query += ` ORDER BY created_at_ms DESC`
+	if filter.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, filter.Limit)
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

@@ -284,6 +284,7 @@ func (d *Daemon) handleControlGrantList(w http.ResponseWriter, r *http.Request) 
 		AgentID:    r.URL.Query().Get("agent_id"),
 		Capability: r.URL.Query().Get("capability"),
 		OnlyActive: r.URL.Query().Get("only_active") == "true",
+		Limit:      parseListLimit(r, 1000),
 	}
 	list, err := d.grantStore.List(r.Context(), filter)
 	if err != nil {
@@ -375,6 +376,7 @@ func (d *Daemon) handleControlApprovalList(w http.ResponseWriter, r *http.Reques
 		AgentID:    r.URL.Query().Get("agent_id"),
 		Status:     status,
 		Capability: r.URL.Query().Get("capability"),
+		Limit:      parseListLimit(r, 1000),
 	}
 	list, err := d.approvalStore.List(r.Context(), filter)
 	if err != nil {
@@ -504,6 +506,7 @@ func (d *Daemon) handleControlTaskList(w http.ResponseWriter, r *http.Request) {
 		State:        r.URL.Query().Get("state"),
 		ParentTaskID: r.URL.Query().Get("parent_task_id"),
 		TopLevelOnly: r.URL.Query().Get("top_level") == "true",
+		Limit:        parseListLimit(r, 1000),
 	}
 	list, err := d.taskStore.List(r.Context(), filter)
 	if err != nil {
@@ -631,6 +634,21 @@ func decodeJSON(r *http.Request, v any) error {
 		return fmt.Errorf("parse json: %w", err)
 	}
 	return nil
+}
+
+// parseListLimit returns the ?limit= query param as an int, falling back to
+// defaultVal when the param is absent. A value of 0 means "no cap". Negative
+// or non-integer values are treated as the default.
+func parseListLimit(r *http.Request, defaultVal int) int {
+	s := r.URL.Query().Get("limit")
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 0 {
+		return defaultVal
+	}
+	return v
 }
 
 // emitControlAudit emits an InteractionRecord for a control-plane mutation.

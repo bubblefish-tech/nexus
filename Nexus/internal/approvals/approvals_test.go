@@ -319,6 +319,21 @@ func TestExpire_AlreadyDecided(t *testing.T) {
 	}
 }
 
+func TestList_Limit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for range 5 {
+		_, _ = s.Create(ctx, approvals.Request{AgentID: "a", Capability: "c", Action: sampleAction()})
+	}
+	got, err := s.List(ctx, approvals.ListFilter{Limit: 3})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d, want 3 (limit)", len(got))
+	}
+}
+
 func TestList_OrderedNewestFirst(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

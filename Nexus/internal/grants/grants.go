@@ -148,6 +148,7 @@ type ListFilter struct {
 	Capability   string // if non-empty, restrict to this capability
 	OnlyActive   bool   // if true, exclude revoked and expired-as-of-now
 	IncludeScope bool   // reserved for future projection control
+	Limit        int    // max rows to return; 0 = no cap
 }
 
 // List returns grants matching filter, ordered by granted_at_ms DESC.
@@ -167,6 +168,10 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]Grant, error) {
 		args = append(args, time.Now().UnixMilli())
 	}
 	query += ` ORDER BY granted_at_ms DESC`
+	if filter.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, filter.Limit)
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
