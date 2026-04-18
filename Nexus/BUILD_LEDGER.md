@@ -1,0 +1,73 @@
+# BUILD_LEDGER.md
+
+## Steps 1–5: COMPLETE (substrate merged to main @ 5c21ce7)
+
+## Step 6: COMPLETE (rebase v0.1.3-a2a onto main, 1 conflict resolved in cmd/bubblefish/main.go — additive, both sides kept)
+
+## Step 7: EXIT GATE — CONDITIONAL PASS
+- Build: OK
+- Vet: OK
+- Tests: 54 packages pass, 3 fail (31 pre-existing a2a transport 404 failures — confirmed identical on pre-rebase tip 9c08f21)
+- MCP version assertion fixed: ca30e44
+- Cleanup commit: 5a0baa0
+- Branch tip: ca30e44 (34 commits ahead of main)
+
+## Step 8: COMPLETE (v0.1.3-a2a merged to main)
+- Merge commit: c6807f0 (--no-ff, "Merge v0.1.3-a2a: A2A agent-to-agent protocol (A2A.1–A2A.12)")
+- Post-merge build: OK
+- Post-merge vet: OK
+- Full test re-run skipped — identical to Step 7 exit gate (same tree post-merge)
+- main tip: c6807f0
+
+## Step 9: COMPLETE (v0.1.3-moat-takeover created)
+- Branch: v0.1.3-moat-takeover
+- Base: c6807f0 (main tip — merge commit of v0.1.3-a2a)
+
+## MT.1: COMPLETE — grants, approvals, tasks, action log schemas
+- Schema: 5 tables + indexes added to internal/a2a/registry/store.go (renamed createTableSQL → SchemaSQL, added exported InitSchema helper)
+- New packages: internal/grants, internal/approvals, internal/tasks (tasks.go + events.go), internal/actions
+- Each package takes *sql.DB, not the registry store type (directional coupling)
+- Tests use :memory: SQLite via registry.InitSchema
+- Test count: 78 top-level tests (20 grants, 20 approvals, 22 tasks, 16 actions) — exceeds 55 minimum
+- go.mod tidy: promoted bubbles/bubbletea/lipgloss/jwt/klauspost/ulid/cuckoofilter/golang.org/x/time from indirect to direct (all were already in-use)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 58 packages PASS (4 new, 54 pre-existing)
+  - 3 packages FAIL — the same 31 pre-existing a2a transport 404 failures tracked since Step 7. Zero new regressions.
+
+## MT.2: COMPLETE — REST APIs for grants, approvals, tasks, actions
+- Design: control-plane stores share the A2A registry's *sql.DB at <configDir>/a2a/registry.db (NOT a separate nexus-control.db). Enforces foreign keys against real a2a_agents table.
+- registry.Store exposes DB() accessor so daemon can wire grants/approvals/tasks/actions against the same connection.
+- daemon.Start() opens the registry unconditionally (foundational infra) before router build; stores d.registryStore on Daemon struct.
+- New file: internal/daemon/handlers_control.go (~500 lines, 11 handlers, DTOs + converters, decodeJSON helper with 1MB cap, emitControlAudit using existing audit.InteractionRecord)
+- Routes under /api/control/ (grants, approvals, tasks, actions) — admin-token authed, registered inside r.Group with requireAdminToken in BOTH buildRouter() and BuildAdminRouter(); guarded by `if d.grantStore != nil`
+- Error format: {"error":"CODE","message":"text"} via existing writeErrorResponse
+- Audit emitted on every write endpoint (grants.create/revoke, approvals.create/decide, tasks.create/update)
+- Daemon struct extended with registryStore (*registry.Store) + grantStore/approvalStore/taskStore/actionStore — no separate controlDB field
+- setupA2ABridge refactored: now reuses d.registryStore rather than opening its own; d.setupA2ABridge(cfg) call added in Start() (gated on cfg.A2A.Enabled) — prior rebase had left this call unwired
+- registryStore.Close() wired into daemon Stop() stage 3
+- Unconditional control-plane wiring (no cfg.Control.Enabled gate yet) — MT.3 adds the feature flag
+- New file: internal/daemon/handlers_control_test.go — 37 tests (package daemon, httptest + chi router, no daemon startup)
+- Security fix (76d36d6): unbounded list queries on grants/approvals/tasks capped at 1000 rows by default
+  - Added Limit int to grants.ListFilter, approvals.ListFilter, tasks.ListFilter (same LIMIT ? pattern as actions.QueryFilter)
+  - parseListLimit helper in handlers_control.go; ?limit=0 opts out; invalid values fall back to 1000
+  - 7 new tests: TestList_Limit in each store package + TestControl_List*_LimitParam in daemon
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 58 packages PASS (including internal/daemon with 44 handler tests, +7 limit tests)
+  - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures from Step 7. Zero new regressions.
+
+## Current branch: v0.1.3-moat-takeover
+## Current subtask: MT.3 (feature flag + daemon wiring) — PENDING
+
+### Known pre-existing failures (a2a transport harness):
+- internal/a2a/client: 1 (TestFactory_PingFail)
+- internal/a2a/transport: 7 (HTTP 404)
+- internal/integration: 23 (HTTP 404)
+- Root cause: test harness route registration — tracked for fix on moat-takeover
+
+### Stale branches (safe to delete):
+- v0.1.3-ingest: fully merged to main
+- fix/bench-windows-clock: fully merged to main
