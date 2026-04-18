@@ -30,7 +30,11 @@ import (
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
-const createTableSQL = `
+// SchemaSQL is the full DDL for the registry's SQLite schema, including the
+// a2a_agents table (registered agents) and the MT.1 control-plane tables
+// (grants, approval_requests, tasks, task_events, action_log). All statements
+// use CREATE ... IF NOT EXISTS so re-running on an existing DB is a no-op.
+const SchemaSQL = `
 CREATE TABLE IF NOT EXISTS a2a_agents (
 	agent_id          TEXT PRIMARY KEY,
 	name              TEXT UNIQUE NOT NULL,
@@ -44,7 +48,87 @@ CREATE TABLE IF NOT EXISTS a2a_agents (
 	created_at_ms     INTEGER NOT NULL,
 	updated_at_ms     INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS grants (
+	grant_id       TEXT PRIMARY KEY,
+	agent_id       TEXT NOT NULL REFERENCES a2a_agents(agent_id),
+	capability     TEXT NOT NULL,
+	scope_json     TEXT NOT NULL DEFAULT '{}',
+	granted_by     TEXT NOT NULL,
+	granted_at_ms  INTEGER NOT NULL,
+	expires_at_ms  INTEGER,
+	revoked_at_ms  INTEGER,
+	revoke_reason  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_grants_agent_cap ON grants(agent_id, capability);
+CREATE INDEX IF NOT EXISTS idx_grants_expires ON grants(expires_at_ms);
+
+CREATE TABLE IF NOT EXISTS approval_requests (
+	request_id       TEXT PRIMARY KEY,
+	agent_id         TEXT NOT NULL REFERENCES a2a_agents(agent_id),
+	capability       TEXT NOT NULL,
+	action_json      TEXT NOT NULL,
+	status           TEXT NOT NULL DEFAULT 'pending',
+	requested_at_ms  INTEGER NOT NULL,
+	decided_at_ms    INTEGER,
+	decided_by       TEXT,
+	decision         TEXT,
+	reason           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_requests(status);
+CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approval_requests(agent_id);
+
+CREATE TABLE IF NOT EXISTS tasks (
+	task_id          TEXT PRIMARY KEY,
+	agent_id         TEXT NOT NULL REFERENCES a2a_agents(agent_id),
+	parent_task_id   TEXT,
+	state            TEXT NOT NULL DEFAULT 'submitted',
+	capability       TEXT,
+	input_json       TEXT,
+	output_json      TEXT,
+	created_at_ms    INTEGER NOT NULL,
+	updated_at_ms    INTEGER NOT NULL,
+	completed_at_ms  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_agent_state ON tasks(agent_id, state);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
+
+CREATE TABLE IF NOT EXISTS task_events (
+	event_id       TEXT PRIMARY KEY,
+	task_id        TEXT NOT NULL REFERENCES tasks(task_id),
+	event_type     TEXT NOT NULL,
+	payload_json   TEXT,
+	created_at_ms  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at_ms);
+
+CREATE TABLE IF NOT EXISTS action_log (
+	action_id        TEXT PRIMARY KEY,
+	agent_id         TEXT NOT NULL,
+	capability       TEXT NOT NULL,
+	target           TEXT,
+	grant_id         TEXT,
+	approval_id      TEXT,
+	policy_decision  TEXT NOT NULL,
+	policy_reason    TEXT,
+	executed_at_ms   INTEGER NOT NULL,
+	result           TEXT,
+	audit_hash       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_actions_agent_time ON action_log(agent_id, executed_at_ms);
+CREATE INDEX IF NOT EXISTS idx_actions_capability ON action_log(capability);
 `
+
+// InitSchema applies SchemaSQL to db. Safe to call on an existing database —
+// all DDL uses IF NOT EXISTS. Exported so packages that share the registry DB
+// (grants, approvals, tasks, actions) can initialize a fresh in-memory DB in
+// tests without importing the full Store.
+func InitSchema(db *sql.DB) error {
+	if _, err := db.Exec(SchemaSQL); err != nil {
+		return fmt.Errorf("registry: init schema: %w", err)
+	}
+	return nil
+}
 
 // Store is a SQLite-backed agent registry.
 type Store struct {
@@ -72,9 +156,9 @@ func NewStore(path string) (*Store, error) {
 		}
 	}
 
-	if _, err := db.Exec(createTableSQL); err != nil {
+	if _, err := db.Exec(SchemaSQL); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("registry: create table: %w", err)
+		return nil, fmt.Errorf("registry: create schema: %w", err)
 	}
 
 	return &Store{db: db}, nil
