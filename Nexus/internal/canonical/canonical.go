@@ -121,6 +121,14 @@ func (m *Manager) Enabled() bool {
 	return m.cfg.Enabled
 }
 
+// Dim returns the configured canonical dimension, or 0 if the manager is nil.
+func (m *Manager) Dim() int {
+	if m == nil {
+		return 0
+	}
+	return m.cfg.CanonicalDim
+}
+
 // Canonicalize runs the five-step pipeline on a raw embedding.
 //
 // Step 1: Dimension normalization via SRHT

@@ -179,9 +179,9 @@ func applyDefaultInterfaces(s *Substrate, adminToken string, logger *slog.Logger
 // or 1024 as default.
 func (c Config) CanonicalDim(mgr *canonical.Manager) int {
 	if mgr != nil && mgr.Enabled() {
-		// The canonical manager's config holds the dim.
-		// For now, return the default since we can't access the config.
-		// TODO(shawn): expose CanonicalDim() on canonical.Manager.
+		if d := mgr.Dim(); d > 0 {
+			return d
+		}
 	}
 	return 1024
 }
