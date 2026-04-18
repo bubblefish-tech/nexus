@@ -80,8 +80,27 @@
   - 59 packages PASS (internal/policy +1 new engine tests, 58 pre-existing)
   - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
 
+## MT.4: COMPLETE — MCP tools for governed control plane
+- New file: internal/mcp/tools_control.go — ControlPlaneProvider interface + 7 DTOs (ControlDecision, GrantInfo, ApprovalInfo, TaskInfo, TaskEventInfo, ActionInfo) + 6 tool handlers + controlToolDefs()
+- Modified: internal/mcp/server.go — controlPlane field on Server, SetControlPlane setter, controlToolDefs() in handleToolsList, 6 new tool cases in handleToolsCall
+- New file: internal/daemon/control_plane_adapter.go — controlPlaneAdapter implementing ControlPlaneProvider; approvalToInfo/taskToInfo converters
+- Modified: internal/daemon/daemon.go — wires &controlPlaneAdapter{} after control plane init block when d.policyEngine != nil && d.mcpServer != nil
+- Policy model: nexus_task_create evaluates against the TASK's capability (not "nexus_task_create") — the agent needs a grant for what the task actually executes
+- All 5 non-task tools evaluate against their own tool name as capability
+- New file: internal/mcp/tools_control_test.go — 27 tests (package mcp_test), includes testControlAdapter + rpcCallAgent helper
+  - 6 "control not enabled" subtests (one per tool)
+  - 1 missing X-Agent-ID test
+  - happy path + policy denied for all 6 tools
+  - malformed input tests (missing capability, missing action, missing IDs)
+  - E2E: nexus_task_create denied → nexus_approval_request → admin Decide() → retry succeeds
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 60 packages PASS (internal/mcp +1 with 27 new control tests)
+  - 3 packages FAIL — identical 31 pre-existing a2a transport 404 failures. Zero new regressions.
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: MT.4 — PENDING
+## Current subtask: MT.5 — PENDING
 
 ### Known pre-existing failures (a2a transport harness):
 - internal/a2a/client: 1 (TestFactory_PingFail)

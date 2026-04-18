@@ -1007,6 +1007,23 @@ func (d *Daemon) Start() error {
 		)
 	}
 
+	// Wire the MCP control-plane adapter when both the policy engine and MCP
+	// server are available. Must run after the registry init block above and
+	// after startMCPServer (called before startAgentGateway at line ~782).
+	if d.policyEngine != nil && d.mcpServer != nil {
+		d.mcpServer.SetControlPlane(&controlPlaneAdapter{
+			engine:    d.policyEngine,
+			grants:    d.grantStore,
+			approvals: d.approvalStore,
+			tasks:     d.taskStore,
+			actions:   d.actionStore,
+			logger:    d.logger,
+		})
+		d.logger.Info("daemon: MCP control-plane tools enabled",
+			"component", "control",
+		)
+	}
+
 	// Wire the A2A bridge if enabled. Uses the already-opened registryStore.
 	if cfg.A2A.Enabled {
 		d.setupA2ABridge(cfg)

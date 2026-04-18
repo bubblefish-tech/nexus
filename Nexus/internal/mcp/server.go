@@ -213,6 +213,10 @@ type Server struct {
 	// a2aBridge dispatches A2A bridge tool calls. Nil when A2A is disabled.
 	a2aBridge *bridge.Bridge
 
+	// controlPlane handles governed control-plane MCP tools (MT.4).
+	// Nil when the control plane is disabled.
+	controlPlane ControlPlaneProvider
+
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
@@ -757,6 +761,9 @@ func (s *Server) handleToolsList(w http.ResponseWriter, r *http.Request, req rpc
 	if s.a2aBridge != nil {
 		tools = append(tools, a2aToolDefs(s.a2aBridge)...)
 	}
+	if s.controlPlane != nil {
+		tools = append(tools, controlToolDefs()...)
+	}
 	s.writeRPCResult(w, r, req.ID, toolsListResult{Tools: tools})
 }
 
@@ -800,6 +807,18 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 		"a2a_stream_to_agent", "a2a_get_task", "a2a_resume_task",
 		"a2a_cancel_task", "a2a_list_pending_approvals", "a2a_list_grants":
 		s.callA2ABridgeTool(w, r, req, params.Name, params.Arguments)
+	case "nexus_grant_list":
+		s.callNexusGrantList(w, r, req)
+	case "nexus_approval_request":
+		s.callNexusApprovalRequest(w, r, req, params.Arguments)
+	case "nexus_approval_status":
+		s.callNexusApprovalStatus(w, r, req, params.Arguments)
+	case "nexus_task_create":
+		s.callNexusTaskCreate(w, r, req, params.Arguments)
+	case "nexus_task_status":
+		s.callNexusTaskStatus(w, r, req, params.Arguments)
+	case "nexus_action_log":
+		s.callNexusActionLog(w, r, req, params.Arguments)
 	default:
 		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
 	}
