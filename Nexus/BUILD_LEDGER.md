@@ -447,8 +447,49 @@
   - Vet: OK
   - 66 packages PASS — zero failures
 
+## DISC.2: COMPLETE — Scanner Core
+- New dependency: `github.com/shirou/gopsutil/v3 v3.24.5` (process enumeration)
+- New file: `internal/discover/scanner.go`
+  - `DiscoveredTool` struct (Name, DetectionMethod, ConnectionType, Endpoint, Orchestratable, IngestCapable, MCPServers)
+  - `Scanner` struct with `configDir`, `timeout` (2s default), `logger`
+  - `NewScanner(configDir, logger)` constructor
+  - `FullScan(ctx)`: loads AllTools → `fullScanWithDefs` (testable core)
+  - `fullScanWithDefs`: launches 6 goroutines (port, process, filesystem, mcp_config, docker, general) into buffered channel; deduplicates by name (first wins)
+  - Tier runners: `runPortTier`, `runProcessTier`, `runFilesystemTier`, `runMCPConfigTier`, `runDockerTier`
+- New file: `internal/discover/probe_port.go`
+  - `probePort(def, timeout)`: constructs `http://localhost:{port}` → delegates to `probePortAt`
+  - `probePortAt(def, baseURL, timeout)`: HTTP GET with 2s timeout, body substring match; testable with arbitrary base URL
+- New file: `internal/discover/probe_process.go`
+  - `processNameLister` function type; `defaultProcessNameLister` via gopsutil `process.Processes()`
+  - `probeProcess` / `probeProcessWithLister`: case-insensitive name match, strips `.exe` suffix for Windows
+- New file: `internal/discover/probe_filesystem.go`
+  - `probeFilesystem` / `probeFilesystemWithPaths`: `os.Stat` on each expanded path; first hit wins
+- New file: `internal/discover/probe_mcpconfig.go`
+  - `MCPServerEntry` struct (Name, Command, Args); `mcpConfigFile` JSON struct
+  - `probeMCPConfig` / `probeMCPConfigAt`: parses `mcpServers` JSON map; returns false when no servers
+  - `parseMCPConfig(path)`: reads + unmarshals JSON config file
+- New file: `internal/discover/probe_docker.go`
+  - `dockerOutputReader` function type; `defaultDockerOutputReader` runs `docker ps --format {{.Image}}`
+  - `probeDocker` / `probeDockerWithReader`: best-effort (returns false when docker unavailable)
+- New file: `internal/discover/probe_general.go`
+  - `probeGeneralPorts(timeout)`: scans 235 ports with 50-goroutine semaphore pool
+  - `scanPorts(ports, baseURLOf, timeout)`: testable core; probes `/v1/models`, checks for `"data"` or `"object"` in response; names results `"OpenAI API (port N)"`
+  - `generalPortList()`: 1234-1240, 3000-3100, 4891, 5000-5010, 7474, 7860-7870, 8000-8100, 8443, 9090, 11434
+- New file: `internal/discover/scanner_test.go` — 20 tests
+  - Port: hit, wrong body, no server
+  - Process: hit, miss, Windows .exe, lister error
+  - Filesystem: hit, miss
+  - MCP config: hit, no file, empty servers
+  - Docker: hit, miss, unavailable
+  - General: port hit, port miss, port list coverage
+  - Scanner: empty defs, deduplication
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 67 packages PASS — zero failures (30 tests in internal/discover)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DISC.1 complete. Next: DISC.2 — Scanner Core.
+## Current subtask: DISC.2 complete. Next: DISC.3 — Auto-Connector.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
