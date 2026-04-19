@@ -226,8 +226,29 @@
 - New file: `internal/daemon/run.go` — Option functional-option type, WithRBAC/WithBoundaryEnforcer/WithClassificationMarker constructors, Run(cfg, logger, ...Option) error entry point
 - Exit gate: Build OK | Vet OK | `internal/daemon` PASS (161 tests)
 
+## CU.0.1: COMPLETE — Master Key Management (Argon2id + HKDF)
+- New file: `internal/crypto/masterkey.go` — MasterKeyManager struct
+  - NewMasterKeyManager(password, saltPath): resolves password from arg → NEXUS_PASSWORD env → disabled
+  - Argon2id: time=3, memory=65536 (64MB), threads=4, keyLen=32
+  - Salt: 32-byte random, generated on first run (0600 perms), reused on subsequent calls
+  - HKDF sub-keys via ActiveProfile for 4 domains: nexus-config-key-v1, nexus-memory-key-v1, nexus-audit-key-v1, nexus-control-key-v1
+  - SubKey(domain) returns [32]byte; IsEnabled() returns false when no password
+- New file: `internal/crypto/masterkey_test.go` — 13 tests (disabled path, env var override, same-password same-keys, wrong-password different-keys, salt persistence, salt permissions (Windows skip), non-zero sub-keys, distinct sub-keys, different salts → different keys, invalid salt, unknown domain zero, disabled zero)
+- New file: `cmd/bubblefish/config.go` — `bubblefish config set-password` subcommand
+  - Masked terminal password prompt via golang.org/x/term
+  - Password confirmation with mismatch detection
+  - Removes existing salt before re-derive (fresh salt on password change)
+  - Reports canonical salt path (~/.nexus/crypto.salt)
+- Modified: `cmd/bubblefish/main.go` — wires `config` case + help text
+- New dependency: golang.org/x/term v0.42.0
+- Commit: b42ef87
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 61 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: P0 complete. Next: Phase 1 — CU.0.1 Master Key Management.
+## Current subtask: CU.0.1 complete. Next: CU.0.2 — Memory Content Encryption.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
