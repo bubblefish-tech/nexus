@@ -74,6 +74,7 @@ type RatchetManager struct {
 	db           *sql.DB
 	sd           *secrets.Dir
 	signingKey   ed25519.PrivateKey // nil when signing disabled
+	encryptor    *SubstrateEncryptor
 	canonicalDim uint32
 	sketchBits   uint32
 	logger       *slog.Logger
@@ -81,18 +82,20 @@ type RatchetManager struct {
 
 // NewRatchetManager creates a ratchet manager. If no state exists in the DB,
 // it initializes a new one from crypto/rand. If a state exists, it loads the
-// active (non-shredded) one.
+// active (non-shredded) one. enc may be nil when encryption is disabled.
 func NewRatchetManager(
 	db *sql.DB,
 	sd *secrets.Dir,
 	signingKey ed25519.PrivateKey, // nil if signing disabled
 	canonicalDim, sketchBits uint32,
+	enc *SubstrateEncryptor,
 	logger *slog.Logger,
 ) (*RatchetManager, error) {
 	m := &RatchetManager{
 		db:           db,
 		sd:           sd,
 		signingKey:   signingKey,
+		encryptor:    enc,
 		canonicalDim: canonicalDim,
 		sketchBits:   sketchBits,
 		logger:       logger,
@@ -182,32 +185,30 @@ func (m *RatchetManager) Shutdown() error {
 
 func (m *RatchetManager) loadOrInitialize() (*RatchetState, error) {
 	row := m.db.QueryRow(`
-		SELECT state_id, created_at, state_bytes, canonical_dim, sketch_bits, signature
+		SELECT state_id, created_at, state_bytes, canonical_dim, sketch_bits, signature,
+		       state_bytes_encrypted, state_bytes_enc_version
 		FROM substrate_ratchet_states
 		WHERE shredded_at IS NULL
 		ORDER BY state_id DESC
 		LIMIT 1
 	`)
 	var (
-		stateID      uint32
-		createdNano  int64
-		stateBytes   []byte
-		canonicalDim uint32
-		sketchBits   uint32
-		signature    []byte
+		stateID        uint32
+		createdNano    int64
+		stateBytes     []byte
+		canonicalDim   uint32
+		sketchBits     uint32
+		signature      []byte
+		encryptedBytes []byte
+		encVersion     int
 	)
-	err := row.Scan(&stateID, &createdNano, &stateBytes, &canonicalDim, &sketchBits, &signature)
+	err := row.Scan(&stateID, &createdNano, &stateBytes, &canonicalDim, &sketchBits, &signature,
+		&encryptedBytes, &encVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return m.initializeFirstState()
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load ratchet state: %w", err)
-	}
-	if len(stateBytes) != 32 {
-		return nil, fmt.Errorf("load ratchet state: invalid state_bytes length %d", len(stateBytes))
-	}
-	if isAllZero(stateBytes) {
-		return nil, errors.New("load ratchet state: active state bytes are zeroed, DB inconsistent")
 	}
 
 	state := &RatchetState{
@@ -217,7 +218,26 @@ func (m *RatchetManager) loadOrInitialize() (*RatchetState, error) {
 		SketchBits:   sketchBits,
 		Signature:    signature,
 	}
-	copy(state.StateBytes[:], stateBytes)
+
+	if encVersion == 1 {
+		if m.encryptor == nil {
+			return nil, fmt.Errorf("load ratchet state %d: row is encrypted (enc_version=1) but no encryptor configured", stateID)
+		}
+		decrypted, decErr := m.encryptor.OpenRatchetState(stateID, encryptedBytes)
+		if decErr != nil {
+			return nil, fmt.Errorf("load ratchet state %d: %w", stateID, decErr)
+		}
+		state.StateBytes = decrypted
+	} else {
+		if len(stateBytes) != 32 {
+			return nil, fmt.Errorf("load ratchet state: invalid state_bytes length %d", len(stateBytes))
+		}
+		if isAllZero(stateBytes) {
+			return nil, errors.New("load ratchet state: active state bytes are zeroed, DB inconsistent")
+		}
+		copy(state.StateBytes[:], stateBytes)
+	}
+
 	return state, nil
 }
 
@@ -267,9 +287,28 @@ func (m *RatchetManager) persistNewState(stateBytes [32]byte) (*RatchetState, er
 	if err != nil {
 		return nil, err
 	}
+	stateID := uint32(stateID64)
+
+	// CU.0.9: if encryption is enabled, seal the state bytes and store the
+	// encrypted blob. The plaintext state_bytes column is kept for NOT NULL
+	// constraint compliance; enc_version=1 makes it the non-authoritative copy.
+	if m.encryptor != nil {
+		encrypted, encErr := m.encryptor.SealRatchetState(stateID, stateBytes)
+		if encErr != nil {
+			return nil, fmt.Errorf("encrypt ratchet state %d: %w", stateID, encErr)
+		}
+		_, err = m.db.Exec(`
+			UPDATE substrate_ratchet_states
+			SET state_bytes_encrypted = ?, state_bytes_enc_version = 1
+			WHERE state_id = ?
+		`, encrypted, stateID)
+		if err != nil {
+			return nil, fmt.Errorf("store encrypted ratchet state %d: %w", stateID, err)
+		}
+	}
 
 	return &RatchetState{
-		StateID:      uint32(stateID64),
+		StateID:      stateID,
 		StateBytes:   stateBytes,
 		CreatedAt:    createdAt,
 		CanonicalDim: m.canonicalDim,
@@ -280,9 +319,11 @@ func (m *RatchetManager) persistNewState(stateBytes [32]byte) (*RatchetState, er
 
 func (m *RatchetManager) shredState(stateID uint32) error {
 	zeroBytes := make([]byte, 32)
+	// CU.0.9: also NULL out the encrypted column so no key material remains.
 	_, err := m.db.Exec(`
 		UPDATE substrate_ratchet_states
-		SET shredded_at = ?, state_bytes = ?
+		SET shredded_at = ?, state_bytes = ?,
+		    state_bytes_encrypted = NULL, state_bytes_enc_version = 0
 		WHERE state_id = ?
 	`, time.Now().UnixNano(), zeroBytes, stateID)
 	return err

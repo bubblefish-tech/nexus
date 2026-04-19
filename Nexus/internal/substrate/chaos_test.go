@@ -207,7 +207,8 @@ func createChaosTables(t *testing.T, db *sql.DB) {
 			state_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			created_at INTEGER NOT NULL, shredded_at INTEGER,
 			state_bytes BLOB NOT NULL, canonical_dim INTEGER NOT NULL,
-			sketch_bits INTEGER NOT NULL, signature BLOB NOT NULL
+			sketch_bits INTEGER NOT NULL, signature BLOB NOT NULL,
+			state_bytes_encrypted BLOB, state_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS substrate_memory_state (
 			memory_id TEXT PRIMARY KEY, state_id INTEGER NOT NULL
@@ -219,7 +220,8 @@ func createChaosTables(t *testing.T, db *sql.DB) {
 		)`,
 		`CREATE TABLE IF NOT EXISTS substrate_cuckoo_filter (
 			filter_id INTEGER PRIMARY KEY, filter_bytes BLOB NOT NULL,
-			last_persisted INTEGER NOT NULL
+			last_persisted INTEGER NOT NULL,
+			filter_bytes_encrypted BLOB, filter_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)`,
 	}
 	for _, s := range stmts {
@@ -527,7 +529,7 @@ func TestChaos_CuckooPersist(t *testing.T) {
 	}
 
 	// Force a rebuild to verify it produces the correct state
-	rebuilt, err := RebuildFromDB(env.db, 10000, env.sub.logger)
+	rebuilt, err := RebuildFromDB(env.db, 10000, env.sub.logger, nil)
 	if err != nil {
 		t.Fatal("rebuild from DB:", err)
 	}
@@ -756,7 +758,7 @@ func TestChaos_CuckooRebuildAfterCorruption(t *testing.T) {
 	}
 
 	// Test 1: RebuildFromDB produces correct results
-	rebuilt, err := RebuildFromDB(env.db, 10000, env.sub.logger)
+	rebuilt, err := RebuildFromDB(env.db, 10000, env.sub.logger, nil)
 	if err != nil {
 		t.Fatal("rebuild from DB:", err)
 	}

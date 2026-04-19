@@ -53,7 +53,8 @@ func newFullTestDB(t *testing.T) *sql.DB {
 			state_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			created_at INTEGER NOT NULL, shredded_at INTEGER,
 			state_bytes BLOB NOT NULL, canonical_dim INTEGER NOT NULL,
-			sketch_bits INTEGER NOT NULL, signature BLOB NOT NULL
+			sketch_bits INTEGER NOT NULL, signature BLOB NOT NULL,
+			state_bytes_encrypted BLOB, state_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE substrate_memory_state (
 			memory_id TEXT PRIMARY KEY, state_id INTEGER NOT NULL
@@ -65,7 +66,8 @@ func newFullTestDB(t *testing.T) *sql.DB {
 		)`,
 		`CREATE TABLE substrate_cuckoo_filter (
 			filter_id INTEGER PRIMARY KEY, filter_bytes BLOB NOT NULL,
-			last_persisted INTEGER NOT NULL
+			last_persisted INTEGER NOT NULL,
+			filter_bytes_encrypted BLOB, filter_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)`,
 	}
 	for _, s := range stmts {

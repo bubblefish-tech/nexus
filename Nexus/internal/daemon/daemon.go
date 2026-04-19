@@ -906,10 +906,21 @@ func (d *Daemon) Start() error {
 						if sqliteDst, ok := d.dest.(*destination.SQLiteDestination); ok {
 							sqlDB = sqliteDst.DB()
 						}
+						// CU.0.9: wire substrate state encryption if mkm is available.
+						var subOpts []substrate.Option
+						if d.mkm != nil {
+							enc := substrate.NewSubstrateEncryptor(d.mkm)
+							if enc != nil {
+								subOpts = append(subOpts, substrate.WithEncryptor(enc))
+								d.logger.Info("daemon: substrate state encryption enabled",
+									"component", "substrate")
+							}
+						}
 						sub, subErr := substrate.New(
 							substrateCfg, sqlDB, sd,
 							d.daemonKeyPair, d.canonical,
 							d.chainState, d.logger,
+							subOpts...,
 						)
 						if subErr != nil {
 							d.logger.Warn("substrate initialization failed, disabling substrate",

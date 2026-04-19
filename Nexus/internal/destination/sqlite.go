@@ -162,13 +162,15 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 
 	// createSubstrateRatchetStatesTable tracks ratchet history.
 	createSubstrateRatchetStatesTable = `CREATE TABLE IF NOT EXISTS substrate_ratchet_states (
-		state_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-		created_at     INTEGER NOT NULL,
-		shredded_at    INTEGER,
-		state_bytes    BLOB NOT NULL,
-		canonical_dim  INTEGER NOT NULL,
-		sketch_bits    INTEGER NOT NULL,
-		signature      BLOB NOT NULL
+		state_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+		created_at              INTEGER NOT NULL,
+		shredded_at             INTEGER,
+		state_bytes             BLOB NOT NULL,
+		canonical_dim           INTEGER NOT NULL,
+		sketch_bits             INTEGER NOT NULL,
+		signature               BLOB NOT NULL,
+		state_bytes_encrypted   BLOB,
+		state_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 	)`
 
 	// createSubstrateRatchetCreatedIndex indexes ratchet states by creation time.
@@ -195,10 +197,18 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 
 	// createSubstrateCuckooFilterTable persists the cuckoo filter.
 	createSubstrateCuckooFilterTable = `CREATE TABLE IF NOT EXISTS substrate_cuckoo_filter (
-		filter_id      INTEGER PRIMARY KEY,
-		filter_bytes   BLOB NOT NULL,
-		last_persisted INTEGER NOT NULL
+		filter_id                INTEGER PRIMARY KEY,
+		filter_bytes             BLOB NOT NULL,
+		last_persisted           INTEGER NOT NULL,
+		filter_bytes_encrypted   BLOB,
+		filter_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 	)`
+
+	// CU.0.9: idempotent migration constants for substrate state encryption.
+	addRatchetStateEncryptedCol    = `ALTER TABLE substrate_ratchet_states ADD COLUMN state_bytes_encrypted BLOB`
+	addRatchetStateEncVersionCol   = `ALTER TABLE substrate_ratchet_states ADD COLUMN state_bytes_enc_version INTEGER NOT NULL DEFAULT 0`
+	addCuckooFilterEncryptedCol    = `ALTER TABLE substrate_cuckoo_filter ADD COLUMN filter_bytes_encrypted BLOB`
+	addCuckooFilterEncVersionCol   = `ALTER TABLE substrate_cuckoo_filter ADD COLUMN filter_bytes_enc_version INTEGER NOT NULL DEFAULT 0`
 
 	// ── CU.0.2: Memory Content Encryption columns ────────────────────────
 	// Encrypted blobs are nonce||ciphertext||tag (AES-256-GCM, per-row HKDF key).
@@ -403,6 +413,20 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 		_ = err // duplicate column — expected on existing databases
 	}
 	if _, err := d.db.Exec(addEncryptionVersionColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+
+	// Idempotent migration: add CU.0.9 substrate state encryption columns.
+	if _, err := d.db.Exec(addRatchetStateEncryptedCol); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addRatchetStateEncVersionCol); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addCuckooFilterEncryptedCol); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addCuckooFilterEncVersionCol); err != nil {
 		_ = err // duplicate column — expected on existing databases
 	}
 
