@@ -73,6 +73,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  approval     manage control-plane approval requests")
 		fmt.Fprintln(os.Stderr, "  task         manage control-plane tasks")
 		fmt.Fprintln(os.Stderr, "  action       query the control-plane action log")
+		fmt.Fprintln(os.Stderr, "  config       manage Nexus configuration (set-password)")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
 	}
@@ -157,6 +158,8 @@ func main() {
 		runTask(os.Args[2:])
 	case "action":
 		runAction(os.Args[2:])
+	case "config":
+		runConfig(os.Args[2:])
 	case "version", "--version":
 		fmt.Printf("bubblefish nexus v%s (pre-1.0, API subject to change)\n", version.Version)
 	default:
