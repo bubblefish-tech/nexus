@@ -28,6 +28,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/crypto"
 	"github.com/bubblefish-tech/nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/logging"
 	"github.com/bubblefish-tech/nexus/internal/tray"
 	"github.com/bubblefish-tech/nexus/internal/version"
 	"github.com/bubblefish-tech/nexus/internal/web"
@@ -223,5 +224,5 @@ func buildLogger(cfg *config.Config) *slog.Logger {
 	default:
 		handler = slog.NewTextHandler(os.Stderr, opts)
 	}
-	return slog.New(handler)
+	return slog.New(logging.NewSanitizingHandler(handler))
 }

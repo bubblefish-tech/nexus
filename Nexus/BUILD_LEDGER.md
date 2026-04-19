@@ -400,8 +400,24 @@
   - Vet: OK
   - 64 packages PASS — zero failures (simulate flaky timing failure unrelated, passes on retry)
 
+## CU.0.10: COMPLETE — Log Sanitization
+- New package: `internal/logging/`
+  - `sanitizer.go`: SanitizingHandler — slog.Handler wrapper with 3 redaction rules:
+    - `bfn_\S+` token patterns → `[REDACTED:token]` (message + all string attrs)
+    - Base64 strings ≥ 64 chars → `[REDACTED:base64]` (validated via base64.StdEncoding decode)
+    - Attribute key "content" / "memory_content" / "mem_content" → `[REDACTED:content]`
+  - Implements full slog.Handler interface: Enabled, Handle, WithAttrs, WithGroup
+  - WithAttrs sanitizes at construction time; WithGroup preserves sanitizing wrapper
+  - Recursion into slog.KindGroup nested attributes
+  - `sanitizer_test.go`: 12 tests (token in message, token in attr, base64 long redacted, base64 short pass-through, content key, memory_content key, non-sensitive pass-through, Enabled delegation, WithAttrs, WithGroup, grouped nested attr, multiple tokens)
+- Wired: `cmd/bubblefish/start.go` `buildLogger()` wraps the configured handler with `logging.NewSanitizingHandler`
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 65 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.9 complete. Next: CU.0.10 — Log Sanitization.
+## Current subtask: CU.0.10 complete. Next: CU.0.11 — Startup Verification.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
