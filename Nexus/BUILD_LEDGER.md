@@ -532,8 +532,38 @@
   - Vet: OK
   - 70 packages PASS — zero failures (2 new: internal/orchestrate, internal/immune)
 
+## DEF.1: COMPLETE — Immune System Tier-0 Rules
+- New package: `internal/immune/rules/`
+  - `rules.go`: `Result` struct + `ScanContent(content, metadata, embedding, embDim)` entry point
+  - 12 compiled heuristic rules (pure Go, no model dependency):
+    - T0-001: prompt injection regex → quarantine
+    - T0-002: role hijacking regex → quarantine
+    - T0-003: admin override keywords (ADMIN_OVERRIDE, SUDO_MODE, DEBUG_MODE, JAILBREAK) → quarantine
+    - T0-004: base64 segment >500 chars containing executable magic bytes (PE/ELF/Mach-O/shebang) → quarantine
+    - T0-005: same word repeated >50 times → reject
+    - T0-006: Cyrillic homoglyph substitution → normalize + flag (NormalizedContent populated)
+    - T0-007: SQL injection patterns → quarantine
+    - T0-008: embedding dimension mismatch vs configured EmbeddingDim → reject (skipped when EmbeddingDim=0)
+    - T0-009: content <5 chars but embedding present → flag
+    - T0-010: metadata claims Latin-script language but >30% non-ASCII chars → flag
+    - T0-011: null bytes in content → reject
+    - T0-012: content >100KB → reject
+- Rewritten: `internal/immune/scanner.go`
+  - `Config{EmbeddingDim int}`, `NewWithConfig(cfg)` added alongside existing `New()`
+  - `ScanWrite` → calls `rules.ScanContent` with configured `EmbeddingDim`
+  - `ScanOrchestrationResult` → calls `rules.ScanContent` with nil metadata/embedding (T0-008/T0-009 skipped)
+  - `ScanResult` gains `NormalizedContent string` field for T0-006
+- Rewritten: `internal/immune/scanner_test.go` — 28 tests
+  - 6 original stub tests retained (all still pass with real implementation)
+  - 22 new tests covering all 12 rules: hit cases, boundary cases, accept cases
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/immune` PASS (28 tests)
+  - Full suite: 66+ packages PASS; `internal/supervisor` 1 flaky timing failure (pre-existing, passes in isolation)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DISC.4 complete. Next: DEF.1 — Immune System Tier-0 Rules.
+## Current subtask: DEF.1 complete. Next: DEF.2.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
