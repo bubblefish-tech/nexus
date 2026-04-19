@@ -332,8 +332,25 @@
   - Vet: OK
   - 61 packages PASS — zero failures
 
+## CU.0.6: COMPLETE — Agent Registry Encryption
+- Encrypted columns: `agent_card_json_encrypted BLOB`, `transport_toml_encrypted BLOB`, `last_error_encrypted BLOB`, `encryption_version INTEGER NOT NULL DEFAULT 0` added to `a2a_agents` in SchemaSQL
+- Key domain: `"nexus-control-key-v1"` (reuses control sub-key from MasterKeyManager)
+- Per-row HKDF key: `DeriveRowKey(subKey, agentID, "registry-row")` with AAD = agentID
+- `Store.SetEncryption(mkm)` added; `NewStoreFromDB(*sql.DB)` constructor added for test isolation
+- `Register()`: encrypts agent_card_json + transport_toml + last_error when mkm enabled; plaintext placeholders `'{}'` / `''`
+- `UpdateLastSeen()`: encrypts last_error when mkm enabled; sets encryption_version=1
+- `scanAgentWith(r scanner, mkm)`: unified scan/decrypt helper replaces per-type `scanAgent`/`scanAgentRow`; nil-blob fallback to plaintext columns for backward compat
+- `selectAgentCols`: constant covering all 15 columns used in Get/GetByName/List
+- `MigrateEncryptionColumns`: extended to add a2a_agents encrypted columns for existing databases
+- Daemon wiring: `d.registryStore.SetEncryption(d.mkm)` added unconditionally after migration (logs when enabled)
+- New test file: `internal/a2a/registry/encryption_test.go` — 8 tests (RoundTrip, PlaintextColumnsEmpty, WrongKeyFails, BackwardCompat, UpdateLastSeen_Encrypted, DifferentAgentsDifferentCiphertext, DisabledMKMNoOp, List_Encrypted)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 62 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.5 complete. Next: CU.0.6 — Agent Registry Encryption.
+## Current subtask: CU.0.6 complete. Next: CU.0.7 — TLS Support.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

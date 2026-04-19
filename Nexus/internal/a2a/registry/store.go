@@ -26,9 +26,12 @@ import (
 
 	"github.com/bubblefish-tech/nexus/internal/a2a"
 	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 	"github.com/BurntSushi/toml"
 	_ "modernc.org/sqlite" // SQLite driver
 )
+
+const rowInfo = "registry-row"
 
 // SchemaSQL is the full DDL for the registry's SQLite schema, including the
 // a2a_agents table (registered agents) and the MT.1 control-plane tables
@@ -36,17 +39,21 @@ import (
 // use CREATE ... IF NOT EXISTS so re-running on an existing DB is a no-op.
 const SchemaSQL = `
 CREATE TABLE IF NOT EXISTS a2a_agents (
-	agent_id          TEXT PRIMARY KEY,
-	name              TEXT UNIQUE NOT NULL,
-	display_name      TEXT,
-	agent_card_json   BLOB NOT NULL,
-	pinned_public_key TEXT,
-	transport_toml    TEXT NOT NULL,
-	status            TEXT NOT NULL,
-	last_seen_at_ms   INTEGER,
-	last_error        TEXT,
-	created_at_ms     INTEGER NOT NULL,
-	updated_at_ms     INTEGER NOT NULL
+	agent_id                  TEXT PRIMARY KEY,
+	name                      TEXT UNIQUE NOT NULL,
+	display_name              TEXT,
+	agent_card_json           BLOB NOT NULL,
+	pinned_public_key         TEXT,
+	transport_toml            TEXT NOT NULL,
+	status                    TEXT NOT NULL,
+	last_seen_at_ms           INTEGER,
+	last_error                TEXT,
+	created_at_ms             INTEGER NOT NULL,
+	updated_at_ms             INTEGER NOT NULL,
+	agent_card_json_encrypted BLOB,
+	transport_toml_encrypted  BLOB,
+	last_error_encrypted      BLOB,
+	encryption_version        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS grants (
@@ -146,7 +153,8 @@ func InitSchema(db *sql.DB) error {
 
 // Store is a SQLite-backed agent registry.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	mkm *nexuscrypto.MasterKeyManager
 }
 
 // NewStore opens (or creates) a SQLite database at path and initializes the
@@ -191,6 +199,20 @@ func (s *Store) DB() *sql.DB {
 	return s.db
 }
 
+// NewStoreFromDB wraps an existing *sql.DB as a Store. The schema must already
+// be initialized. Used in tests to share a single DB connection between
+// multiple Store instances with different encryption keys.
+func NewStoreFromDB(db *sql.DB) *Store {
+	return &Store{db: db}
+}
+
+// SetEncryption wires a MasterKeyManager for per-row AES-256-GCM encryption of
+// agent_card_json, transport_toml, and last_error. Safe to call with a nil or
+// disabled mkm — writes and reads remain plaintext.
+func (s *Store) SetEncryption(mkm *nexuscrypto.MasterKeyManager) {
+	s.mkm = mkm
+}
+
 // Register inserts a new agent into the registry.
 func (s *Store) Register(ctx context.Context, agent RegisteredAgent) error {
 	if !ValidStatus(agent.Status) {
@@ -214,40 +236,82 @@ func (s *Store) Register(ctx context.Context, agent RegisteredAgent) error {
 		lastSeenMs = &v
 	}
 
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO a2a_agents (
-			agent_id, name, display_name, agent_card_json,
-			pinned_public_key, transport_toml, status,
-			last_seen_at_ms, last_error, created_at_ms, updated_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		agent.AgentID, agent.Name, agent.DisplayName, cardJSON,
-		agent.PinnedPublicKey, transportTOML, agent.Status,
-		lastSeenMs, agent.LastError, now, now,
-	)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, agent.AgentID, rowInfo)
+		if keyErr != nil {
+			return fmt.Errorf("registry: derive row key: %w", keyErr)
+		}
+		encCard, sealErr := nexuscrypto.SealAES256GCM(rowKey, cardJSON, []byte(agent.AgentID))
+		if sealErr != nil {
+			return fmt.Errorf("registry: encrypt agent_card_json: %w", sealErr)
+		}
+		encTransport, sealErr := nexuscrypto.SealAES256GCM(rowKey, []byte(transportTOML), []byte(agent.AgentID))
+		if sealErr != nil {
+			return fmt.Errorf("registry: encrypt transport_toml: %w", sealErr)
+		}
+		var encLastError []byte
+		if agent.LastError != "" {
+			encLastError, err = nexuscrypto.SealAES256GCM(rowKey, []byte(agent.LastError), []byte(agent.AgentID))
+			if err != nil {
+				return fmt.Errorf("registry: encrypt last_error: %w", err)
+			}
+		}
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO a2a_agents (
+				agent_id, name, display_name, agent_card_json,
+				pinned_public_key, transport_toml, status,
+				last_seen_at_ms, last_error, created_at_ms, updated_at_ms,
+				agent_card_json_encrypted, transport_toml_encrypted, last_error_encrypted, encryption_version
+			) VALUES (?, ?, ?, '{}', ?, '', ?, ?, '', ?, ?, ?, ?, ?, 1)`,
+			agent.AgentID, agent.Name, agent.DisplayName,
+			agent.PinnedPublicKey, agent.Status,
+			lastSeenMs, now, now,
+			encCard, encTransport, encLastError,
+		)
+	} else {
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO a2a_agents (
+				agent_id, name, display_name, agent_card_json,
+				pinned_public_key, transport_toml, status,
+				last_seen_at_ms, last_error, created_at_ms, updated_at_ms
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			agent.AgentID, agent.Name, agent.DisplayName, cardJSON,
+			agent.PinnedPublicKey, transportTOML, agent.Status,
+			lastSeenMs, agent.LastError, now, now,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("registry: insert agent: %w", err)
 	}
 	return nil
 }
 
+// selectAgentCols includes all columns needed for full RegisteredAgent
+// reconstruction, including CU.0.6 encrypted-column set.
+const selectAgentCols = `SELECT agent_id, name, display_name, agent_card_json,
+	pinned_public_key, transport_toml, status,
+	last_seen_at_ms, last_error, created_at_ms, updated_at_ms,
+	agent_card_json_encrypted, transport_toml_encrypted, last_error_encrypted, encryption_version`
+
 // Get retrieves an agent by ID.
 func (s *Store) Get(ctx context.Context, agentID string) (*RegisteredAgent, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT agent_id, name, display_name, agent_card_json,
-		       pinned_public_key, transport_toml, status,
-		       last_seen_at_ms, last_error, created_at_ms, updated_at_ms
-		FROM a2a_agents WHERE agent_id = ?`, agentID)
-	return scanAgent(row)
+	row := s.db.QueryRowContext(ctx, selectAgentCols+` FROM a2a_agents WHERE agent_id = ?`, agentID)
+	agent, err := scanAgentWith(row, s.mkm)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("registry: agent not found")
+	}
+	return agent, err
 }
 
 // GetByName retrieves an agent by unique name.
 func (s *Store) GetByName(ctx context.Context, name string) (*RegisteredAgent, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT agent_id, name, display_name, agent_card_json,
-		       pinned_public_key, transport_toml, status,
-		       last_seen_at_ms, last_error, created_at_ms, updated_at_ms
-		FROM a2a_agents WHERE name = ?`, name)
-	return scanAgent(row)
+	row := s.db.QueryRowContext(ctx, selectAgentCols+` FROM a2a_agents WHERE name = ?`, name)
+	agent, err := scanAgentWith(row, s.mkm)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("registry: agent not found")
+	}
+	return agent, err
 }
 
 // ListFilter specifies optional criteria for listing agents.
@@ -257,11 +321,7 @@ type ListFilter struct {
 
 // List returns all agents matching the optional filter.
 func (s *Store) List(ctx context.Context, filter ListFilter) ([]RegisteredAgent, error) {
-	query := `
-		SELECT agent_id, name, display_name, agent_card_json,
-		       pinned_public_key, transport_toml, status,
-		       last_seen_at_ms, last_error, created_at_ms, updated_at_ms
-		FROM a2a_agents`
+	query := selectAgentCols + ` FROM a2a_agents`
 	var args []interface{}
 
 	if filter.Status != "" {
@@ -278,7 +338,7 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]RegisteredAgent,
 
 	var agents []RegisteredAgent
 	for rows.Next() {
-		agent, err := scanAgentRow(rows)
+		agent, err := scanAgentWith(rows, s.mkm)
 		if err != nil {
 			return nil, err
 		}
@@ -310,10 +370,34 @@ func (s *Store) UpdateStatus(ctx context.Context, agentID, status string) error 
 func (s *Store) UpdateLastSeen(ctx context.Context, agentID string, seenAt time.Time, lastError string) error {
 	now := time.Now().UnixMilli()
 	seenMs := seenAt.UnixMilli()
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE a2a_agents
-		SET last_seen_at_ms = ?, last_error = ?, updated_at_ms = ?
-		WHERE agent_id = ?`, seenMs, lastError, now, agentID)
+	var (
+		res sql.Result
+		err error
+	)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, agentID, rowInfo)
+		if keyErr != nil {
+			return fmt.Errorf("registry: derive row key: %w", keyErr)
+		}
+		var encLastError []byte
+		if lastError != "" {
+			encLastError, err = nexuscrypto.SealAES256GCM(rowKey, []byte(lastError), []byte(agentID))
+			if err != nil {
+				return fmt.Errorf("registry: encrypt last_error: %w", err)
+			}
+		}
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE a2a_agents
+			SET last_seen_at_ms = ?, last_error = '', last_error_encrypted = ?,
+			    encryption_version = 1, updated_at_ms = ?
+			WHERE agent_id = ?`, seenMs, encLastError, now, agentID)
+	} else {
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE a2a_agents
+			SET last_seen_at_ms = ?, last_error = ?, updated_at_ms = ?
+			WHERE agent_id = ?`, seenMs, lastError, now, agentID)
+	}
 	if err != nil {
 		return fmt.Errorf("registry: update last seen: %w", err)
 	}
@@ -342,7 +426,10 @@ type scanner interface {
 	Scan(dest ...interface{}) error
 }
 
-func scanAgent(row *sql.Row) (*RegisteredAgent, error) {
+// scanAgentWith scans a row (from QueryRow or Rows.Next) and decrypts
+// agent_card_json, transport_toml, and last_error when encryption_version=1
+// and mkm is enabled.
+func scanAgentWith(r scanner, mkm *nexuscrypto.MasterKeyManager) (*RegisteredAgent, error) {
 	var (
 		agentID, name, displayName string
 		cardJSON, transportTOML    string
@@ -350,39 +437,50 @@ func scanAgent(row *sql.Row) (*RegisteredAgent, error) {
 		lastSeenMs                 *int64
 		lastError                  string
 		createdMs, updatedMs       int64
+		cardEncBlob                []byte
+		transportEncBlob           []byte
+		lastErrorEncBlob           []byte
+		encVersion                 int64
 	)
-	err := row.Scan(
+	err := r.Scan(
 		&agentID, &name, &displayName, &cardJSON,
 		&pinnedKey, &transportTOML, &status,
 		&lastSeenMs, &lastError, &createdMs, &updatedMs,
+		&cardEncBlob, &transportEncBlob, &lastErrorEncBlob, &encVersion,
 	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("registry: agent not found")
-	}
 	if err != nil {
-		return nil, fmt.Errorf("registry: scan agent: %w", err)
+		return nil, err
 	}
-	return buildAgent(agentID, name, displayName, cardJSON, pinnedKey,
-		transportTOML, status, lastSeenMs, lastError, createdMs, updatedMs)
-}
 
-func scanAgentRow(rows *sql.Rows) (*RegisteredAgent, error) {
-	var (
-		agentID, name, displayName string
-		cardJSON, transportTOML    string
-		pinnedKey, status          string
-		lastSeenMs                 *int64
-		lastError                  string
-		createdMs, updatedMs       int64
-	)
-	err := rows.Scan(
-		&agentID, &name, &displayName, &cardJSON,
-		&pinnedKey, &transportTOML, &status,
-		&lastSeenMs, &lastError, &createdMs, &updatedMs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("registry: scan agent: %w", err)
+	if encVersion == 1 && mkm != nil && mkm.IsEnabled() {
+		subKey := mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, agentID, rowInfo)
+		if keyErr != nil {
+			return nil, fmt.Errorf("registry: derive row key: %w", keyErr)
+		}
+		if len(cardEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, cardEncBlob, []byte(agentID))
+			if decErr != nil {
+				return nil, fmt.Errorf("registry: decrypt agent_card_json: %w", decErr)
+			}
+			cardJSON = string(plain)
+		}
+		if len(transportEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, transportEncBlob, []byte(agentID))
+			if decErr != nil {
+				return nil, fmt.Errorf("registry: decrypt transport_toml: %w", decErr)
+			}
+			transportTOML = string(plain)
+		}
+		if len(lastErrorEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, lastErrorEncBlob, []byte(agentID))
+			if decErr != nil {
+				return nil, fmt.Errorf("registry: decrypt last_error: %w", decErr)
+			}
+			lastError = string(plain)
+		}
 	}
+
 	return buildAgent(agentID, name, displayName, cardJSON, pinnedKey,
 		transportTOML, status, lastSeenMs, lastError, createdMs, updatedMs)
 }

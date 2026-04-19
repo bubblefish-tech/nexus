@@ -1013,10 +1013,18 @@ func (d *Daemon) Start() error {
 			)
 		} else {
 			d.registryStore = rs
-			// CU.0.4: add encrypted columns to existing DBs; no-op on new ones.
+			// CU.0.4/CU.0.6: add encrypted columns to existing DBs; no-op on new ones.
 			if migErr := registry.MigrateEncryptionColumns(rs.DB()); migErr != nil {
 				d.logger.Warn("daemon: control plane schema migration failed",
 					"component", "control", "error", migErr)
+			}
+			// CU.0.6: wire agent registry encryption (always, regardless of control plane).
+			if d.mkm != nil {
+				d.registryStore.SetEncryption(d.mkm)
+				if d.mkm.IsEnabled() {
+					d.logger.Info("daemon: agent registry encryption enabled",
+						"component", "registry")
+				}
 			}
 			if cfg.Control.Enabled {
 				db := rs.DB()
