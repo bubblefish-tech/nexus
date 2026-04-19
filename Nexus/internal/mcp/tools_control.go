@@ -409,12 +409,16 @@ func (s *Server) callNexusActionLog(w http.ResponseWriter, r *http.Request, req 
 			return
 		}
 	}
+	limit := a.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
 	d := s.controlPlane.EvaluatePolicy(r.Context(), agentID, "nexus_action_log", args)
 	if !d.Allowed {
 		s.writeToolError(w, r, req.ID, "policy denied: "+d.Reason)
 		return
 	}
-	entries, err := s.controlPlane.QueryActionLog(r.Context(), agentID, a.Limit)
+	entries, err := s.controlPlane.QueryActionLog(r.Context(), agentID, limit)
 	if err != nil {
 		s.writeToolError(w, r, req.ID, "action log query failed: "+err.Error())
 		return

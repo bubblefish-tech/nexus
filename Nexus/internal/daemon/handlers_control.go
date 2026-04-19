@@ -640,13 +640,17 @@ func decodeJSON(r *http.Request, v any) error {
 // defaultVal when the param is absent. A value of 0 means "no cap". Negative
 // or non-integer values are treated as the default.
 func parseListLimit(r *http.Request, defaultVal int) int {
+	const maxLimit = 1000
 	s := r.URL.Query().Get("limit")
 	if s == "" {
 		return defaultVal
 	}
 	v, err := strconv.Atoi(s)
-	if err != nil || v < 0 {
+	if err != nil || v <= 0 {
 		return defaultVal
+	}
+	if v > maxLimit {
+		return maxLimit
 	}
 	return v
 }

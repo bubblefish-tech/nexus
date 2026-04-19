@@ -43,9 +43,9 @@ func (d *Daemon) serveDashboardPage(w http.ResponseWriter, r *http.Request, html
 		return false
 	}
 	d.emitAdminAccess(r)
-	escaped := strings.ReplaceAll(token, `\`, `\\`)
-	escaped = strings.ReplaceAll(escaped, `'`, `\'`)
-	html = strings.Replace(html, "ADMIN_TOKEN: '',", "ADMIN_TOKEN: '"+escaped+"',", 1)
+	tokenJSON, _ := json.Marshal(token)
+	tokenStr := string(tokenJSON[1 : len(tokenJSON)-1])
+	html = strings.Replace(html, "ADMIN_TOKEN: '',", "ADMIN_TOKEN: '"+tokenStr+"',", 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)

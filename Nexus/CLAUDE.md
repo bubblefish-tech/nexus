@@ -37,9 +37,9 @@ github.com/BubbleFish-Nexus
 - Error format: {"error":"code","message":"text","retry_after_seconds":N}
 
 ## Version
-Public version is v0.1.0 (pre-1.0). Internal development version was 2.2.
-Use "0.1.0" in all code, docs, and CLI output.
-CLI --version output: "bubblefish nexus v0.1.0 (pre-1.0, API subject to change)"
+Public version is v0.1.3 (pre-1.0). Internal development version was 2.2.
+Use the current version from internal/version/version.go in all code, docs, and CLI output.
+CLI --version output: "bubblefish nexus v{version} (pre-1.0, API subject to change)"
 
 ## Testing
 - Every package gets _test.go files.

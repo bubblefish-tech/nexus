@@ -70,13 +70,13 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate client_id matches the code's stored client_id.
-	if ac.ClientID != clientID {
+	if subtle.ConstantTimeCompare([]byte(ac.ClientID), []byte(clientID)) != 1 {
 		writeTokenError(w, http.StatusUnauthorized, "invalid_client", "client_id mismatch")
 		return
 	}
 
 	// Validate redirect_uri matches exactly.
-	if ac.RedirectURI != redirectURI {
+	if subtle.ConstantTimeCompare([]byte(ac.RedirectURI), []byte(redirectURI)) != 1 {
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "redirect_uri mismatch")
 		return
 	}

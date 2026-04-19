@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
@@ -78,18 +79,15 @@ type httpClientConn struct {
 	authType  string
 	authToken string
 	client    *http.Client
-	closed    bool
-	mu        sync.Mutex
+	closeOnce sync.Once
+	closed    atomic.Bool
 }
 
 // Send posts a JSON-RPC request over HTTP.
 func (c *httpClientConn) Send(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Response, error) {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	if c.closed.Load() {
 		return nil, fmt.Errorf("transport: connection closed")
 	}
-	c.mu.Unlock()
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -123,12 +121,9 @@ func (c *httpClientConn) Send(ctx context.Context, req *jsonrpc.Request) (*jsonr
 
 // Stream opens an SSE stream for a JSON-RPC request.
 func (c *httpClientConn) Stream(ctx context.Context, req *jsonrpc.Request) (<-chan Event, error) {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	if c.closed.Load() {
 		return nil, fmt.Errorf("transport: connection closed")
 	}
-	c.mu.Unlock()
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -229,10 +224,10 @@ func (c *httpClientConn) setAuth(req *http.Request) {
 
 // Close marks the connection as closed.
 func (c *httpClientConn) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.closed = true
-	c.client.CloseIdleConnections()
+	c.closeOnce.Do(func() {
+		c.closed.Store(true)
+		c.client.CloseIdleConnections()
+	})
 	return nil
 }
 

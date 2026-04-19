@@ -24,6 +24,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -278,7 +279,7 @@ func doGrantList(cl *controlClient, args []string) error {
 	}
 	path := "/api/control/grants"
 	if agentID != "" {
-		path += "?agent_id=" + agentID
+		path += "?agent_id=" + url.QueryEscape(agentID)
 	}
 	resp, err := cl.get(path)
 	if err != nil {
@@ -401,7 +402,7 @@ func doApprovalList(cl *controlClient, args []string) error {
 	}
 	path := "/api/control/approvals"
 	if status != "" {
-		path += "?status=" + status
+		path += "?status=" + url.QueryEscape(status)
 	}
 	resp, err := cl.get(path)
 	if err != nil {
@@ -517,10 +518,10 @@ func doTaskList(cl *controlClient, args []string) error {
 	}
 	var params []string
 	if agentID != "" {
-		params = append(params, "agent_id="+agentID)
+		params = append(params, "agent_id="+url.QueryEscape(agentID))
 	}
 	if state != "" {
-		params = append(params, "state="+state)
+		params = append(params, "state="+url.QueryEscape(state))
 	}
 	path := "/api/control/tasks"
 	if len(params) > 0 {
@@ -638,10 +639,10 @@ func doActionLog(cl *controlClient, args []string) error {
 	}
 	var params []string
 	if agentID != "" {
-		params = append(params, "agent_id="+agentID)
+		params = append(params, "agent_id="+url.QueryEscape(agentID))
 	}
 	if capability != "" {
-		params = append(params, "capability="+capability)
+		params = append(params, "capability="+url.QueryEscape(capability))
 	}
 	if since != "" {
 		dur, err := time.ParseDuration(since)
