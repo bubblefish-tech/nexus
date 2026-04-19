@@ -50,70 +50,84 @@ CREATE TABLE IF NOT EXISTS a2a_agents (
 );
 
 CREATE TABLE IF NOT EXISTS grants (
-	grant_id       TEXT PRIMARY KEY,
-	agent_id       TEXT NOT NULL REFERENCES a2a_agents(agent_id),
-	capability     TEXT NOT NULL,
-	scope_json     TEXT NOT NULL DEFAULT '{}',
-	granted_by     TEXT NOT NULL,
-	granted_at_ms  INTEGER NOT NULL,
-	expires_at_ms  INTEGER,
-	revoked_at_ms  INTEGER,
-	revoke_reason  TEXT
+	grant_id                TEXT PRIMARY KEY,
+	agent_id                TEXT NOT NULL REFERENCES a2a_agents(agent_id),
+	capability              TEXT NOT NULL,
+	scope_json              TEXT NOT NULL DEFAULT '{}',
+	granted_by              TEXT NOT NULL,
+	granted_at_ms           INTEGER NOT NULL,
+	expires_at_ms           INTEGER,
+	revoked_at_ms           INTEGER,
+	revoke_reason           TEXT,
+	scope_json_encrypted    BLOB,
+	revoke_reason_encrypted BLOB,
+	encryption_version      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_grants_agent_cap ON grants(agent_id, capability);
 CREATE INDEX IF NOT EXISTS idx_grants_expires ON grants(expires_at_ms);
 
 CREATE TABLE IF NOT EXISTS approval_requests (
-	request_id       TEXT PRIMARY KEY,
-	agent_id         TEXT NOT NULL REFERENCES a2a_agents(agent_id),
-	capability       TEXT NOT NULL,
-	action_json      TEXT NOT NULL,
-	status           TEXT NOT NULL DEFAULT 'pending',
-	requested_at_ms  INTEGER NOT NULL,
-	decided_at_ms    INTEGER,
-	decided_by       TEXT,
-	decision         TEXT,
-	reason           TEXT
+	request_id            TEXT PRIMARY KEY,
+	agent_id              TEXT NOT NULL REFERENCES a2a_agents(agent_id),
+	capability            TEXT NOT NULL,
+	action_json           TEXT NOT NULL,
+	status                TEXT NOT NULL DEFAULT 'pending',
+	requested_at_ms       INTEGER NOT NULL,
+	decided_at_ms         INTEGER,
+	decided_by            TEXT,
+	decision              TEXT,
+	reason                TEXT,
+	action_json_encrypted BLOB,
+	reason_encrypted      BLOB,
+	encryption_version    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_requests(status);
 CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approval_requests(agent_id);
 
 CREATE TABLE IF NOT EXISTS tasks (
-	task_id          TEXT PRIMARY KEY,
-	agent_id         TEXT NOT NULL REFERENCES a2a_agents(agent_id),
-	parent_task_id   TEXT,
-	state            TEXT NOT NULL DEFAULT 'submitted',
-	capability       TEXT,
-	input_json       TEXT,
-	output_json      TEXT,
-	created_at_ms    INTEGER NOT NULL,
-	updated_at_ms    INTEGER NOT NULL,
-	completed_at_ms  INTEGER
+	task_id               TEXT PRIMARY KEY,
+	agent_id              TEXT NOT NULL REFERENCES a2a_agents(agent_id),
+	parent_task_id        TEXT,
+	state                 TEXT NOT NULL DEFAULT 'submitted',
+	capability            TEXT,
+	input_json            TEXT,
+	output_json           TEXT,
+	created_at_ms         INTEGER NOT NULL,
+	updated_at_ms         INTEGER NOT NULL,
+	completed_at_ms       INTEGER,
+	input_json_encrypted  BLOB,
+	output_json_encrypted BLOB,
+	encryption_version    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_agent_state ON tasks(agent_id, state);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
 
 CREATE TABLE IF NOT EXISTS task_events (
-	event_id       TEXT PRIMARY KEY,
-	task_id        TEXT NOT NULL REFERENCES tasks(task_id),
-	event_type     TEXT NOT NULL,
-	payload_json   TEXT,
-	created_at_ms  INTEGER NOT NULL
+	event_id               TEXT PRIMARY KEY,
+	task_id                TEXT NOT NULL REFERENCES tasks(task_id),
+	event_type             TEXT NOT NULL,
+	payload_json           TEXT,
+	created_at_ms          INTEGER NOT NULL,
+	payload_json_encrypted BLOB,
+	encryption_version     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at_ms);
 
 CREATE TABLE IF NOT EXISTS action_log (
-	action_id        TEXT PRIMARY KEY,
-	agent_id         TEXT NOT NULL,
-	capability       TEXT NOT NULL,
-	target           TEXT,
-	grant_id         TEXT,
-	approval_id      TEXT,
-	policy_decision  TEXT NOT NULL,
-	policy_reason    TEXT,
-	executed_at_ms   INTEGER NOT NULL,
-	result           TEXT,
-	audit_hash       TEXT
+	action_id               TEXT PRIMARY KEY,
+	agent_id                TEXT NOT NULL,
+	capability              TEXT NOT NULL,
+	target                  TEXT,
+	grant_id                TEXT,
+	approval_id             TEXT,
+	policy_decision         TEXT NOT NULL,
+	policy_reason           TEXT,
+	executed_at_ms          INTEGER NOT NULL,
+	result                  TEXT,
+	audit_hash              TEXT,
+	policy_reason_encrypted BLOB,
+	result_encrypted        BLOB,
+	encryption_version      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_actions_agent_time ON action_log(agent_id, executed_at_ms);
 CREATE INDEX IF NOT EXISTS idx_actions_capability ON action_log(capability);

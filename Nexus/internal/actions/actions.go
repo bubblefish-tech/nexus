@@ -33,7 +33,11 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 )
+
+const rowInfo = "actions-row"
 
 // IDPrefix is the identifier prefix for action log IDs.
 const IDPrefix = "act_"
@@ -71,12 +75,19 @@ type Action struct {
 // Store persists Actions against a shared *sql.DB. The schema must already be
 // initialized — typically by registry.InitSchema.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	mkm *nexuscrypto.MasterKeyManager
 }
 
 // NewStore wraps db.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// SetEncryption wires a MasterKeyManager for per-row AES-256-GCM encryption of
+// policy_reason and result. Safe to call with a nil or disabled mkm.
+func (s *Store) SetEncryption(mkm *nexuscrypto.MasterKeyManager) {
+	s.mkm = mkm
 }
 
 // NewID generates a fresh action_id with the "act_" prefix.
@@ -103,21 +114,59 @@ func (s *Store) Record(ctx context.Context, a Action) (Action, error) {
 		a.ExecutedAt = time.Now()
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO action_log (
-			action_id, agent_id, capability, target,
-			grant_id, approval_id,
-			policy_decision, policy_reason,
-			executed_at_ms, result, audit_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ActionID, a.AgentID, a.Capability, nullIfEmpty(a.Target),
-		nullIfEmpty(a.GrantID), nullIfEmpty(a.ApprovalID),
-		a.PolicyDecision, nullIfEmpty(a.PolicyReason),
-		a.ExecutedAt.UnixMilli(),
-		nullIfEmpty(a.Result), nullIfEmpty(a.AuditHash),
-	)
-	if err != nil {
-		return Action{}, fmt.Errorf("actions: insert: %w", err)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, err := nexuscrypto.DeriveRowKey(subKey, a.ActionID, rowInfo)
+		if err != nil {
+			return Action{}, fmt.Errorf("actions: derive row key: %w", err)
+		}
+		var encReason, encResult []byte
+		if a.PolicyReason != "" {
+			encReason, err = nexuscrypto.SealAES256GCM(rowKey, []byte(a.PolicyReason), []byte(a.ActionID))
+			if err != nil {
+				return Action{}, fmt.Errorf("actions: encrypt policy_reason: %w", err)
+			}
+		}
+		if a.Result != "" {
+			encResult, err = nexuscrypto.SealAES256GCM(rowKey, []byte(a.Result), []byte(a.ActionID))
+			if err != nil {
+				return Action{}, fmt.Errorf("actions: encrypt result: %w", err)
+			}
+		}
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO action_log (
+				action_id, agent_id, capability, target,
+				grant_id, approval_id,
+				policy_decision, policy_reason,
+				executed_at_ms, result, audit_hash,
+				policy_reason_encrypted, result_encrypted, encryption_version
+			) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, 1)`,
+			a.ActionID, a.AgentID, a.Capability, nullIfEmpty(a.Target),
+			nullIfEmpty(a.GrantID), nullIfEmpty(a.ApprovalID),
+			a.PolicyDecision,
+			a.ExecutedAt.UnixMilli(), nullIfEmpty(a.AuditHash),
+			encReason, encResult,
+		)
+		if err != nil {
+			return Action{}, fmt.Errorf("actions: insert: %w", err)
+		}
+	} else {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO action_log (
+				action_id, agent_id, capability, target,
+				grant_id, approval_id,
+				policy_decision, policy_reason,
+				executed_at_ms, result, audit_hash
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ActionID, a.AgentID, a.Capability, nullIfEmpty(a.Target),
+			nullIfEmpty(a.GrantID), nullIfEmpty(a.ApprovalID),
+			a.PolicyDecision, nullIfEmpty(a.PolicyReason),
+			a.ExecutedAt.UnixMilli(),
+			nullIfEmpty(a.Result), nullIfEmpty(a.AuditHash),
+		)
+		if err != nil {
+			return Action{}, fmt.Errorf("actions: insert: %w", err)
+		}
 	}
 	return a, nil
 }
@@ -125,7 +174,7 @@ func (s *Store) Record(ctx context.Context, a Action) (Action, error) {
 // Get retrieves an action by ID.
 func (s *Store) Get(ctx context.Context, actionID string) (*Action, error) {
 	row := s.db.QueryRowContext(ctx, selectCols+` FROM action_log WHERE action_id = ?`, actionID)
-	a, err := scanRow(row)
+	a, err := scanRow(row, s.mkm)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -180,7 +229,7 @@ func (s *Store) Query(ctx context.Context, filter QueryFilter) ([]Action, error)
 
 	var out []Action
 	for rows.Next() {
-		a, err := scanRow(rows)
+		a, err := scanRow(rows, s.mkm)
 		if err != nil {
 			return nil, err
 		}
@@ -189,29 +238,36 @@ func (s *Store) Query(ctx context.Context, filter QueryFilter) ([]Action, error)
 	return out, rows.Err()
 }
 
+// selectCols includes all columns needed for full Action reconstruction,
+// including CU.0.4 encrypted-column set.
 const selectCols = `SELECT action_id, agent_id, capability, target,
 	grant_id, approval_id, policy_decision, policy_reason,
-	executed_at_ms, result, audit_hash`
+	executed_at_ms, result, audit_hash,
+	policy_reason_encrypted, result_encrypted, encryption_version`
 
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRow(r rowScanner) (*Action, error) {
+func scanRow(r rowScanner, mkm *nexuscrypto.MasterKeyManager) (*Action, error) {
 	var (
-		a              Action
-		target         sql.NullString
-		grantID        sql.NullString
-		approvalID     sql.NullString
-		policyReason   sql.NullString
-		executedMs     int64
-		result         sql.NullString
-		auditHash      sql.NullString
+		a                   Action
+		target              sql.NullString
+		grantID             sql.NullString
+		approvalID          sql.NullString
+		policyReason        sql.NullString
+		executedMs          int64
+		result              sql.NullString
+		auditHash           sql.NullString
+		policyReasonEncBlob []byte
+		resultEncBlob       []byte
+		encVersion          int64
 	)
 	err := r.Scan(
 		&a.ActionID, &a.AgentID, &a.Capability, &target,
 		&grantID, &approvalID, &a.PolicyDecision, &policyReason,
 		&executedMs, &result, &auditHash,
+		&policyReasonEncBlob, &resultEncBlob, &encVersion,
 	)
 	if err != nil {
 		return nil, err
@@ -225,15 +281,42 @@ func scanRow(r rowScanner) (*Action, error) {
 	if approvalID.Valid {
 		a.ApprovalID = approvalID.String
 	}
-	if policyReason.Valid {
-		a.PolicyReason = policyReason.String
-	}
 	a.ExecutedAt = time.UnixMilli(executedMs)
-	if result.Valid {
-		a.Result = result.String
-	}
 	if auditHash.Valid {
 		a.AuditHash = auditHash.String
+	}
+
+	if encVersion == 1 && mkm != nil && mkm.IsEnabled() {
+		subKey := mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, a.ActionID, rowInfo)
+		if keyErr != nil {
+			return nil, fmt.Errorf("actions: derive row key: %w", keyErr)
+		}
+		if len(policyReasonEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, policyReasonEncBlob, []byte(a.ActionID))
+			if decErr != nil {
+				return nil, fmt.Errorf("actions: decrypt policy_reason: %w", decErr)
+			}
+			a.PolicyReason = string(plain)
+		} else if policyReason.Valid {
+			a.PolicyReason = policyReason.String
+		}
+		if len(resultEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, resultEncBlob, []byte(a.ActionID))
+			if decErr != nil {
+				return nil, fmt.Errorf("actions: decrypt result: %w", decErr)
+			}
+			a.Result = string(plain)
+		} else if result.Valid {
+			a.Result = result.String
+		}
+	} else {
+		if policyReason.Valid {
+			a.PolicyReason = policyReason.String
+		}
+		if result.Valid {
+			a.Result = result.String
+		}
 	}
 	return &a, nil
 }

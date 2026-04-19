@@ -33,7 +33,11 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 )
+
+const rowInfo = "approvals-row"
 
 // IDPrefix is the identifier prefix for approval request IDs.
 const IDPrefix = "apr_"
@@ -78,12 +82,19 @@ type Request struct {
 // Store persists Requests against a shared *sql.DB. The schema must already be
 // initialized — typically by registry.InitSchema.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	mkm *nexuscrypto.MasterKeyManager
 }
 
 // NewStore wraps db. It does not create tables.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// SetEncryption wires a MasterKeyManager for per-row AES-256-GCM encryption of
+// action_json and reason. Safe to call with a nil or disabled mkm.
+func (s *Store) SetEncryption(mkm *nexuscrypto.MasterKeyManager) {
+	s.mkm = mkm
 }
 
 // NewID generates a fresh request_id with the "apr_" prefix.
@@ -116,16 +127,41 @@ func (s *Store) Create(ctx context.Context, r Request) (Request, error) {
 		r.RequestedAt = time.Now()
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO approval_requests (
-			request_id, agent_id, capability, action_json,
-			status, requested_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?)`,
-		r.RequestID, r.AgentID, r.Capability, string(r.Action),
-		r.Status, r.RequestedAt.UnixMilli(),
-	)
-	if err != nil {
-		return Request{}, fmt.Errorf("approvals: insert: %w", err)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, err := nexuscrypto.DeriveRowKey(subKey, r.RequestID, rowInfo)
+		if err != nil {
+			return Request{}, fmt.Errorf("approvals: derive row key: %w", err)
+		}
+		encAction, err := nexuscrypto.SealAES256GCM(rowKey, r.Action, []byte(r.RequestID))
+		if err != nil {
+			return Request{}, fmt.Errorf("approvals: encrypt action_json: %w", err)
+		}
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO approval_requests (
+				request_id, agent_id, capability, action_json,
+				status, requested_at_ms,
+				action_json_encrypted, encryption_version
+			) VALUES (?, ?, ?, '', ?, ?, ?, 1)`,
+			r.RequestID, r.AgentID, r.Capability,
+			r.Status, r.RequestedAt.UnixMilli(),
+			encAction,
+		)
+		if err != nil {
+			return Request{}, fmt.Errorf("approvals: insert: %w", err)
+		}
+	} else {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO approval_requests (
+				request_id, agent_id, capability, action_json,
+				status, requested_at_ms
+			) VALUES (?, ?, ?, ?, ?, ?)`,
+			r.RequestID, r.AgentID, r.Capability, string(r.Action),
+			r.Status, r.RequestedAt.UnixMilli(),
+		)
+		if err != nil {
+			return Request{}, fmt.Errorf("approvals: insert: %w", err)
+		}
 	}
 	return r, nil
 }
@@ -133,7 +169,7 @@ func (s *Store) Create(ctx context.Context, r Request) (Request, error) {
 // Get retrieves a request by ID. Returns ErrNotFound if none exists.
 func (s *Store) Get(ctx context.Context, requestID string) (*Request, error) {
 	row := s.db.QueryRowContext(ctx, selectCols+` FROM approval_requests WHERE request_id = ?`, requestID)
-	r, err := scanRow(row)
+	r, err := scanRow(row, s.mkm)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -178,7 +214,7 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]Request, error) 
 
 	var out []Request
 	for rows.Next() {
-		r, err := scanRow(rows)
+		r, err := scanRow(rows, s.mkm)
 		if err != nil {
 			return nil, err
 		}
@@ -217,12 +253,38 @@ func (s *Store) Decide(ctx context.Context, requestID string, in DecideInput) er
 	}
 	nowMs := time.Now().UnixMilli()
 
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE approval_requests
-		SET status = ?, decided_at_ms = ?, decided_by = ?, decision = ?, reason = ?
-		WHERE request_id = ? AND status = ?`,
-		targetStatus, nowMs, in.DecidedBy, in.Decision, in.Reason,
-		requestID, StatusPending)
+	var (
+		res sql.Result
+		err error
+	)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, requestID, rowInfo)
+		if keyErr != nil {
+			return fmt.Errorf("approvals: derive row key: %w", keyErr)
+		}
+		var encReason []byte
+		if in.Reason != "" {
+			encReason, err = nexuscrypto.SealAES256GCM(rowKey, []byte(in.Reason), []byte(requestID))
+			if err != nil {
+				return fmt.Errorf("approvals: encrypt reason: %w", err)
+			}
+		}
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE approval_requests
+			SET status = ?, decided_at_ms = ?, decided_by = ?, decision = ?,
+			    reason = '', reason_encrypted = ?, encryption_version = 1
+			WHERE request_id = ? AND status = ?`,
+			targetStatus, nowMs, in.DecidedBy, in.Decision,
+			encReason, requestID, StatusPending)
+	} else {
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE approval_requests
+			SET status = ?, decided_at_ms = ?, decided_by = ?, decision = ?, reason = ?
+			WHERE request_id = ? AND status = ?`,
+			targetStatus, nowMs, in.DecidedBy, in.Decision, in.Reason,
+			requestID, StatusPending)
+	}
 	if err != nil {
 		return fmt.Errorf("approvals: decide: %w", err)
 	}
@@ -276,30 +338,66 @@ func (s *Store) Expire(ctx context.Context, requestID string) error {
 	return fmt.Errorf("approvals: expire: no rows updated")
 }
 
+// selectCols includes all columns needed for full Request reconstruction,
+// including CU.0.4 encrypted-column set.
 const selectCols = `SELECT request_id, agent_id, capability, action_json,
-	status, requested_at_ms, decided_at_ms, decided_by, decision, reason`
+	status, requested_at_ms, decided_at_ms, decided_by, decision, reason,
+	action_json_encrypted, reason_encrypted, encryption_version`
 
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRow(s rowScanner) (*Request, error) {
+func scanRow(s rowScanner, mkm *nexuscrypto.MasterKeyManager) (*Request, error) {
 	var (
-		r            Request
-		actionStr    string
-		requestedMs  int64
-		decidedMs    sql.NullInt64
-		decidedBy    sql.NullString
-		decision     sql.NullString
-		reason       sql.NullString
+		r               Request
+		actionStr       string
+		requestedMs     int64
+		decidedMs       sql.NullInt64
+		decidedBy       sql.NullString
+		decision        sql.NullString
+		reason          sql.NullString
+		actionEncBlob   []byte
+		reasonEncBlob   []byte
+		encVersion      int64
 	)
 	err := s.Scan(
 		&r.RequestID, &r.AgentID, &r.Capability, &actionStr,
 		&r.Status, &requestedMs, &decidedMs, &decidedBy, &decision, &reason,
+		&actionEncBlob, &reasonEncBlob, &encVersion,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	if encVersion == 1 && mkm != nil && mkm.IsEnabled() {
+		subKey := mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, r.RequestID, rowInfo)
+		if keyErr != nil {
+			return nil, fmt.Errorf("approvals: derive row key: %w", keyErr)
+		}
+		if len(actionEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, actionEncBlob, []byte(r.RequestID))
+			if decErr != nil {
+				return nil, fmt.Errorf("approvals: decrypt action_json: %w", decErr)
+			}
+			actionStr = string(plain)
+		}
+		if len(reasonEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, reasonEncBlob, []byte(r.RequestID))
+			if decErr != nil {
+				return nil, fmt.Errorf("approvals: decrypt reason: %w", decErr)
+			}
+			r.Reason = string(plain)
+		} else if reason.Valid {
+			r.Reason = reason.String
+		}
+	} else {
+		if reason.Valid {
+			r.Reason = reason.String
+		}
+	}
+
 	r.Action = json.RawMessage(actionStr)
 	r.RequestedAt = time.UnixMilli(requestedMs)
 	if decidedMs.Valid {
@@ -311,9 +409,6 @@ func scanRow(s rowScanner) (*Request, error) {
 	}
 	if decision.Valid {
 		r.Decision = decision.String
-	}
-	if reason.Valid {
-		r.Reason = reason.String
 	}
 	return &r, nil
 }

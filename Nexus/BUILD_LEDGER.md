@@ -290,8 +290,29 @@
   - Vet: OK
   - 61 packages PASS — zero failures
 
+## CU.0.4: COMPLETE — Control Plane Table Encryption
+- Key domain: `"nexus-control-key-v1"` (from MasterKeyManager)
+- Per-row HKDF key: `DeriveRowKey(subKey, rowID, tableInfo)` in new `internal/crypto/aead.go` (also exports SealAES256GCM, OpenAES256GCM)
+- Tables encrypted (sensitive columns only):
+  - `grants`: scope_json → scope_json_encrypted, revoke_reason → revoke_reason_encrypted
+  - `approval_requests`: action_json → action_json_encrypted, reason → reason_encrypted
+  - `tasks`: input_json → input_json_encrypted, output_json → output_json_encrypted
+  - `task_events`: payload_json → payload_json_encrypted
+  - `action_log`: policy_reason → policy_reason_encrypted, result → result_encrypted
+- Schema: encrypted columns added to `registry.SchemaSQL` (new installs); `registry.MigrateEncryptionColumns` for existing DBs
+- Each Store gets `SetEncryption(mkm *MasterKeyManager)` — no-op when nil/disabled
+- Backward compat: `encryption_version=0` rows served from plaintext columns; v1 rows decrypted transparently; mixed state (partial migration) handled via per-blob nil check
+- Daemon wiring: `d.mkm` stored on Daemon struct; `MigrateEncryptionColumns` called at registry open; `SetEncryption` called on all 4 stores
+- New files: `internal/crypto/aead.go`, `internal/a2a/registry/encrypt_migration.go`
+- New test files: `internal/grants/encryption_test.go` (10 tests), `internal/approvals/encryption_test.go` (7 tests), `internal/tasks/encryption_test.go` (8 tests), `internal/actions/encryption_test.go` (7 tests)
+- Commit: (pending)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 61 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.3 complete. Next: CU.0.4 — Control Plane Table Encryption.
+## Current subtask: CU.0.4 complete. Next: CU.0.5 — Audit Event Payload Encryption.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

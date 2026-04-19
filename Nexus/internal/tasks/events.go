@@ -23,20 +23,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 )
+
+const evtRowInfo = "task-events-row"
 
 // EventIDPrefix is the identifier prefix for task event IDs.
 const EventIDPrefix = "evt_"
 
 // Common event types emitted over a task's lifetime.
 const (
-	EventTypeCreated    = "task.created"
-	EventTypeStarted    = "task.started"
-	EventTypeProgress   = "task.progress"
-	EventTypeCompleted  = "task.completed"
-	EventTypeFailed     = "task.failed"
-	EventTypeCanceled   = "task.canceled"
-	EventTypeComment    = "task.comment"
+	EventTypeCreated   = "task.created"
+	EventTypeStarted   = "task.started"
+	EventTypeProgress  = "task.progress"
+	EventTypeCompleted = "task.completed"
+	EventTypeFailed    = "task.failed"
+	EventTypeCanceled  = "task.canceled"
+	EventTypeComment   = "task.comment"
 )
 
 // TaskEvent is one entry in a task's append-only event log.
@@ -74,19 +78,41 @@ func (s *Store) AppendEvent(ctx context.Context, e TaskEvent) (TaskEvent, error)
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now()
 	}
-	var payloadStr *string
-	if len(e.Payload) > 0 {
-		v := string(e.Payload)
-		payloadStr = &v
-	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO task_events (event_id, task_id, event_type, payload_json, created_at_ms)
-		VALUES (?, ?, ?, ?, ?)`,
-		e.EventID, e.TaskID, e.EventType, payloadStr, e.CreatedAt.UnixMilli(),
-	)
-	if err != nil {
-		return TaskEvent{}, fmt.Errorf("tasks: append event: %w", err)
+	if s.mkm != nil && s.mkm.IsEnabled() && len(e.Payload) > 0 {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, err := nexuscrypto.DeriveRowKey(subKey, e.EventID, evtRowInfo)
+		if err != nil {
+			return TaskEvent{}, fmt.Errorf("tasks: derive event row key: %w", err)
+		}
+		encPayload, err := nexuscrypto.SealAES256GCM(rowKey, e.Payload, []byte(e.EventID))
+		if err != nil {
+			return TaskEvent{}, fmt.Errorf("tasks: encrypt event payload: %w", err)
+		}
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO task_events (event_id, task_id, event_type, payload_json, created_at_ms,
+			                        payload_json_encrypted, encryption_version)
+			VALUES (?, ?, ?, NULL, ?, ?, 1)`,
+			e.EventID, e.TaskID, e.EventType, e.CreatedAt.UnixMilli(),
+			encPayload,
+		)
+		if err != nil {
+			return TaskEvent{}, fmt.Errorf("tasks: append event: %w", err)
+		}
+	} else {
+		var payloadStr *string
+		if len(e.Payload) > 0 {
+			v := string(e.Payload)
+			payloadStr = &v
+		}
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO task_events (event_id, task_id, event_type, payload_json, created_at_ms)
+			VALUES (?, ?, ?, ?, ?)`,
+			e.EventID, e.TaskID, e.EventType, payloadStr, e.CreatedAt.UnixMilli(),
+		)
+		if err != nil {
+			return TaskEvent{}, fmt.Errorf("tasks: append event: %w", err)
+		}
 	}
 	return e, nil
 }
@@ -98,7 +124,8 @@ func (s *Store) ListEvents(ctx context.Context, taskID string) ([]TaskEvent, err
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT event_id, task_id, event_type, payload_json, created_at_ms
+		SELECT event_id, task_id, event_type, payload_json, created_at_ms,
+		       payload_json_encrypted, encryption_version
 		FROM task_events
 		WHERE task_id = ?
 		ORDER BY created_at_ms ASC, event_id ASC`, taskID)
@@ -107,17 +134,39 @@ func (s *Store) ListEvents(ctx context.Context, taskID string) ([]TaskEvent, err
 	}
 	defer rows.Close()
 
-	var out []TaskEvent
+	var (
+		out    []TaskEvent
+		subKey [32]byte
+		subKeyLoaded bool
+	)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey = s.mkm.SubKey("nexus-control-key-v1")
+		subKeyLoaded = true
+	}
+
 	for rows.Next() {
 		var (
-			e         TaskEvent
-			payload   sql.NullString
-			createdMs int64
+			e              TaskEvent
+			payload        sql.NullString
+			createdMs      int64
+			payloadEncBlob []byte
+			encVersion     int64
 		)
-		if err := rows.Scan(&e.EventID, &e.TaskID, &e.EventType, &payload, &createdMs); err != nil {
+		if err := rows.Scan(&e.EventID, &e.TaskID, &e.EventType, &payload, &createdMs,
+			&payloadEncBlob, &encVersion); err != nil {
 			return nil, fmt.Errorf("tasks: scan event: %w", err)
 		}
-		if payload.Valid {
+		if encVersion == 1 && subKeyLoaded && len(payloadEncBlob) > 0 {
+			rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, e.EventID, evtRowInfo)
+			if keyErr != nil {
+				return nil, fmt.Errorf("tasks: derive event row key: %w", keyErr)
+			}
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, payloadEncBlob, []byte(e.EventID))
+			if decErr != nil {
+				return nil, fmt.Errorf("tasks: decrypt event payload: %w", decErr)
+			}
+			e.Payload = json.RawMessage(plain)
+		} else if payload.Valid {
 			e.Payload = json.RawMessage(payload.String)
 		}
 		e.CreatedAt = time.UnixMilli(createdMs)

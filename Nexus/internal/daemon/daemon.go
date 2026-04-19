@@ -197,6 +197,11 @@ type Daemon struct {
 	// Nil when cfg.Control.Enabled is false or registry failed to open.
 	policyEngine *policy.Engine
 
+	// mkm is the master key manager derived from NEXUS_PASSWORD at startup.
+	// Shared by memory encryption (CU.0.2) and control-plane encryption (CU.0.4).
+	// Nil when home directory is unavailable or key derivation fails.
+	mkm *nexuscrypto.MasterKeyManager
+
 	// exactStats and semanticStats hold cache counter references for the
 	// /api/status and /api/cache admin endpoints.
 	exactStats    *cache.Stats
@@ -525,6 +530,7 @@ func (d *Daemon) Start() error {
 			d.logger.Warn("daemon: master key derivation failed; memory encryption disabled",
 				"component", "daemon", "error", mkmErr)
 		} else {
+			d.mkm = mkm // shared with control-plane encryption (CU.0.4)
 			sqliteDest.SetEncryption(mkm)
 			if mkm.IsEnabled() {
 				d.logger.Info("daemon: memory content encryption enabled",
@@ -1006,15 +1012,33 @@ func (d *Daemon) Start() error {
 			)
 		} else {
 			d.registryStore = rs
+			// CU.0.4: add encrypted columns to existing DBs; no-op on new ones.
+			if migErr := registry.MigrateEncryptionColumns(rs.DB()); migErr != nil {
+				d.logger.Warn("daemon: control plane schema migration failed",
+					"component", "control", "error", migErr)
+			}
 			if cfg.Control.Enabled {
 				db := rs.DB()
 				d.grantStore = grants.NewStore(db)
 				d.approvalStore = approvals.NewStore(db)
 				d.taskStore = tasks.NewStore(db)
 				d.actionStore = actions.NewStore(db)
+				if d.mkm != nil {
+					d.grantStore.SetEncryption(d.mkm)
+					d.approvalStore.SetEncryption(d.mkm)
+					d.taskStore.SetEncryption(d.mkm)
+					d.actionStore.SetEncryption(d.mkm)
+				}
 				d.policyEngine = policy.NewEngine(rs, d.grantStore, d.approvalStore, d.actionStore,
 				policy.EngineConfig{RequireApproval: cfg.Control.Capabilities.RequireApproval},
 				d.logger)
+				if d.mkm != nil && d.mkm.IsEnabled() {
+					d.logger.Info("daemon: control plane table encryption enabled",
+						"component", "control")
+				} else {
+					d.logger.Warn("daemon: control plane table encryption DISABLED — set NEXUS_PASSWORD to enable",
+						"component", "control")
+				}
 				d.logger.Info("daemon: control plane initialized",
 					"component", "control",
 					"path", regPath,

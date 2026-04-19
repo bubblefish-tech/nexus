@@ -33,7 +33,11 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 )
+
+const rowInfo = "grants-row"
 
 // IDPrefix is the identifier prefix for grant IDs.
 const IDPrefix = "gnt_"
@@ -72,13 +76,21 @@ func (g *Grant) IsActive(now time.Time) bool {
 // Store persists Grants against a shared *sql.DB. The schema must already be
 // initialized — typically by registry.InitSchema.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	mkm *nexuscrypto.MasterKeyManager
 }
 
 // NewStore wraps db. It does not create tables; callers must run
 // registry.InitSchema beforehand.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// SetEncryption wires a MasterKeyManager for per-row AES-256-GCM encryption of
+// scope_json and revoke_reason. Safe to call with a nil or disabled mkm —
+// writes and reads remain plaintext.
+func (s *Store) SetEncryption(mkm *nexuscrypto.MasterKeyManager) {
+	s.mkm = mkm
 }
 
 // NewID generates a fresh grant_id with the "gnt_" prefix and a 26-char ULID
@@ -117,16 +129,41 @@ func (s *Store) Create(ctx context.Context, g Grant) (Grant, error) {
 		expiresMs = &v
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO grants (
-			grant_id, agent_id, capability, scope_json,
-			granted_by, granted_at_ms, expires_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		g.GrantID, g.AgentID, g.Capability, string(scope),
-		g.GrantedBy, g.GrantedAt.UnixMilli(), expiresMs,
-	)
-	if err != nil {
-		return Grant{}, fmt.Errorf("grants: insert: %w", err)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, err := nexuscrypto.DeriveRowKey(subKey, g.GrantID, rowInfo)
+		if err != nil {
+			return Grant{}, fmt.Errorf("grants: derive row key: %w", err)
+		}
+		encScope, err := nexuscrypto.SealAES256GCM(rowKey, scope, []byte(g.GrantID))
+		if err != nil {
+			return Grant{}, fmt.Errorf("grants: encrypt scope_json: %w", err)
+		}
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO grants (
+				grant_id, agent_id, capability, scope_json,
+				granted_by, granted_at_ms, expires_at_ms,
+				scope_json_encrypted, encryption_version
+			) VALUES (?, ?, ?, '{}', ?, ?, ?, ?, 1)`,
+			g.GrantID, g.AgentID, g.Capability,
+			g.GrantedBy, g.GrantedAt.UnixMilli(), expiresMs,
+			encScope,
+		)
+		if err != nil {
+			return Grant{}, fmt.Errorf("grants: insert: %w", err)
+		}
+	} else {
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO grants (
+				grant_id, agent_id, capability, scope_json,
+				granted_by, granted_at_ms, expires_at_ms
+			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			g.GrantID, g.AgentID, g.Capability, string(scope),
+			g.GrantedBy, g.GrantedAt.UnixMilli(), expiresMs,
+		)
+		if err != nil {
+			return Grant{}, fmt.Errorf("grants: insert: %w", err)
+		}
 	}
 	g.Scope = scope
 	return g, nil
@@ -135,7 +172,7 @@ func (s *Store) Create(ctx context.Context, g Grant) (Grant, error) {
 // Get retrieves a grant by ID. Returns ErrNotFound if no row matches.
 func (s *Store) Get(ctx context.Context, grantID string) (*Grant, error) {
 	row := s.db.QueryRowContext(ctx, selectCols+` FROM grants WHERE grant_id = ?`, grantID)
-	g, err := scanRow(row)
+	g, err := scanRow(row, s.mkm)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -181,7 +218,7 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]Grant, error) {
 
 	var out []Grant
 	for rows.Next() {
-		g, err := scanRow(rows)
+		g, err := scanRow(rows, s.mkm)
 		if err != nil {
 			return nil, err
 		}
@@ -195,12 +232,39 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]Grant, error) {
 // Returns ErrNotFound if no row exists.
 func (s *Store) Revoke(ctx context.Context, grantID, reason string) error {
 	now := time.Now().UnixMilli()
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE grants
-		SET revoked_at_ms = COALESCE(revoked_at_ms, ?),
-		    revoke_reason = COALESCE(NULLIF(revoke_reason, ''), ?)
-		WHERE grant_id = ?`,
-		now, reason, grantID)
+	var (
+		res sql.Result
+		err error
+	)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, grantID, rowInfo)
+		if keyErr != nil {
+			return fmt.Errorf("grants: derive row key: %w", keyErr)
+		}
+		var encReason []byte
+		if reason != "" {
+			encReason, err = nexuscrypto.SealAES256GCM(rowKey, []byte(reason), []byte(grantID))
+			if err != nil {
+				return fmt.Errorf("grants: encrypt revoke_reason: %w", err)
+			}
+		}
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE grants
+			SET revoked_at_ms           = COALESCE(revoked_at_ms, ?),
+			    revoke_reason_encrypted = COALESCE(revoke_reason_encrypted, ?),
+			    revoke_reason           = '',
+			    encryption_version      = 1
+			WHERE grant_id = ?`,
+			now, encReason, grantID)
+	} else {
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE grants
+			SET revoked_at_ms = COALESCE(revoked_at_ms, ?),
+			    revoke_reason = COALESCE(NULLIF(revoke_reason, ''), ?)
+			WHERE grant_id = ?`,
+			now, reason, grantID)
+	}
 	if err != nil {
 		return fmt.Errorf("grants: revoke: %w", err)
 	}
@@ -222,36 +286,72 @@ func (s *Store) CheckGrant(ctx context.Context, agentID, capability string) (*Gr
 		  AND (expires_at_ms IS NULL OR expires_at_ms > ?)
 		ORDER BY granted_at_ms DESC
 		LIMIT 1`, agentID, capability, nowMs)
-	g, err := scanRow(row)
+	g, err := scanRow(row, s.mkm)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	return g, err
 }
 
+// selectCols includes all columns needed for full Grant reconstruction,
+// including CU.0.4 encrypted-column set.
 const selectCols = `SELECT grant_id, agent_id, capability, scope_json,
-	granted_by, granted_at_ms, expires_at_ms, revoked_at_ms, revoke_reason`
+	granted_by, granted_at_ms, expires_at_ms, revoked_at_ms, revoke_reason,
+	scope_json_encrypted, revoke_reason_encrypted, encryption_version`
 
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRow(r rowScanner) (*Grant, error) {
+func scanRow(r rowScanner, mkm *nexuscrypto.MasterKeyManager) (*Grant, error) {
 	var (
-		g              Grant
-		scopeStr       string
-		grantedAtMs    int64
-		expiresMs      sql.NullInt64
-		revokedMs      sql.NullInt64
-		revokeReason   sql.NullString
+		g                   Grant
+		scopeStr            string
+		grantedAtMs         int64
+		expiresMs           sql.NullInt64
+		revokedMs           sql.NullInt64
+		revokeReason        sql.NullString
+		scopeEncBlob        []byte
+		revokeReasonEncBlob []byte
+		encVersion          int64
 	)
 	err := r.Scan(
 		&g.GrantID, &g.AgentID, &g.Capability, &scopeStr,
 		&g.GrantedBy, &grantedAtMs, &expiresMs, &revokedMs, &revokeReason,
+		&scopeEncBlob, &revokeReasonEncBlob, &encVersion,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	if encVersion == 1 && mkm != nil && mkm.IsEnabled() {
+		subKey := mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, g.GrantID, rowInfo)
+		if keyErr != nil {
+			return nil, fmt.Errorf("grants: derive row key: %w", keyErr)
+		}
+		if len(scopeEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, scopeEncBlob, []byte(g.GrantID))
+			if decErr != nil {
+				return nil, fmt.Errorf("grants: decrypt scope_json: %w", decErr)
+			}
+			scopeStr = string(plain)
+		}
+		if len(revokeReasonEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, revokeReasonEncBlob, []byte(g.GrantID))
+			if decErr != nil {
+				return nil, fmt.Errorf("grants: decrypt revoke_reason: %w", decErr)
+			}
+			g.RevokeReason = string(plain)
+		} else if revokeReason.Valid {
+			g.RevokeReason = revokeReason.String
+		}
+	} else {
+		if revokeReason.Valid {
+			g.RevokeReason = revokeReason.String
+		}
+	}
+
 	g.Scope = json.RawMessage(scopeStr)
 	g.GrantedAt = time.UnixMilli(grantedAtMs)
 	if expiresMs.Valid {
@@ -261,9 +361,6 @@ func scanRow(r rowScanner) (*Grant, error) {
 	if revokedMs.Valid {
 		t := time.UnixMilli(revokedMs.Int64)
 		g.RevokedAt = &t
-	}
-	if revokeReason.Valid {
-		g.RevokeReason = revokeReason.String
 	}
 	return &g, nil
 }

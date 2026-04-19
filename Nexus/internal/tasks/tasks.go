@@ -34,7 +34,11 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 )
+
+const rowInfo = "tasks-row"
 
 // IDPrefix is the identifier prefix for task IDs. The existing A2A protocol
 // uses the same "tsk_" prefix for its a2a_tasks table (see internal/a2a/ids.go);
@@ -54,9 +58,9 @@ const (
 
 // Errors returned by Store.
 var (
-	ErrNotFound       = errors.New("tasks: task not found")
-	ErrInvalidState   = errors.New("tasks: invalid state")
-	ErrTerminalState  = errors.New("tasks: task already in terminal state")
+	ErrNotFound      = errors.New("tasks: task not found")
+	ErrInvalidState  = errors.New("tasks: invalid state")
+	ErrTerminalState = errors.New("tasks: task already in terminal state")
 )
 
 // Task is a durable governed-task record. Input and Output are opaque JSON
@@ -96,12 +100,19 @@ func IsValidState(state string) bool {
 // Store persists Tasks and TaskEvents against a shared *sql.DB. The schema
 // must already be initialized — typically by registry.InitSchema.
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	mkm *nexuscrypto.MasterKeyManager
 }
 
 // NewStore wraps db.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// SetEncryption wires a MasterKeyManager for per-row AES-256-GCM encryption of
+// input_json and output_json. Safe to call with a nil or disabled mkm.
+func (s *Store) SetEncryption(mkm *nexuscrypto.MasterKeyManager) {
+	s.mkm = mkm
 }
 
 // NewID generates a fresh task_id with the "tsk_" prefix.
@@ -138,15 +149,6 @@ func (s *Store) Create(ctx context.Context, t Task) (Task, error) {
 		t.UpdatedAt = now
 	}
 
-	var inputStr, outputStr *string
-	if len(t.Input) > 0 {
-		v := string(t.Input)
-		inputStr = &v
-	}
-	if len(t.Output) > 0 {
-		v := string(t.Output)
-		outputStr = &v
-	}
 	var parent *string
 	if t.ParentTaskID != "" {
 		v := t.ParentTaskID
@@ -163,18 +165,62 @@ func (s *Store) Create(ctx context.Context, t Task) (Task, error) {
 		capability = &v
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO tasks (
-			task_id, agent_id, parent_task_id, state, capability,
-			input_json, output_json,
-			created_at_ms, updated_at_ms, completed_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.TaskID, t.AgentID, parent, t.State, capability,
-		inputStr, outputStr,
-		t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), completed,
-	)
-	if err != nil {
-		return Task{}, fmt.Errorf("tasks: insert: %w", err)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, err := nexuscrypto.DeriveRowKey(subKey, t.TaskID, rowInfo)
+		if err != nil {
+			return Task{}, fmt.Errorf("tasks: derive row key: %w", err)
+		}
+		var encInput, encOutput []byte
+		if len(t.Input) > 0 {
+			encInput, err = nexuscrypto.SealAES256GCM(rowKey, t.Input, []byte(t.TaskID))
+			if err != nil {
+				return Task{}, fmt.Errorf("tasks: encrypt input_json: %w", err)
+			}
+		}
+		if len(t.Output) > 0 {
+			encOutput, err = nexuscrypto.SealAES256GCM(rowKey, t.Output, []byte(t.TaskID))
+			if err != nil {
+				return Task{}, fmt.Errorf("tasks: encrypt output_json: %w", err)
+			}
+		}
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO tasks (
+				task_id, agent_id, parent_task_id, state, capability,
+				input_json, output_json,
+				created_at_ms, updated_at_ms, completed_at_ms,
+				input_json_encrypted, output_json_encrypted, encryption_version
+			) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 1)`,
+			t.TaskID, t.AgentID, parent, t.State, capability,
+			t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), completed,
+			encInput, encOutput,
+		)
+		if err != nil {
+			return Task{}, fmt.Errorf("tasks: insert: %w", err)
+		}
+	} else {
+		var inputStr, outputStr *string
+		if len(t.Input) > 0 {
+			v := string(t.Input)
+			inputStr = &v
+		}
+		if len(t.Output) > 0 {
+			v := string(t.Output)
+			outputStr = &v
+		}
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO tasks (
+				task_id, agent_id, parent_task_id, state, capability,
+				input_json, output_json,
+				created_at_ms, updated_at_ms, completed_at_ms
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			t.TaskID, t.AgentID, parent, t.State, capability,
+			inputStr, outputStr,
+			t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), completed,
+		)
+		if err != nil {
+			return Task{}, fmt.Errorf("tasks: insert: %w", err)
+		}
 	}
 	return t, nil
 }
@@ -182,7 +228,7 @@ func (s *Store) Create(ctx context.Context, t Task) (Task, error) {
 // Get retrieves a task by ID.
 func (s *Store) Get(ctx context.Context, taskID string) (*Task, error) {
 	row := s.db.QueryRowContext(ctx, selectCols+` FROM tasks WHERE task_id = ?`, taskID)
-	t, err := scanRow(row)
+	t, err := scanRow(row, s.mkm)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -230,7 +276,7 @@ func (s *Store) List(ctx context.Context, filter ListFilter) ([]Task, error) {
 
 	var out []Task
 	for rows.Next() {
-		t, err := scanRow(rows)
+		t, err := scanRow(rows, s.mkm)
 		if err != nil {
 			return nil, err
 		}
@@ -272,47 +318,82 @@ func (s *Store) Update(ctx context.Context, taskID string, in UpdateInput) (*Tas
 		completed = &v
 	}
 
-	var outputStr sql.NullString
+	// Resolve the final output value (decrypted, as returned by Get).
+	var finalOutput json.RawMessage
 	if len(in.Output) > 0 {
-		outputStr = sql.NullString{String: string(in.Output), Valid: true}
-	} else if len(current.Output) > 0 {
-		outputStr = sql.NullString{String: string(current.Output), Valid: true}
+		finalOutput = in.Output
+	} else {
+		finalOutput = current.Output
 	}
 
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE tasks
-		SET state = ?, output_json = ?, updated_at_ms = ?,
-		    completed_at_ms = COALESCE(?, completed_at_ms)
-		WHERE task_id = ?`,
-		in.State, outputStr, now.UnixMilli(), completed, taskID)
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, taskID, rowInfo)
+		if keyErr != nil {
+			return nil, fmt.Errorf("tasks: derive row key: %w", keyErr)
+		}
+		var encOutput []byte
+		if len(finalOutput) > 0 {
+			encOutput, err = nexuscrypto.SealAES256GCM(rowKey, finalOutput, []byte(taskID))
+			if err != nil {
+				return nil, fmt.Errorf("tasks: encrypt output_json: %w", err)
+			}
+		}
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE tasks
+			SET state = ?, output_json = NULL, output_json_encrypted = ?,
+			    updated_at_ms = ?,
+			    completed_at_ms = COALESCE(?, completed_at_ms),
+			    encryption_version = 1
+			WHERE task_id = ?`,
+			in.State, encOutput, now.UnixMilli(), completed, taskID)
+	} else {
+		var outputStr sql.NullString
+		if len(finalOutput) > 0 {
+			outputStr = sql.NullString{String: string(finalOutput), Valid: true}
+		}
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE tasks
+			SET state = ?, output_json = ?, updated_at_ms = ?,
+			    completed_at_ms = COALESCE(?, completed_at_ms)
+			WHERE task_id = ?`,
+			in.State, outputStr, now.UnixMilli(), completed, taskID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("tasks: update: %w", err)
 	}
 	return s.Get(ctx, taskID)
 }
 
+// selectCols includes all columns needed for full Task reconstruction,
+// including CU.0.4 encrypted-column set.
 const selectCols = `SELECT task_id, agent_id, parent_task_id, state, capability,
-	input_json, output_json, created_at_ms, updated_at_ms, completed_at_ms`
+	input_json, output_json, created_at_ms, updated_at_ms, completed_at_ms,
+	input_json_encrypted, output_json_encrypted, encryption_version`
 
 type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRow(r rowScanner) (*Task, error) {
+func scanRow(r rowScanner, mkm *nexuscrypto.MasterKeyManager) (*Task, error) {
 	var (
-		t           Task
-		parent      sql.NullString
-		capability  sql.NullString
-		input       sql.NullString
-		output      sql.NullString
-		createdMs   int64
-		updatedMs   int64
-		completedMs sql.NullInt64
+		t               Task
+		parent          sql.NullString
+		capability      sql.NullString
+		input           sql.NullString
+		output          sql.NullString
+		createdMs       int64
+		updatedMs       int64
+		completedMs     sql.NullInt64
+		inputEncBlob    []byte
+		outputEncBlob   []byte
+		encVersion      int64
 	)
 	err := r.Scan(
 		&t.TaskID, &t.AgentID, &parent, &t.State, &capability,
 		&input, &output,
 		&createdMs, &updatedMs, &completedMs,
+		&inputEncBlob, &outputEncBlob, &encVersion,
 	)
 	if err != nil {
 		return nil, err
@@ -323,12 +404,40 @@ func scanRow(r rowScanner) (*Task, error) {
 	if capability.Valid {
 		t.Capability = capability.String
 	}
-	if input.Valid {
-		t.Input = json.RawMessage(input.String)
+
+	if encVersion == 1 && mkm != nil && mkm.IsEnabled() {
+		subKey := mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, t.TaskID, rowInfo)
+		if keyErr != nil {
+			return nil, fmt.Errorf("tasks: derive row key: %w", keyErr)
+		}
+		if len(inputEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, inputEncBlob, []byte(t.TaskID))
+			if decErr != nil {
+				return nil, fmt.Errorf("tasks: decrypt input_json: %w", decErr)
+			}
+			t.Input = json.RawMessage(plain)
+		} else if input.Valid {
+			t.Input = json.RawMessage(input.String)
+		}
+		if len(outputEncBlob) > 0 {
+			plain, decErr := nexuscrypto.OpenAES256GCM(rowKey, outputEncBlob, []byte(t.TaskID))
+			if decErr != nil {
+				return nil, fmt.Errorf("tasks: decrypt output_json: %w", decErr)
+			}
+			t.Output = json.RawMessage(plain)
+		} else if output.Valid {
+			t.Output = json.RawMessage(output.String)
+		}
+	} else {
+		if input.Valid {
+			t.Input = json.RawMessage(input.String)
+		}
+		if output.Valid {
+			t.Output = json.RawMessage(output.String)
+		}
 	}
-	if output.Valid {
-		t.Output = json.RawMessage(output.String)
-	}
+
 	t.CreatedAt = time.UnixMilli(createdMs)
 	t.UpdatedAt = time.UnixMilli(updatedMs)
 	if completedMs.Valid {
