@@ -268,8 +268,30 @@
   - Vet: OK
   - 61 packages PASS — zero failures
 
+## CU.0.3: COMPLETE — Config Secrets Encryption
+- New file: `internal/crypto/configcrypt.go`
+  - `EncryptField(plaintext, key)` → `ENC:v1:<base64(nonce||ciphertext||tag)>`; idempotent on already-encrypted values
+  - `DecryptField(s, key)` → plaintext; pass-through for non-ENC:v1: values
+  - `IsEncrypted(s)` — prefix check
+  - `IsSensitiveFieldName(name)` — true if lowercased name contains key/secret/password/token
+- New file: `internal/crypto/configcrypt_test.go` — 11 tests
+- New file: `internal/config/decrypt.go`
+  - `LoadWithKey(configDir, logger, mkm)` — decrypts ENC:v1: fields in daemon.toml, sources/*.toml, destinations/*.toml before resolveAndValidate
+  - `decryptAllConfigStrings(cfg, key)` — walks 14 daemon-level sensitive fields + per-source APIKey + per-destination DSN/APIKey/URL
+- New file: `internal/config/decrypt_test.go` — 3 tests (nil mkm, encrypted admin_token, wrong key fails)
+- Modified: `cmd/bubblefish/config.go`
+  - `encrypt` subcommand: regex line-by-line TOML scan, encrypts sensitive plaintext fields across daemon.toml + sources/*.toml + destinations/*.toml; atomic temp+rename write
+  - `decrypt` subcommand: decrypts ENC:v1: fields back to plaintext
+  - `show-secrets` subcommand: prints plaintext of all sensitive fields (decrypting ENC:v1: as needed)
+- Modified: `cmd/bubblefish/start.go` — derives mkm before config load; uses LoadWithKey so ENC:v1: fields are decrypted at daemon startup
+- Commit: 8425f33
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 61 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.2 complete. Next: CU.0.3 — Config Secrets Encryption.
+## Current subtask: CU.0.3 complete. Next: CU.0.4 — Control Plane Table Encryption.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
