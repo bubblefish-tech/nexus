@@ -748,6 +748,7 @@ func (d *Daemon) Start() error {
 		}
 		d.auditLogger = al
 		d.auditWAL = audit.NewWALWriter(d.wal, d.chainState)
+		d.auditWAL.SetEncryption(d.mkm) // CU.0.5: nil mkm or disabled → no-op
 
 		// Build reader options mirroring the logger config.
 		var readerOpts []audit.ReaderOption

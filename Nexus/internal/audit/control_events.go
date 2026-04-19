@@ -54,6 +54,14 @@ type ControlEventRecord struct {
 	Timestamp  time.Time       `json:"timestamp"`
 	PrevHash   string          `json:"prev_hash,omitempty"` // SHA-256 of previous audit entry
 	Hash       string          `json:"hash,omitempty"`      // SHA-256 of this record (set after chain)
+
+	// CU.0.5 — Selective disclosure: when EncryptionVersion=1, PayloadEncrypted
+	// holds the AES-256-GCM encrypted JSON of the sensitive payload fields
+	// (Actor, ActorType, TargetID, TargetType, AgentID, Capability, EntityJSON,
+	// Decision, Reason). Chain fields (RecordID, EventType, Timestamp, PrevHash,
+	// Hash) remain plaintext for chain integrity verification without the key.
+	PayloadEncrypted  []byte `json:"payload_encrypted,omitempty"`
+	EncryptionVersion int    `json:"encryption_version,omitempty"`
 }
 
 // ComputeHash returns the SHA-256 of the record serialized with Hash set to "".
