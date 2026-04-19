@@ -349,8 +349,20 @@
   - Vet: OK
   - 62 packages PASS — zero failures
 
+## CU.0.7: COMPLETE — TLS Support with Auto-Generated Self-Signed Certificates
+- `EnsureAutoTLSCert(keysDir)`: generates ECDSA P-256 self-signed cert + key at `keysDir/tls.crt` + `keysDir/tls.key`; idempotent; 0600 perms; `localhost` + `127.0.0.1` + `::1` SANs; 10yr validity
+- Dashboard (:8081) serves HTTPS by default; auto-cert at `~/.nexus/keys/tls.crt` unless operator provides `[daemon.web] tls_cert_file`/`tls_key_file`; explicit `tls_disabled = true` reverts to HTTP
+- MCP (:7474) optional TLS via `[daemon.mcp] tls_enabled = true`; `wireMCPTLS` auto-generates or loads operator cert; `mcp.Server.SetTLSConfig` wraps raw TCP listener with `tls.NewListener` before `Start()`
+- Config: `WebConfig{TLSDisabled, TLSCertFile, TLSKeyFile}`, `MCPConfig{TLSEnabled, TLSCertFile, TLSKeyFile}`
+- 4 new tests: `TestEnsureAutoTLSCert_CreatesFiles`, `_Idempotent`, `_FilePermissions` (Windows-skip), `_LocalhostSANs`
+- Commit: 8babb81
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 62 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.6 complete. Next: CU.0.7 — TLS Support.
+## Current subtask: CU.0.7 complete. Next: CU.0.8 — Encrypted Backup/Restore.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
