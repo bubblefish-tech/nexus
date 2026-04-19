@@ -434,8 +434,21 @@
   - Vet: OK
   - 65 packages PASS — zero failures
 
+## DISC.1: COMPLETE — Discovery Manifest
+- New package: `internal/discover/`
+  - `manifest.go`: ToolDefinition struct, 5 detection-method constants, 5 connection-type constants
+  - 41 built-in KnownTools entries covering all 5 tiers (13 port, 8 process, 8 directory, 5 mcp_config, 7 docker)
+  - `LoadCustomTools(configDir)`: loads `discovery/custom_tools.toml` via BurntSushi/toml; returns nil slice (not error) for missing file
+  - `AllTools(configDir)`: built-ins + custom merged; custom appended after built-ins
+  - `ExpandPath(p)`: `~` → `os.UserHomeDir()` expansion
+  - `manifest_test.go`: 10 tests (minimum count ≥30, all fields valid per method, all 5 methods covered, missing file, TOML parse, invalid TOML, AllTools merge, AllTools no-custom, ExpandPath home, ExpandPath absolute)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 66 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.11 complete. Next: DISC.1 — Discovery Manifest.
+## Current subtask: DISC.1 complete. Next: DISC.2 — Scanner Core.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
