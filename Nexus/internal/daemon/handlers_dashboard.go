@@ -100,6 +100,10 @@ func (d *Daemon) handleDashboardActions(w http.ResponseWriter, r *http.Request) 
 	d.serveDashboardPage(w, r, dashboard.ActionsHTML)
 }
 
+func (d *Daemon) handleDashboardQuarantine(w http.ResponseWriter, r *http.Request) {
+	d.serveDashboardPage(w, r, dashboard.QuarantineHTML)
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/control/agents
 // ---------------------------------------------------------------------------

@@ -562,8 +562,38 @@
   - `internal/immune` PASS (28 tests)
   - Full suite: 66+ packages PASS; `internal/supervisor` 1 flaky timing failure (pre-existing, passes in isolation)
 
+## DEF.2: COMPLETE — Quarantine Storage
+- New package: `internal/quarantine/`
+  - `store.go`: Store backed by `<configDir>/quarantine.db` (modernc.org/sqlite)
+  - Schema: `quarantine` table matching spec — id, original_payload_id, content, metadata_json, source_name, agent_id, quarantine_reason, rule_id, quarantined_at_ms, reviewed_at_ms, review_action, reviewed_by
+  - `Insert`, `Get`, `List` (filter by source, include_reviewed, limit ≤ 1000), `Decide` (approved/rejected), `Close`, `NewID`
+  - `store_test.go`: 13 tests (RoundTrip, NotFound, ListUnreviewed, ListIncludeReviewed, FilterBySource, LimitDefault, LimitCap, Approve, Reject, DecideNotFound, InvalidAction, UniqueID, DuplicateID)
+- Immune scan wired into write paths:
+  - `handleWrite` (HTTP): scan between step 9 (build TranslatedPayload) and step 10 (WAL append)
+  - `mcp_pipeline.Write`: scan before WAL append
+  - "quarantine" or "reject" action → store in quarantine table + emit `memory.quarantined` ControlEventRecord + return identical `writeResponse{Status:"accepted"}` (response-shape indistinguishability)
+  - "normalize" action → write proceeds with NormalizedContent substituted
+  - "flag" action → write proceeds as-is
+- Daemon wiring:
+  - `immuneScanner *immune.Scanner` field — always initialized in Start()
+  - `quarantineStore *quarantine.Store` field — opened at `<configDir>/quarantine.db`; nil-safe
+  - quarantineStore.Close() in Stop() stage 3
+- Audit: `ControlEventMemoryQuarantined = "memory.quarantined"` added to `internal/audit/control_events.go`
+- REST API (admin-token protected, gated on quarantineStore != nil):
+  - GET /api/quarantine — list (filter by source, include_reviewed, limit)
+  - GET /api/quarantine/{id} — get single record
+  - POST /api/quarantine/{id}/approve — mark reviewed_action="approved"
+  - POST /api/quarantine/{id}/reject — mark reviewed_action="rejected"
+  - Registered in buildRouter() and BuildAdminRouter()
+- Dashboard: `web/dashboard/quarantine.html` — dark theme, nav bar, table with Approve/Reject buttons; textContent-only DOM; gated on quarantineStore
+- CLI: `bubblefish quarantine list [--source <name>] [--include-reviewed] [--limit N] [--json]`; `bubblefish quarantine approve --id <id>`; `bubblefish quarantine reject --id <id>`
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 66 packages PASS (internal/quarantine +1 new, all others pass); zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DEF.1 complete. Next: DEF.2.
+## Current subtask: DEF.2 complete. Next: DEF.3.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

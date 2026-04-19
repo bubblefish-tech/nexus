@@ -61,6 +61,11 @@ var TasksHTML string
 //go:embed actions.html
 var ActionsHTML string
 
+// QuarantineHTML is the Tier-0 immune-scanner quarantine review dashboard page.
+//
+//go:embed quarantine.html
+var QuarantineHTML string
+
 // LogoPNG is the BubbleFish logo used in the sidebar and witness HUD.
 //
 //go:embed assets/logo_metal.png

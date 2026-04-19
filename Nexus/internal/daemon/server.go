@@ -144,6 +144,15 @@ func (d *Daemon) buildRouter() http.Handler {
 			r.Get("/api/control/agents", d.handleControlAgentList)
 		}
 
+		// Quarantine API (DEF.2) — immune-scanner interceptions. Gated on
+		// quarantineStore so routes do not register when the DB failed to open.
+		if d.quarantineStore != nil {
+			r.Get("/api/quarantine", d.handleQuarantineList)
+			r.Get("/api/quarantine/{id}", d.handleQuarantineGet)
+			r.Post("/api/quarantine/{id}/approve", d.handleQuarantineApprove)
+			r.Post("/api/quarantine/{id}/reject", d.handleQuarantineReject)
+		}
+
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
 		r.Get("/metrics", promhttp.HandlerFor(
@@ -166,6 +175,11 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/dashboard/approvals", d.handleDashboardApprovals)
 		r.Get("/dashboard/tasks", d.handleDashboardTasks)
 		r.Get("/dashboard/actions", d.handleDashboardActions)
+	}
+
+	// Quarantine dashboard (DEF.2) — gated on quarantineStore.
+	if d.quarantineStore != nil {
+		r.Get("/dashboard/quarantine", d.handleDashboardQuarantine)
 	}
 
 	// Review routes — require bfn_review_list_ or bfn_review_read_ tokens.
@@ -244,6 +258,14 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 			r.Get("/api/control/agents", d.handleControlAgentList)
 		}
 
+		// Quarantine API (DEF.2) — BuildAdminRouter mirror.
+		if d.quarantineStore != nil {
+			r.Get("/api/quarantine", d.handleQuarantineList)
+			r.Get("/api/quarantine/{id}", d.handleQuarantineGet)
+			r.Post("/api/quarantine/{id}/approve", d.handleQuarantineApprove)
+			r.Post("/api/quarantine/{id}/reject", d.handleQuarantineReject)
+		}
+
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),
 			promhttp.HandlerOpts{EnableOpenMetrics: false},
@@ -261,6 +283,11 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Get("/dashboard/approvals", d.handleDashboardApprovals)
 		r.Get("/dashboard/tasks", d.handleDashboardTasks)
 		r.Get("/dashboard/actions", d.handleDashboardActions)
+	}
+
+	// Quarantine dashboard (DEF.2).
+	if d.quarantineStore != nil {
+		r.Get("/dashboard/quarantine", d.handleDashboardQuarantine)
 	}
 
 	return r

@@ -44,8 +44,10 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/demo"
 	"github.com/bubblefish-tech/nexus/internal/destination"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
+	"github.com/bubblefish-tech/nexus/internal/immune"
 	"github.com/bubblefish-tech/nexus/internal/lint"
 	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/quarantine"
 	"github.com/bubblefish-tech/nexus/internal/vizpipe"
 	"github.com/bubblefish-tech/nexus/internal/query"
 	"github.com/bubblefish-tech/nexus/internal/version"
@@ -672,6 +674,28 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
 	d.signWriteEnvelope(&tp)
 
+	// DEF.2 — Tier-0 immune scan. If the scanner intercepts the write,
+	// store it in the quarantine table and return an indistinguishable 200
+	// response. The caller cannot determine which path was taken.
+	if d.immuneScanner != nil {
+		metaAny := make(map[string]any, len(tp.Metadata))
+		for k, v := range tp.Metadata {
+			metaAny[k] = v
+		}
+		scan := d.immuneScanner.ScanWrite(tp.Content, metaAny, tp.Embedding)
+		switch scan.Action {
+		case "quarantine", "reject":
+			metaBytes, _ := json.Marshal(tp.Metadata)
+			d.interceptWrite(w, r, payloadID, requestID, src.Name, actorType, actorID,
+				dest, subject, tp.Content, string(metaBytes), scan, writeStart)
+			return
+		case "normalize":
+			if scan.NormalizedContent != "" {
+				tp.Content = scan.NormalizedContent
+			}
+		}
+	}
+
 	// Build WAL entry payload.
 	payloadBytes, err := json.Marshal(tp)
 	if err != nil {
@@ -799,6 +823,74 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Step 13 — Return 200 + payload_id.
+	d.writeJSON(w, http.StatusOK, writeResponse{
+		PayloadID: payloadID,
+		Status:    "accepted",
+	})
+}
+
+// interceptWrite stores an immune-scanner interception in the quarantine table,
+// emits a memory.quarantined audit event, and returns an indistinguishable
+// writeResponse so the caller cannot determine the write was quarantined.
+func (d *Daemon) interceptWrite(
+	w http.ResponseWriter, r *http.Request,
+	payloadID, requestID, sourceName, actorType, actorID, dest, subject,
+	content, metadataJSON string,
+	scan immune.ScanResult,
+	writeStart time.Time,
+) {
+	d.logger.Info("daemon: write quarantined by Tier-0 immune scanner",
+		"component", "immune",
+		"payload_id", payloadID,
+		"rule", scan.Rule,
+		"action", scan.Action,
+	)
+	if d.quarantineStore != nil {
+		rec := quarantine.Record{
+			ID:                quarantine.NewID(),
+			OriginalPayloadID: payloadID,
+			Content:           content,
+			MetadataJSON:      metadataJSON,
+			SourceName:        sourceName,
+			AgentID:           actorID,
+			QuarantineReason:  scan.Details,
+			RuleID:            scan.Rule,
+			QuarantinedAtMs:   time.Now().UnixMilli(),
+		}
+		if err := d.quarantineStore.Insert(rec); err != nil {
+			d.logger.Error("daemon: quarantine store insert failed",
+				"component", "quarantine",
+				"error", err,
+			)
+		}
+	}
+	d.emitControlEvent(
+		audit.ControlEventMemoryQuarantined,
+		actorID, payloadID, "memory",
+		actorID, scan.Rule,
+		"quarantined", scan.Details,
+		map[string]string{"source": sourceName, "scan_action": scan.Action},
+	)
+	d.emitAuditRecord(audit.InteractionRecord{
+		RecordID:       audit.NewRecordID(),
+		RequestID:      requestID,
+		Timestamp:      writeStart,
+		Source:         sourceName,
+		ActorType:      actorType,
+		ActorID:        actorID,
+		EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+		OperationType:  "write",
+		Endpoint:       r.URL.Path,
+		HTTPMethod:     r.Method,
+		HTTPStatusCode: http.StatusOK,
+		PayloadID:      payloadID,
+		Destination:    dest,
+		Subject:        subject,
+		PolicyDecision: "quarantined",
+		PolicyReason:   scan.Rule,
+		LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+	})
+	// Identical shape to a successful write — response-shape indistinguishability.
 	d.writeJSON(w, http.StatusOK, writeResponse{
 		PayloadID: payloadID,
 		Status:    "accepted",

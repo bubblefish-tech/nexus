@@ -66,7 +66,9 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/idempotency"
 	"github.com/bubblefish-tech/nexus/internal/mcp"
 	"github.com/bubblefish-tech/nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/immune"
 	"github.com/bubblefish-tech/nexus/internal/orchestrate"
+	"github.com/bubblefish-tech/nexus/internal/quarantine"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
 	"github.com/bubblefish-tech/nexus/internal/firewall"
 	"github.com/bubblefish-tech/nexus/internal/grants"
@@ -259,6 +261,16 @@ type Daemon struct {
 	// canonical is the embedding canonicalization pipeline. Nil-safe when disabled.
 	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
 	canonical *canonical.Manager
+
+	// immuneScanner runs Tier-0 heuristic rules on every inbound write.
+	// Always initialized in Start(). Never nil after Start().
+	// Reference: DEF.1, DEF.2.
+	immuneScanner *immune.Scanner
+
+	// quarantineStore persists Tier-0 intercepts. Nil when configDir is
+	// unavailable. Gated routes and handlers check for nil before use.
+	// Reference: DEF.2.
+	quarantineStore *quarantine.Store
 
 	stopOnce    sync.Once
 	stopped     chan struct{}
@@ -546,6 +558,28 @@ func (d *Daemon) Start() error {
 				d.logger.Warn("daemon: memory content encryption DISABLED — set NEXUS_PASSWORD to enable",
 					"component", "daemon")
 			}
+		}
+	}
+
+	// DEF.2: wire Tier-0 immune scanner (always-on, zero config needed).
+	d.immuneScanner = immune.New()
+
+	// DEF.2: open quarantine store. Failure is non-fatal; quarantine routes
+	// simply do not register when quarantineStore is nil.
+	if configDir, cdErr := config.ConfigDir(); cdErr == nil {
+		qPath := filepath.Join(configDir, "quarantine.db")
+		if qs, qErr := quarantine.New(qPath); qErr != nil {
+			d.logger.Warn("daemon: cannot open quarantine store — quarantine features disabled",
+				"component", "quarantine",
+				"path", qPath,
+				"error", qErr,
+			)
+		} else {
+			d.quarantineStore = qs
+			d.logger.Info("daemon: quarantine store opened",
+				"component", "quarantine",
+				"path", qPath,
+			)
 		}
 	}
 
@@ -1329,6 +1363,16 @@ func (d *Daemon) Stop() error {
 
 		// Stop agent gateway subsystems.
 		d.stopAgentGateway()
+
+		// Close the quarantine store (DEF.2).
+		if d.quarantineStore != nil {
+			if err := d.quarantineStore.Close(); err != nil {
+				d.logger.Error("daemon: close quarantine store",
+					"component", "quarantine",
+					"error", err,
+				)
+			}
+		}
 
 		// Close the A2A registry store (shared DB for control plane).
 		if d.registryStore != nil {

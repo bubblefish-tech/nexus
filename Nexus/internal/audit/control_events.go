@@ -34,6 +34,7 @@ const (
 	ControlEventTaskStateChanged   = "task_state_changed"
 	ControlEventActionExecuted     = "action_executed"
 	ControlEventActionDenied       = "action_denied"
+	ControlEventMemoryQuarantined  = "memory.quarantined"
 )
 
 // ControlEventRecord is a structured audit record for control-plane mutations.

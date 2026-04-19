@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quarantine — BubbleFish Nexus</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0a0e17; color: #e0e6ed; }
+  .header { background: #131a2b; padding: 0.75rem 2rem; border-bottom: 1px solid #1e2a42; display: flex; align-items: center; gap: 2rem; }
+  .header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+  .nav a { color: #6b7fa3; text-decoration: none; font-size: 0.85rem; margin-right: 1rem; }
+  .nav a.active, .nav a:hover { color: #e0e6ed; }
+  .content { padding: 1.5rem 2rem; }
+  .page-title { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+  .filter-bar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  .filter-bar input { background: #131a2b; border: 1px solid #1e2a42; color: #e0e6ed; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.8rem; width: 200px; }
+  .filter-bar label { color: #6b7fa3; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; }
+  .filter-bar button { background: #1e2a42; color: #e0e6ed; border: 1px solid #1e2a42; padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+  .filter-bar button:hover { background: #2a3a5c; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e2a42; }
+  th { color: #6b7fa3; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  td { font-size: 0.875rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-pending { background: #78350f; color: #fcd34d; }
+  .badge-approved { background: #064e3b; color: #34d399; }
+  .badge-rejected { background: #7f1d1d; color: #fca5a5; }
+  .content-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 0.8rem; color: #94a3b8; }
+  .action-btn { background: transparent; border: 1px solid; border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.75rem; cursor: pointer; margin-right: 0.25rem; }
+  .action-btn.approve { border-color: #34d399; color: #34d399; }
+  .action-btn.approve:hover { background: #064e3b; }
+  .action-btn.reject { border-color: #fca5a5; color: #fca5a5; }
+  .action-btn.reject:hover { background: #7f1d1d; }
+  #msg { color: #6b7fa3; font-size: 0.85rem; padding: 0.5rem 0; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>BubbleFish Nexus</h1>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/dashboard/agents">Agents</a>
+    <a href="/dashboard/grants">Grants</a>
+    <a href="/dashboard/approvals">Approvals</a>
+    <a href="/dashboard/tasks">Tasks</a>
+    <a href="/dashboard/actions">Actions</a>
+    <a href="/dashboard/quarantine" class="active">Quarantine</a>
+  </nav>
+</div>
+<div class="content">
+  <div class="page-title">Quarantine</div>
+  <div class="filter-bar">
+    <input type="text" id="source-filter" placeholder="Source name (optional)">
+    <label><input type="checkbox" id="include-reviewed"> Include reviewed</label>
+    <button id="load-btn">Load</button>
+  </div>
+  <div id="msg">Click Load to query quarantined records.</div>
+  <table id="tbl" style="display:none">
+    <thead><tr>
+      <th>ID</th><th>Payload ID</th><th>Source</th><th>Rule</th><th>Content</th><th>Quarantined At</th><th>Status</th><th>Actions</th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+<script>
+(function() {
+  "use strict";
+  // INVARIANT: All dynamic content uses textContent. NEVER use innerHTML.
+  var ADMIN_TOKEN = '';
+
+  function apiHeaders() {
+    return { 'Authorization': 'Bearer ' + ADMIN_TOKEN, 'Content-Type': 'application/json' };
+  }
+
+  function fmtTime(ms) {
+    if (!ms) return '-';
+    return new Date(ms).toLocaleString();
+  }
+
+  function statusBadge(action) {
+    var span = document.createElement('span');
+    span.className = 'badge badge-pending';
+    span.textContent = 'pending';
+    if (action === 'approved') { span.className = 'badge badge-approved'; span.textContent = 'approved'; }
+    else if (action === 'rejected') { span.className = 'badge badge-rejected'; span.textContent = 'rejected'; }
+    return span;
+  }
+
+  function decide(id, action, row) {
+    fetch('/api/quarantine/' + encodeURIComponent(id) + '/' + action, {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({ reviewed_by: 'dashboard' })
+    }).then(function(r) {
+      if (!r.ok) { alert('Decision failed: ' + r.status); return; }
+      loadRecords();
+    }).catch(function(e) { alert('Error: ' + e); });
+  }
+
+  function renderRow(rec) {
+    var tr = document.createElement('tr');
+
+    var tdID = document.createElement('td');
+    tdID.textContent = rec.id;
+    tr.appendChild(tdID);
+
+    var tdPayload = document.createElement('td');
+    tdPayload.textContent = rec.original_payload_id;
+    tr.appendChild(tdPayload);
+
+    var tdSource = document.createElement('td');
+    tdSource.textContent = rec.source_name;
+    tr.appendChild(tdSource);
+
+    var tdRule = document.createElement('td');
+    tdRule.textContent = rec.rule_id;
+    tr.appendChild(tdRule);
+
+    var tdContent = document.createElement('td');
+    tdContent.className = 'content-cell';
+    tdContent.textContent = rec.content;
+    tdContent.title = rec.content;
+    tr.appendChild(tdContent);
+
+    var tdAt = document.createElement('td');
+    tdAt.textContent = fmtTime(rec.quarantined_at_ms);
+    tr.appendChild(tdAt);
+
+    var tdStatus = document.createElement('td');
+    tdStatus.appendChild(statusBadge(rec.review_action));
+    tr.appendChild(tdStatus);
+
+    var tdActions = document.createElement('td');
+    if (!rec.review_action) {
+      var approveBtn = document.createElement('button');
+      approveBtn.className = 'action-btn approve';
+      approveBtn.textContent = 'Approve';
+      approveBtn.addEventListener('click', function() { decide(rec.id, 'approve', tr); });
+      tdActions.appendChild(approveBtn);
+
+      var rejectBtn = document.createElement('button');
+      rejectBtn.className = 'action-btn reject';
+      rejectBtn.textContent = 'Reject';
+      rejectBtn.addEventListener('click', function() { decide(rec.id, 'reject', tr); });
+      tdActions.appendChild(rejectBtn);
+    } else {
+      tdActions.textContent = '-';
+    }
+    tr.appendChild(tdActions);
+
+    return tr;
+  }
+
+  function loadRecords() {
+    var msg = document.getElementById('msg');
+    var tbl = document.getElementById('tbl');
+    var tbody = document.getElementById('tbody');
+    msg.textContent = 'Loading…';
+    tbl.style.display = 'none';
+
+    var params = new URLSearchParams();
+    var src = document.getElementById('source-filter').value.trim();
+    if (src) params.set('source', src);
+    if (document.getElementById('include-reviewed').checked) params.set('include_reviewed', 'true');
+
+    fetch('/api/quarantine?' + params.toString(), { headers: apiHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+        var recs = data.records || [];
+        if (recs.length === 0) {
+          msg.textContent = 'No quarantine records found.';
+          return;
+        }
+        recs.forEach(function(rec) { tbody.appendChild(renderRow(rec)); });
+        tbl.style.display = '';
+        msg.textContent = '';
+      })
+      .catch(function(e) { msg.textContent = 'Error: ' + e; });
+  }
+
+  document.getElementById('load-btn').addEventListener('click', loadRecords);
+  loadRecords();
+})();
+</script>
+</body>
+</html>

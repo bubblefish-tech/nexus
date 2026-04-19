@@ -26,6 +26,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/audit"
 	"github.com/bubblefish-tech/nexus/internal/destination"
 	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/quarantine"
 	"github.com/bubblefish-tech/nexus/internal/query"
 	"github.com/bubblefish-tech/nexus/internal/version"
 	"github.com/bubblefish-tech/nexus/internal/wal"
@@ -115,6 +116,56 @@ func (d *Daemon) Write(ctx context.Context, params mcp.WriteParams) (mcp.WriteRe
 		ActorID:          actorID,
 	}
 	tp.Embedding = d.embedContent(ctx, payloadID, tp.Content)
+
+	// DEF.2 — Tier-0 immune scan on MCP write path.
+	if d.immuneScanner != nil {
+		metaAny := make(map[string]any, len(tp.Metadata))
+		for k, v := range tp.Metadata {
+			metaAny[k] = v
+		}
+		scan := d.immuneScanner.ScanWrite(tp.Content, metaAny, tp.Embedding)
+		switch scan.Action {
+		case "quarantine", "reject":
+			d.logger.Info("mcp: write quarantined by Tier-0 immune scanner",
+				"component", "immune",
+				"payload_id", payloadID,
+				"rule", scan.Rule,
+				"action", scan.Action,
+			)
+			if d.quarantineStore != nil {
+				metaBytes, _ := json.Marshal(tp.Metadata)
+				rec := quarantine.Record{
+					ID:                quarantine.NewID(),
+					OriginalPayloadID: payloadID,
+					Content:           tp.Content,
+					MetadataJSON:      string(metaBytes),
+					SourceName:        src.Name,
+					AgentID:           actorID,
+					QuarantineReason:  scan.Details,
+					RuleID:            scan.Rule,
+					QuarantinedAtMs:   time.Now().UnixMilli(),
+				}
+				if err := d.quarantineStore.Insert(rec); err != nil {
+					d.logger.Error("mcp: quarantine store insert failed",
+						"component", "quarantine",
+						"error", err,
+					)
+				}
+			}
+			d.emitControlEvent(
+				audit.ControlEventMemoryQuarantined,
+				actorID, payloadID, "memory",
+				actorID, scan.Rule,
+				"quarantined", scan.Details,
+				map[string]string{"source": src.Name, "scan_action": scan.Action},
+			)
+			return mcp.WriteResult{PayloadID: payloadID, Status: "accepted"}, nil
+		case "normalize":
+			if scan.NormalizedContent != "" {
+				tp.Content = scan.NormalizedContent
+			}
+		}
+	}
 
 	payloadBytes, err := json.Marshal(tp)
 	if err != nil {
