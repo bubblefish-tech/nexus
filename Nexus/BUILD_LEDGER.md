@@ -488,8 +488,26 @@
   - Vet: OK
   - 67 packages PASS — zero failures (30 tests in internal/discover)
 
+## DISC.3: COMPLETE — Auto-Connector
+- New file: `internal/discover/connector.go`
+  - `ConnectorConfig{QuickMode}` — quick mode auto-accepts all proposals
+  - `ConnectionConfig` struct: Name, ConnectionType, Endpoint, Command, Args, WatchPaths, Orchestratable, IngestCapable
+  - `ConnectionProposal{Tool, Config}` — pairs a DiscoveredTool with its resolved config
+  - `Connector.Propose(tools)` — returns one proposal per discovered tool
+  - `Connector.AutoAccept(proposals)` — returns all configs (quick install path); interactive mode defers to TUI
+  - `buildConfig(dt)`: routes by ConnectionType — openai_compat/mcp_sse/http_api set Endpoint; mcp_stdio uses first MCPServerEntry command+args and populates WatchPaths when IngestCapable; sentinel_ingest populates WatchPaths
+  - `knownIngestPaths(name)` — maps 10 ingest-capable tool names to their data directories
+- New file: `internal/discover/connector_test.go` — 20 tests
+  - Table-driven TestBuildConfig_ConnectionTypes (8 subtests): openai_compat, http_api, mcp_sse, mcp_stdio with/without servers, mcp_stdio ingest, non-ingest, sentinel_ingest
+  - Table-driven TestKnownIngestPaths (12 subtests): all 10 known tools + Ollama + UnknownTool → nil
+  - TestConnector_Propose_Empty, TestConnector_Propose_MultipleTools, TestConnector_AutoAccept_ReturnsAllConfigs, TestConnector_AutoAccept_EmptyProposals, TestConnector_QuickModeField, TestConnector_ProposalToolRoundtrip
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 68 packages PASS — zero failures (50 tests in internal/discover, +20 new connector tests)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DISC.2 complete. Next: DISC.3 — Auto-Connector.
+## Current subtask: DISC.3 complete. Next: DISC.4 — Orchestration Engine.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
