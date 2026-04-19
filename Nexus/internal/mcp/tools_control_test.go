@@ -839,3 +839,94 @@ func TestControlE2E_ApprovalFlow(t *testing.T) {
 		t.Fatalf("step 4: expected state=submitted, got: %v", taskData["state"])
 	}
 }
+
+// TestApprovalStatusIDOR verifies that agent-B cannot read agent-A's approval.
+func TestApprovalStatusIDOR(t *testing.T) {
+	fix := newControlFixture(t)
+	fix.registerAgent(t, "agent-a")
+	fix.registerAgent(t, "agent-b")
+	fix.createGrant(t, "agent-a", "nexus_approval_status")
+	fix.createGrant(t, "agent-b", "nexus_approval_status")
+
+	req, err := fix.approvalSt.Create(context.Background(), approvals.Request{
+		AgentID:    "agent-a",
+		Capability: "nexus_delete",
+		Action:     json.RawMessage(`{"test":true}`),
+	})
+	if err != nil {
+		t.Fatalf("create approval: %v", err)
+	}
+
+	_, url, stop := startControlServer(t, fix.newAdapter(nil))
+	defer stop()
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp := rpcCallAgent(t, client, url, testKey, "agent-b", "tools/call", map[string]interface{}{
+		"name":      "nexus_approval_status",
+		"arguments": map[string]string{"request_id": req.RequestID},
+	})
+
+	text := extractToolText(t, resp)
+	if text != "" && !stringContains(text, "not found") {
+		t.Errorf("agent-b should not see agent-a's approval, got: %s", text)
+	}
+}
+
+// TestTaskStatusIDOR verifies that agent-B cannot read agent-A's task.
+func TestTaskStatusIDOR(t *testing.T) {
+	fix := newControlFixture(t)
+	fix.registerAgent(t, "agent-a")
+	fix.registerAgent(t, "agent-b")
+	fix.createGrant(t, "agent-a", "nexus_task_status")
+	fix.createGrant(t, "agent-b", "nexus_task_status")
+	fix.createGrant(t, "agent-a", "nexus_write")
+
+	task, err := fix.taskSt.Create(context.Background(), tasks.Task{
+		AgentID:    "agent-a",
+		Capability: "nexus_write",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+
+	_, url, stop := startControlServer(t, fix.newAdapter(nil))
+	defer stop()
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp := rpcCallAgent(t, client, url, testKey, "agent-b", "tools/call", map[string]interface{}{
+		"name":      "nexus_task_status",
+		"arguments": map[string]string{"task_id": task.TaskID},
+	})
+
+	text := extractToolText(t, resp)
+	if text != "" && !stringContains(text, "not found") {
+		t.Errorf("agent-b should not see agent-a's task, got: %s", text)
+	}
+}
+
+func extractToolText(t *testing.T, resp map[string]interface{}) string {
+	t.Helper()
+	result, ok := resp["result"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	content, ok := result["content"].([]interface{})
+	if !ok || len(content) == 0 {
+		return ""
+	}
+	first, ok := content[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	text, _ := first["text"].(string)
+	return text
+}
+
+func stringContains(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

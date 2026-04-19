@@ -410,7 +410,7 @@ func (d *Daemon) Start() error {
 			return fmt.Errorf("daemon: WAL encryption key_file resolved to empty value")
 		}
 		walOpts = append(walOpts, wal.WithEncryption([]byte(resolved)))
-		d.logger.Info("daemon: WAL encryption enabled",
+		d.logger.Warn("daemon: WAL encryption configured but NOT YET IMPLEMENTED — WAL data is stored in plaintext",
 			"component", "daemon",
 		)
 	}

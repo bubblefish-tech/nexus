@@ -297,6 +297,10 @@ func (s *Server) callNexusApprovalStatus(w http.ResponseWriter, r *http.Request,
 		s.writeToolError(w, r, req.ID, "get approval failed: "+err.Error())
 		return
 	}
+	if info.AgentID != agentID {
+		s.writeToolError(w, r, req.ID, "approval not found")
+		return
+	}
 	out, _ := json.Marshal(info)
 	s.writeRPCResult(w, r, req.ID, toolCallResult{Content: []contentBlock{{Type: "text", Text: string(out)}}})
 }
@@ -375,6 +379,10 @@ func (s *Server) callNexusTaskStatus(w http.ResponseWriter, r *http.Request, req
 	task, err := s.controlPlane.GetTask(r.Context(), a.TaskID)
 	if err != nil {
 		s.writeToolError(w, r, req.ID, "get task failed: "+err.Error())
+		return
+	}
+	if task.AgentID != agentID {
+		s.writeToolError(w, r, req.ID, "task not found")
 		return
 	}
 	out, _ := json.Marshal(task)

@@ -19,13 +19,16 @@ package audit
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/BubbleFish-Nexus/internal/provenance"
 	"github.com/BubbleFish-Nexus/internal/wal"
 )
 
@@ -169,5 +172,105 @@ func TestWALWriter_AuditEntryPayloadRoundtrip(t *testing.T) {
 	}
 	if !found {
 		t.Error("audit entry not found in WAL segment")
+	}
+}
+
+// TestSubmitConcurrentChainIntegrity verifies that concurrent Submit calls
+// produce a valid hash chain with no gaps or stale PrevAuditHash values.
+func TestSubmitConcurrentChainIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	w, err := wal.Open(dir, 50, testLogger())
+	if err != nil {
+		t.Fatalf("Open WAL: %v", err)
+	}
+	defer w.Close()
+
+	kp, err := provenance.GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	chain := provenance.NewChainState()
+	if _, err := chain.Genesis(kp); err != nil {
+		t.Fatalf("Genesis: %v", err)
+	}
+
+	aw := NewWALWriter(w, chain)
+
+	const n = 100
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			rec := InteractionRecord{
+				RecordID:      fmt.Sprintf("chain-%03d", idx),
+				Source:        "test",
+				OperationType: "write",
+			}
+			if err := aw.Submit(rec); err != nil {
+				t.Errorf("Submit %d: %v", idx, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Read all audit entries from WAL segments and verify the chain.
+	segs, err := filepath.Glob(filepath.Join(dir, "wal-*.jsonl"))
+	if err != nil || len(segs) == 0 {
+		t.Fatalf("no segments found in %s", dir)
+	}
+
+	type chainEntry struct {
+		PrevAuditHash string `json:"prev_audit_hash"`
+		RecordID      string `json:"record_id"`
+	}
+
+	var entries []chainEntry
+	for _, seg := range segs {
+		data, err := os.ReadFile(seg)
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", seg, err)
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			parts := strings.SplitN(line, "\t", 6)
+			if len(parts) < 2 {
+				continue
+			}
+			jsonField := parts[0]
+			if jsonField == wal.StartSentinel && len(parts) >= 4 {
+				jsonField = parts[1]
+			}
+			var entry wal.Entry
+			if err := json.Unmarshal([]byte(jsonField), &entry); err != nil {
+				continue
+			}
+			if entry.EntryType == wal.EntryTypeAudit {
+				var ce chainEntry
+				if err := json.Unmarshal(entry.Payload, &ce); err != nil {
+					t.Fatalf("unmarshal chain entry: %v", err)
+				}
+				entries = append(entries, ce)
+			}
+		}
+	}
+
+	if len(entries) != n {
+		t.Fatalf("expected %d chain entries, got %d", n, len(entries))
+	}
+
+	// Verify no duplicate PrevAuditHash values (each entry points to a unique predecessor).
+	seen := make(map[string]int)
+	for i, e := range entries {
+		if e.PrevAuditHash == "" {
+			t.Errorf("entry %d (%s) has empty PrevAuditHash", i, e.RecordID)
+		}
+		if prev, dup := seen[e.PrevAuditHash]; dup {
+			t.Errorf("duplicate PrevAuditHash %s in entries %d and %d", e.PrevAuditHash, prev, i)
+		}
+		seen[e.PrevAuditHash] = i
 	}
 }

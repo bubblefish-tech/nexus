@@ -20,6 +20,7 @@ package audit
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/BubbleFish-Nexus/internal/provenance"
@@ -36,8 +37,9 @@ import (
 // the same fsync as the entry itself.
 // Reference: v0.1.3 Build Plan Phase 4 Subtask 4.3.
 type WALWriter struct {
-	w     *wal.WAL
-	chain *provenance.ChainState // nil when hash chain is disabled
+	w       *wal.WAL
+	chain   *provenance.ChainState // nil when hash chain is disabled
+	chainMu sync.Mutex             // serializes the LastHash → Extend atomic sequence
 }
 
 // NewWALWriter creates a WALWriter backed by the given WAL instance.
@@ -56,23 +58,19 @@ func (aw *WALWriter) Submit(record InteractionRecord) error {
 		record.RecordID = NewRecordID()
 	}
 
-	// Hash chain extension: set PrevAuditHash before marshaling so the
-	// hash link is part of the durable WAL entry. The chain mutex ensures
-	// strictly sequential chain extension even under concurrent submits.
 	if aw.chain != nil {
-		// First marshal to get the payload bytes for chain hashing.
-		// We need to set PrevAuditHash first, then marshal, then extend.
-		// Use a two-pass approach: marshal with prevHash, then extend.
+		aw.chainMu.Lock()
 		prevHash := aw.chain.LastHash()
 		record.PrevAuditHash = prevHash
 
 		payload, err := json.Marshal(record)
 		if err != nil {
+			aw.chainMu.Unlock()
 			return fmt.Errorf("audit: marshal record for WAL: %w", err)
 		}
 
-		// Extend the chain with the full payload (including prev_audit_hash).
 		aw.chain.Extend(payload)
+		aw.chainMu.Unlock()
 
 		entry := wal.Entry{
 			PayloadID: fmt.Sprintf("audit-%s", record.RecordID),
@@ -119,14 +117,17 @@ func (aw *WALWriter) SubmitControl(record ControlEventRecord) error {
 	}
 
 	if aw.chain != nil {
+		aw.chainMu.Lock()
 		record.PrevHash = aw.chain.LastHash()
 		record.Hash = record.ComputeHash()
 
 		payload, err := json.Marshal(record)
 		if err != nil {
+			aw.chainMu.Unlock()
 			return fmt.Errorf("audit: marshal control record for WAL: %w", err)
 		}
 		aw.chain.Extend(payload)
+		aw.chainMu.Unlock()
 
 		entry := wal.Entry{
 			PayloadID: fmt.Sprintf("audit-ctrl-%s", record.RecordID),

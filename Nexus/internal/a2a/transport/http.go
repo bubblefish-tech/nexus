@@ -281,7 +281,11 @@ func newHTTPListener(_ context.Context, config TransportConfig) (*httpListener, 
 	hl.router = r
 
 	hl.srv = &http.Server{
-		Handler: r,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
@@ -300,7 +304,10 @@ func (hl *httpListener) SetHandler(h Handler) {
 	hl.handler = h
 }
 
+const maxA2ABodySize = 1 << 20 // 1 MiB
+
 func (hl *httpListener) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxA2ABodySize)
 	var req jsonrpc.Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
@@ -342,6 +349,7 @@ func (hl *httpListener) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 }
 
 func (hl *httpListener) handleStream(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxA2ABodySize)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)

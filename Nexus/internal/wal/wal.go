@@ -158,9 +158,9 @@ func WithIntegrity(mode string, key []byte) Option {
 // Reference: Tech Spec Section 6.4.2.
 func WithEncryption(key []byte) Option {
 	return func(w *WAL) {
-		// Encryption implementation deferred to a future phase.
-		// Accepting the option now allows the daemon startup code to be
-		// written ahead of the WAL encryption implementation.
+		// TODO(v0.1.4): implement WAL-at-rest encryption.
+		// This option is accepted for config forward-compatibility but does NOT
+		// encrypt WAL data in v0.1.3. The daemon logs a WARN at startup.
 		_ = key
 	}
 }
