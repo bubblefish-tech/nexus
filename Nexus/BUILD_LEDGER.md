@@ -381,8 +381,27 @@
   - Vet: OK
   - 63 packages PASS — zero failures
 
+## CU.0.9: COMPLETE — Substrate State Encryption
+- Key domain: `"nexus-substrate-key-v1"` added to `subKeyDomains` in `internal/crypto/masterkey.go`
+- Encrypted tables: `substrate_ratchet_states.state_bytes` + `substrate_cuckoo_filter.filter_bytes`
+- New columns: `state_bytes_encrypted BLOB`, `state_bytes_enc_version` (ratchet); `filter_bytes_encrypted BLOB`, `filter_bytes_enc_version` (cuckoo)
+- Per-row HKDF key: `DeriveRowKey(subKey, stateID-as-decimal, "substrate-ratchet-state")` for ratchet; `DeriveRowKey(subKey, "1", "substrate-cuckoo-filter")` for cuckoo filter
+- `NewRatchetManager` + `LoadCuckooOracle` + `RebuildFromDB` accept `enc *SubstrateEncryptor`
+- `substrate.New()` pre-scans options to extract encryptor before component init; passes enc to sub-components
+- Daemon wiring: `substrate.NewSubstrateEncryptor(d.mkm)` + `substrate.WithEncryptor(enc)` passed to `substrate.New()`
+- Forward-secure shred: `shredState()` also NULLs `state_bytes_encrypted` + resets enc_version=0
+- Backward compat: enc_version=0 rows load from plaintext; enc_version=1 rows decrypt from encrypted column
+- Schema migration: idempotent ALTER TABLE calls in `applyPragmasAndSchema()` for existing DBs
+- New file: `internal/substrate/encrypt.go` — SubstrateEncryptor + WithEncryptor option
+- New test file: `internal/substrate/encrypt_test.go` — 8 tests (ratchet round-trip, plaintext not in DB, wrong key fails, backward compat, shred clears encrypted column, cuckoo round-trip, placeholder byte check, cuckoo wrong key fails, cuckoo backward compat)
+- Commit: b9e2bb0
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 64 packages PASS — zero failures (simulate flaky timing failure unrelated, passes on retry)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.8 complete. Next: CU.0.9 — Substrate State Encryption.
+## Current subtask: CU.0.9 complete. Next: CU.0.10 — Log Sanitization.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
