@@ -199,8 +199,35 @@
 - Vet: OK
 - Tests: internal/a2a/..., internal/mcp/..., internal/oauth/..., internal/audit/... — all PASS
 
+## Module Path Fix (2026-04-18) — 5c827df (amended)
+- go.mod module line corrected: `github.com/BubbleFish-Nexus` → `github.com/bubblefish-tech/nexus`
+- All 526 Go files with internal imports updated mechanically (zero functional change)
+- CLAUDE.md and Docs/a2a/troubleshooting.md updated to match
+- Build: OK | Vet: OK | Full test suite: PASS (zero failures)
+
+## P0.2: Edition Registry — COMPLETE
+- New package: `internal/edition/`
+  - `edition.go`: Edition struct, Current (community default), Has(), String()
+  - `features.go`: 20 feature constants (FeatureRBAC … FeatureFIPS)
+  - `edition_test.go`: 5 tests — community default, Has(), HasNothing for all features, String(), uniqueness
+- Exit gate: Build OK | Vet OK | `internal/edition` PASS
+
+## P0.3: CryptoProfile Interface — COMPLETE
+- New dependency: `golang.org/x/crypto v0.50.0`
+- New package: `internal/crypto/`
+  - `profile.go`: CryptoProfile interface (Name, HashNew, HMACNew, HKDFExtract, HKDFExpand, AEADNew, HashSize) + ActiveProfile var
+  - `classical.go`: ClassicalProfile — SHA3-256 hash/HMAC, HKDF (RFC 5869 via x/crypto/hkdf), AES-256-GCM
+  - `profile_test.go`: 11 tests — hash round-trip, HashSize, HMAC determinism/keyed, HKDF extract/expand, AEAD round-trip/wrong-key/AAD-mismatch, name, ActiveProfile matches ClassicalProfile
+- Refactor: No sha3 calls existed in codebase prior; existing sha256 calls untouched (legacy, addressed in Phase 1 encryption)
+- Exit gate: Build OK | Vet OK | `internal/crypto` PASS
+
+## P0.4: Provider Interfaces + daemon.Run() — COMPLETE
+- New file: `internal/daemon/providers.go` — RBACEngine, BoundaryEnforcer, ClassificationMarker interfaces (all nil-safe at call sites in community edition)
+- New file: `internal/daemon/run.go` — Option functional-option type, WithRBAC/WithBoundaryEnforcer/WithClassificationMarker constructors, Run(cfg, logger, ...Option) error entry point
+- Exit gate: Build OK | Vet OK | `internal/daemon` PASS (161 tests)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: Pre-release security remediation — COMPLETE. Ready for v0.1.3 release prep.
+## Current subtask: P0 complete. Next: Phase 1 — CU.0.1 Master Key Management.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
