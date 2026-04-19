@@ -361,8 +361,28 @@
   - Vet: OK
   - 62 packages PASS — zero failures
 
+## CU.0.8: COMPLETE — Encrypted Backup/Restore
+- Key domain: `"nexus-backup-key-v1"` added to `subKeyDomains` in `internal/crypto/masterkey.go`
+- New file: `internal/backup/encrypt.go`
+  - `ExportEncrypted(mkm, ExportEncryptedOptions)` — archives configDir as tar.gz, encrypts with AES-256-GCM
+  - `ImportEncrypted(mkm, ImportEncryptedOptions)` — decrypts and extracts tar.gz to destDir
+  - Binary format: `[4-byte "BFBK"][4-byte version=1 big-endian][nonce(12)||ciphertext||tag(16)]`
+  - AAD: `"BFBK"` magic binds the ciphertext to this format
+  - Path traversal guard in `extractTarGz` rejects `..` components
+  - Without Force, refuses to overwrite existing files
+  - Atomic write: temp file + rename
+  - `ErrEncryptionDisabled` returned when MKM is nil or not enabled
+- CLI: `bubblefish backup export --output <path>`, `bubblefish backup import --input <path> [--dest <dir>] [--force]`
+- New test file: `internal/backup/encrypt_test.go` — 11 tests
+  - RoundTrip, FileHasMagic, WrongKeyFails, DisabledMKM, BadMagic, BadVersion, TruncatedFile, NoOverwrite, ForceOverwrite, FilePermissions (Windows-skip), EmptySourceDir, CorruptedCiphertext
+- Commit: 3d6feae
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 63 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.7 complete. Next: CU.0.8 — Encrypted Backup/Restore.
+## Current subtask: CU.0.8 complete. Next: CU.0.9 — Substrate State Encryption.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
