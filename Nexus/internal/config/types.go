@@ -275,12 +275,25 @@ type MCPConfig struct {
 	Bind       string `toml:"bind"`
 	SourceName string `toml:"source_name"`
 	APIKey     string `toml:"api_key"` // env:/file:/literal reference
+
+	// TLS support (CU.0.7). Default off; set tls_enabled = true to enable.
+	// When operator cert/key are absent the daemon auto-generates ~/.nexus/keys/tls.crt.
+	TLSEnabled  bool   `toml:"tls_enabled"`
+	TLSCertFile string `toml:"tls_cert_file"` // env:/file:/literal reference
+	TLSKeyFile  string `toml:"tls_key_file"`  // env:/file:/literal reference
 }
 
 // WebConfig models [daemon.web].
 type WebConfig struct {
 	Port        int  `toml:"port"`
 	RequireAuth bool `toml:"require_auth"`
+
+	// TLS support (CU.0.7). Dashboard serves HTTPS by default.
+	// Set tls_disabled = true to revert to HTTP.
+	// When operator cert/key are absent the daemon auto-generates ~/.nexus/keys/tls.crt.
+	TLSDisabled bool   `toml:"tls_disabled"`
+	TLSCertFile string `toml:"tls_cert_file"` // env:/file:/literal reference
+	TLSKeyFile  string `toml:"tls_key_file"`  // env:/file:/literal reference
 }
 
 // TLSConfig models [daemon.tls].

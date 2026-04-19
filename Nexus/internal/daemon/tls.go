@@ -18,10 +18,19 @@
 package daemon
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/config"
 )
@@ -133,6 +142,92 @@ func parseTLSVersion(s string, defaultVer uint16) (uint16, error) {
 	default:
 		return 0, fmt.Errorf("unsupported TLS version %q (valid: 1.0, 1.1, 1.2, 1.3)", s)
 	}
+}
+
+// EnsureAutoTLSCert ensures a self-signed P-256 TLS certificate and key exist
+// at keysDir/tls.crt and keysDir/tls.key. The call is idempotent — when both
+// files already exist they are returned as-is without regeneration. Both files
+// are written with 0600 permissions; keysDir is created with 0700 if absent.
+//
+// The generated certificate is scoped to localhost (127.0.0.1, ::1, "localhost")
+// and is valid for 10 years.
+func EnsureAutoTLSCert(keysDir string) (certPath, keyPath string, err error) {
+	if err := os.MkdirAll(keysDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("tls: create keys dir %q: %w", keysDir, err)
+	}
+	certPath = filepath.Join(keysDir, "tls.crt")
+	keyPath = filepath.Join(keysDir, "tls.key")
+
+	// Idempotent: if both files already exist, skip generation.
+	if _, err := os.Stat(certPath); err == nil {
+		if _, err := os.Stat(keyPath); err == nil {
+			return certPath, keyPath, nil
+		}
+	}
+
+	// Generate ECDSA P-256 private key.
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", fmt.Errorf("tls: generate key: %w", err)
+	}
+
+	// Random serial number.
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", "", fmt.Errorf("tls: serial number: %w", err)
+	}
+
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			Organization: []string{"BubbleFish Nexus"},
+			CommonName:   "localhost",
+		},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+		DNSNames:              []string{"localhost"},
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		return "", "", fmt.Errorf("tls: create certificate: %w", err)
+	}
+
+	// Write cert PEM (0600).
+	certFile, err := os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", "", fmt.Errorf("tls: open cert file: %w", err)
+	}
+	if encErr := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); encErr != nil {
+		_ = certFile.Close()
+		return "", "", fmt.Errorf("tls: encode cert: %w", encErr)
+	}
+	if err := certFile.Close(); err != nil {
+		return "", "", fmt.Errorf("tls: close cert file: %w", err)
+	}
+
+	// Write key PEM (0600).
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return "", "", fmt.Errorf("tls: marshal key: %w", err)
+	}
+	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", "", fmt.Errorf("tls: open key file: %w", err)
+	}
+	if encErr := pem.Encode(keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}); encErr != nil {
+		_ = keyFile.Close()
+		return "", "", fmt.Errorf("tls: encode key: %w", encErr)
+	}
+	if err := keyFile.Close(); err != nil {
+		return "", "", fmt.Errorf("tls: close key file: %w", err)
+	}
+
+	return certPath, keyPath, nil
 }
 
 // parseClientAuth converts a client_auth string from the config to the

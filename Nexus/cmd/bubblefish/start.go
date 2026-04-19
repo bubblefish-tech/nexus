@@ -84,6 +84,29 @@ func runStart() {
 	// Create daemon.
 	d := daemon.New(cfg, logger)
 
+	// Resolve dashboard TLS cert/key (CU.0.7). Dashboard serves HTTPS by default
+	// unless tls_disabled = true. Auto-generates ~/.nexus/keys/tls.crt when no
+	// operator cert is configured.
+	var dashCertFile, dashKeyFile string
+	if cfg.Daemon.Web.Port > 0 && !cfg.Daemon.Web.TLSDisabled {
+		if cfg.Daemon.Web.TLSCertFile != "" && cfg.Daemon.Web.TLSKeyFile != "" {
+			dashCertFile = cfg.Daemon.Web.TLSCertFile
+			dashKeyFile = cfg.Daemon.Web.TLSKeyFile
+		} else if home, homeErr := os.UserHomeDir(); homeErr == nil {
+			keysDir := filepath.Join(home, ".nexus", "keys")
+			c, k, certErr := daemon.EnsureAutoTLSCert(keysDir)
+			if certErr != nil {
+				logger.Warn("bubblefish start: auto TLS cert generation failed — dashboard using HTTP",
+					"component", "main", "error", certErr)
+			} else {
+				dashCertFile = c
+				dashKeyFile = k
+				logger.Info("bubblefish start: dashboard TLS cert ready",
+					"component", "main", "cert", dashCertFile)
+			}
+		}
+	}
+
 	// Start web dashboard in background (non-fatal on failure).
 	var dashboard *web.Dashboard
 	if cfg.Daemon.Web.Port > 0 {
@@ -97,6 +120,8 @@ func runStart() {
 			AdminHandler:     d.BuildAdminRouter(),
 			DashboardHTML:    dashboardui.HTML,
 			LogoPNG:          dashboardui.LogoPNG,
+			TLSCertFile:      dashCertFile,
+			TLSKeyFile:       dashKeyFile,
 		})
 		go func() {
 			if err := dashboard.Start(); err != nil {

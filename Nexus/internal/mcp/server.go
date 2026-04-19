@@ -22,6 +22,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -217,6 +218,8 @@ type Server struct {
 	// Nil when the control plane is disabled.
 	controlPlane ControlPlaneProvider
 
+	tlsConfig *tls.Config // nil when TLS is disabled (default)
+
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
@@ -286,18 +289,28 @@ func (s *Server) SetBridge(b *bridge.Bridge) {
 	s.a2aBridge = b
 }
 
+// SetTLSConfig enables TLS on the MCP server. Must be called before Start().
+// When set, the server wraps its TCP listener with the provided TLS config.
+func (s *Server) SetTLSConfig(cfg *tls.Config) {
+	s.tlsConfig = cfg
+}
+
 func (s *Server) Start() error {
 	if s.bind != "127.0.0.1" {
 		return fmt.Errorf("mcp: bind address must be 127.0.0.1, got %q", s.bind)
 	}
 
 	addr := fmt.Sprintf("%s:%d", s.bind, s.port)
-	ln, err := net.Listen("tcp", addr)
+	rawLn, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("mcp: listen %s: %w", addr, err)
 	}
+	var ln net.Listener = rawLn
+	if s.tlsConfig != nil {
+		ln = tls.NewListener(rawLn, s.tlsConfig)
+	}
 	s.listener = ln
-	s.addr = ln.Addr().String()
+	s.addr = rawLn.Addr().String()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", s.handleMCP)

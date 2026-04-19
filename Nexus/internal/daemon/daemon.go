@@ -32,6 +32,7 @@ package daemon
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1386,6 +1387,9 @@ func (d *Daemon) startMCPServer(cfg *config.Config) {
 	// are registered on the mux.
 	d.setupOAuthServer(cfg, srv)
 
+	// Wire MCP TLS if configured (CU.0.7). Must be before Start().
+	d.wireMCPTLS(cfg, srv)
+
 	if err := srv.Start(); err != nil {
 		d.logger.Warn("daemon: MCP server start failed — MCP disabled, HTTP continues",
 			"component", "daemon",
@@ -1527,6 +1531,68 @@ func (d *Daemon) setupOAuthServer(cfg *config.Config, srv *mcp.Server) {
 	d.logger.Info("oauth: server started",
 		"component", "oauth",
 		"issuer", oauthCfg.IssuerURL,
+	)
+}
+
+// wireMCPTLS configures TLS on the MCP server when [daemon.mcp] tls_enabled = true.
+// Uses an operator-provided cert/key when configured, or auto-generates a self-signed
+// P-256 cert at ~/.nexus/keys/tls.crt (idempotent).
+func (d *Daemon) wireMCPTLS(cfg *config.Config, srv interface{ SetTLSConfig(*tls.Config) }) {
+	if !cfg.Daemon.MCP.TLSEnabled {
+		return
+	}
+
+	certFile := cfg.Daemon.MCP.TLSCertFile
+	keyFile := cfg.Daemon.MCP.TLSKeyFile
+
+	if certFile == "" || keyFile == "" {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			d.logger.Warn("daemon: MCP TLS: cannot resolve home dir — MCP TLS disabled",
+				"component", "daemon", "error", homeErr)
+			return
+		}
+		keysDir := filepath.Join(home, ".nexus", "keys")
+		var certErr error
+		certFile, keyFile, certErr = EnsureAutoTLSCert(keysDir)
+		if certErr != nil {
+			d.logger.Warn("daemon: MCP TLS: cert generation failed — MCP TLS disabled",
+				"component", "daemon", "error", certErr)
+			return
+		}
+	} else {
+		resolve := func(ref string) (string, error) {
+			return config.ResolveEnv(ref, d.logger)
+		}
+		var err error
+		certFile, err = resolve(certFile)
+		if err != nil || certFile == "" {
+			d.logger.Warn("daemon: MCP TLS: resolve cert_file failed — MCP TLS disabled",
+				"component", "daemon", "error", err)
+			return
+		}
+		keyFile, err = resolve(keyFile)
+		if err != nil || keyFile == "" {
+			d.logger.Warn("daemon: MCP TLS: resolve key_file failed — MCP TLS disabled",
+				"component", "daemon", "error", err)
+			return
+		}
+	}
+
+	tlsCfg, err := buildTLSConfig(config.TLSConfig{
+		Enabled:  true,
+		CertFile: certFile,
+		KeyFile:  keyFile,
+	}, func(s string) (string, error) { return s, nil })
+	if err != nil {
+		d.logger.Warn("daemon: MCP TLS: config error — MCP TLS disabled",
+			"component", "daemon", "error", err)
+		return
+	}
+	srv.SetTLSConfig(tlsCfg)
+	d.logger.Info("daemon: MCP TLS enabled",
+		"component", "daemon",
+		"cert", certFile,
 	)
 }
 

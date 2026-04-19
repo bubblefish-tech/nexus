@@ -26,8 +26,10 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -135,6 +137,113 @@ func generateTestCA(t *testing.T) string {
 // literalResolve is a test resolver that returns values as-is (literal).
 func literalResolve(s string) (string, error) {
 	return s, nil
+}
+
+func TestEnsureAutoTLSCert_CreatesFiles(t *testing.T) {
+	dir := t.TempDir()
+	keysDir := filepath.Join(dir, "keys")
+	certPath, keyPath, err := EnsureAutoTLSCert(keysDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if certPath == "" || keyPath == "" {
+		t.Fatal("expected non-empty cert and key paths")
+	}
+
+	// Both files must exist.
+	if _, err := os.Stat(certPath); err != nil {
+		t.Errorf("cert file missing: %v", err)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Errorf("key file missing: %v", err)
+	}
+
+	// Files must be loadable as a TLS key pair.
+	if _, err := tls.LoadX509KeyPair(certPath, keyPath); err != nil {
+		t.Errorf("LoadX509KeyPair: %v", err)
+	}
+}
+
+func TestEnsureAutoTLSCert_Idempotent(t *testing.T) {
+	dir := t.TempDir()
+	keysDir := filepath.Join(dir, "keys")
+
+	certPath1, keyPath1, err := EnsureAutoTLSCert(keysDir)
+	if err != nil {
+		t.Fatalf("first call error: %v", err)
+	}
+
+	certPath2, keyPath2, err := EnsureAutoTLSCert(keysDir)
+	if err != nil {
+		t.Fatalf("second call error: %v", err)
+	}
+
+	if certPath1 != certPath2 || keyPath1 != keyPath2 {
+		t.Errorf("paths differ between calls: %q/%q vs %q/%q",
+			certPath1, keyPath1, certPath2, keyPath2)
+	}
+}
+
+func TestEnsureAutoTLSCert_FilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" || testing.Short() {
+		t.Skip("permission check skipped on Windows or short mode")
+	}
+	dir := t.TempDir()
+	keysDir := filepath.Join(dir, "keys")
+	certPath, keyPath, err := EnsureAutoTLSCert(keysDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, p := range []string{certPath, keyPath} {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			t.Fatalf("stat %q: %v", p, statErr)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("%q permissions = %04o; want 0600", p, perm)
+		}
+	}
+}
+
+func TestEnsureAutoTLSCert_LocalhostSANs(t *testing.T) {
+	dir := t.TempDir()
+	keysDir := filepath.Join(dir, "keys")
+	certPath, _, err := EnsureAutoTLSCert(keysDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	raw, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("read cert: %v", err)
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		t.Fatal("no PEM block found in cert")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+
+	hasDNS := false
+	for _, d := range cert.DNSNames {
+		if d == "localhost" {
+			hasDNS = true
+		}
+	}
+	if !hasDNS {
+		t.Error("cert missing localhost DNS SAN")
+	}
+	hasIP := false
+	for _, ip := range cert.IPAddresses {
+		if ip.Equal(net.ParseIP("127.0.0.1")) {
+			hasIP = true
+		}
+	}
+	if !hasIP {
+		t.Error("cert missing 127.0.0.1 IP SAN")
+	}
 }
 
 func TestBuildTLSConfig_Disabled(t *testing.T) {
