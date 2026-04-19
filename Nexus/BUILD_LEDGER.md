@@ -166,8 +166,41 @@
   - Build: N/A (script only)
   - Script is syntactically valid PowerShell (no build artifacts changed)
 
+## Pre-Release Security Remediation (2026-04-18): COMPLETE
+- Source: Comprehensive_Build_Review_Analysis.md (.claude/), 4 commits on v0.1.3-moat-takeover
+
+### C-1: Credential Hygiene — bbc90b6
+- Removed jwt_token.txt, oauth_audit_bundle.txt, oauth_remediation_test_output.txt from git tracking
+- Added all three to .gitignore
+
+### C-2: Stored XSS (innerHTML) — 8cb5a97
+- All 22 innerHTML sites in web/dashboard/index.html converted to textContent / createElement
+- Added DOM helpers: createSrcDot, createEl, setEmpty, createTextTd, cfgRow, cfgSection, cfgCodeVal, cfgCodeList
+- Settings view fully rewritten to DOM-based construction
+
+### H-block: High Findings — ad560ad
+- H-1: Audit chain race: chainMu guards LastHash+Extend atomically in WALWriter.Submit/SubmitControl
+- H-2: WAL encryption stub: daemon.go now logs WARN (not Info) that encryption is NOT implemented in v0.1.3
+- H-3: IDOR in MCP tools: nexus_approval_status + nexus_task_status verify AgentID ownership before returning data
+- H-4: A2A HTTP body size: http.MaxBytesReader(1MiB) in handleJSONRPC + handleStream
+- H-5: A2A HTTP timeouts: ReadHeaderTimeout/ReadTimeout/WriteTimeout/IdleTimeout added to http.Server
+
+### M-block: Medium Findings — 60d0130
+- M-1: OAuth timing: ClientID + RedirectURI comparisons use subtle.ConstantTimeCompare
+- M-3: Dashboard token injection: json.Marshal encoding (not manual string escaping)
+- M-5: parseListLimit: treats 0 as default; caps at 1000
+- M-7: CLI control.go: all query-string values wrapped with url.QueryEscape
+- M-8: CLAUDE.md version reference updated to internal/version/version.go
+- M-9: Transport close: httpClientConn + stdioConn use sync.Once + atomic.Bool (replaces mutex+bool)
+- M-10: nexus_action_log: limit clamped to [1,1000], default 100
+
+### Exit gate (post all 4 commits):
+- Build: OK
+- Vet: OK
+- Tests: internal/a2a/..., internal/mcp/..., internal/oauth/..., internal/audit/... — all PASS
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: MT.8 — COMPLETE (Operation Moat Takeover Phase 1 complete)
+## Current subtask: Pre-release security remediation — COMPLETE. Ready for v0.1.3 release prep.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
