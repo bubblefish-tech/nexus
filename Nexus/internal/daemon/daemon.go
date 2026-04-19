@@ -531,10 +531,15 @@ func (d *Daemon) Start() error {
 			d.logger.Warn("daemon: master key derivation failed; memory encryption disabled",
 				"component", "daemon", "error", mkmErr)
 		} else {
+			// CU.0.11: startup encryption self-test — refuse to start if the
+			// crypto stack cannot round-trip its own keys.
+			if selfErr := nexuscrypto.SelfTest(mkm); selfErr != nil {
+				return fmt.Errorf("daemon: encryption self-test failed — refusing to start: %w", selfErr)
+			}
 			d.mkm = mkm // shared with control-plane encryption (CU.0.4)
 			sqliteDest.SetEncryption(mkm)
 			if mkm.IsEnabled() {
-				d.logger.Info("daemon: memory content encryption enabled",
+				d.logger.Info("daemon: memory content encryption enabled (self-test passed)",
 					"component", "daemon")
 			} else {
 				d.logger.Warn("daemon: memory content encryption DISABLED — set NEXUS_PASSWORD to enable",

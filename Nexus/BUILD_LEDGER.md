@@ -416,8 +416,26 @@
   - Vet: OK
   - 65 packages PASS — zero failures
 
+## CU.0.11: COMPLETE — Startup Encryption Self-Test
+- New file: `internal/crypto/selftest.go`
+  - `SelfTest(mkm *MasterKeyManager) error` — seal/open round-trip for every sub-key domain
+  - No-op when mkm is nil or disabled
+  - Known plaintext `"nexus-encryption-self-test-v1"` with AAD `"nexus-selftest"` sealed then opened per domain
+  - Fails on the first domain that cannot round-trip, with a descriptive error naming the domain
+- New file: `internal/crypto/selftest_test.go` — 4 tests
+  - TestSelfTest_NilMKM, TestSelfTest_DisabledMKM, TestSelfTest_EnabledRoundTrip,
+    TestSelfTest_AllDomainsExercised, TestSelfTest_DifferentPasswordsDifferentKeys
+- Modified: `internal/daemon/daemon.go`
+  - `nexuscrypto.SelfTest(mkm)` called immediately after key derivation
+  - Fatal: `Start()` returns error if self-test fails — daemon refuses to start
+  - Log message updated to "memory content encryption enabled (self-test passed)" on success
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 65 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.10 complete. Next: CU.0.11 — Startup Verification.
+## Current subtask: CU.0.11 complete. Next: DISC.1 — Discovery Manifest.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
