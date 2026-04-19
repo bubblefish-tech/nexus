@@ -247,8 +247,29 @@
   - Vet: OK
   - 61 packages PASS — zero failures
 
+## CU.0.2: COMPLETE — Memory Content Encryption
+- New file: `internal/destination/encryption.go` — `derivePerRowKey`, `sealAES256GCM`, `openAES256GCM` helpers
+  - Per-row key: HKDF-Extract(subKey, payloadID) → HKDF-Expand(prk, "memory-content", 32)
+  - AES-256-GCM seal/open via `crypto.ActiveProfile.AEADNew`; nonce prepended to ciphertext blob
+- Modified: `internal/destination/sqlite.go`
+  - New DDL: `content_encrypted BLOB`, `metadata_encrypted BLOB`, `encryption_version INTEGER DEFAULT 0`
+  - Idempotent column migrations in `applyPragmasAndSchema()`
+  - `SetEncryption(mkm *crypto.MasterKeyManager)` wires encryption post-open
+  - `Write()`: when enabled, derives per-row key, seals content+metadata, stores empty plaintext columns + encrypted blobs, encVersion=1
+  - `Query()`, `SemanticSearch()`, `QueryBucketCandidates()`, `scanClusterRows()`, `QueryTimeTravel()`: select 3 new columns; `decryptPayload()` dispatches to plaintext or AES-GCM path by encVersion
+  - `decryptPayload()`: decrypts content+metadata in-place; falls back to JSON parse for encVersion=0 rows
+  - `EncryptExistingRows(ctx, batchSize, pause)`: migrates plaintext rows in batches of 100 with 10ms pause; resumable (skips encVersion=1 rows); clears plaintext columns after each batch
+- Modified: `internal/daemon/daemon.go`
+  - After OpenSQLite: resolves `~/.nexus/crypto.salt`, calls `crypto.NewMasterKeyManager("", saltPath)`, wires `SetEncryption(mkm)`, logs enabled/disabled
+- New file: `internal/destination/encryption_test.go` — 15 tests
+  - Round-trip (content, metadata), plaintext column empty, wrong key fails, backward compat (unencrypted), mixed DB, EncryptExistingRows, resumable migration, context cancellation, different rows different keys, empty content, empty metadata, new writes encrypted, multiple rows, disabled MKM no-op, migration plaintext cleared
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 61 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.1 complete. Next: CU.0.2 — Memory Content Encryption.
+## Current subtask: CU.0.2 complete. Next: CU.0.3 — Config Secrets Encryption.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

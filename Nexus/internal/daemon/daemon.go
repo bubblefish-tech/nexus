@@ -82,6 +82,8 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/version"
 	"github.com/bubblefish-tech/nexus/internal/vizpipe"
 	"github.com/bubblefish-tech/nexus/internal/wal"
+
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 )
 
 // Daemon is the central BubbleFish Nexus gateway daemon. All state is held in
@@ -510,6 +512,29 @@ func (d *Daemon) Start() error {
 	}
 	d.dest = sqliteDest
 	d.querier = sqliteDest
+
+	// CU.0.2: wire memory content encryption via MasterKeyManager.
+	// Password is resolved from NEXUS_PASSWORD env (set by `nexus config set-password`).
+	if home, homeErr := os.UserHomeDir(); homeErr != nil {
+		d.logger.Warn("daemon: cannot resolve home directory; memory encryption disabled",
+			"component", "daemon", "error", homeErr)
+	} else {
+		saltPath := filepath.Join(home, ".nexus", "crypto.salt")
+		mkm, mkmErr := nexuscrypto.NewMasterKeyManager("", saltPath)
+		if mkmErr != nil {
+			d.logger.Warn("daemon: master key derivation failed; memory encryption disabled",
+				"component", "daemon", "error", mkmErr)
+		} else {
+			sqliteDest.SetEncryption(mkm)
+			if mkm.IsEnabled() {
+				d.logger.Info("daemon: memory content encryption enabled",
+					"component", "daemon")
+			} else {
+				d.logger.Warn("daemon: memory content encryption DISABLED — set NEXUS_PASSWORD to enable",
+					"component", "daemon")
+			}
+		}
+	}
 
 	// Create embedding client from config. Returns nil when disabled.
 	// INVARIANT: resolved API key is never logged.

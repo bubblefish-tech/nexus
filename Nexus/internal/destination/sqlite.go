@@ -31,6 +31,8 @@ import (
 	"strings"
 	"time"
 
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
+
 	// Pure-Go SQLite driver (modernc.org/sqlite). No CGO required for production.
 	// Registers the "sqlite" driver name with database/sql.
 	_ "modernc.org/sqlite"
@@ -197,6 +199,14 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 		filter_bytes   BLOB NOT NULL,
 		last_persisted INTEGER NOT NULL
 	)`
+
+	// ── CU.0.2: Memory Content Encryption columns ────────────────────────
+	// Encrypted blobs are nonce||ciphertext||tag (AES-256-GCM, per-row HKDF key).
+	// encryption_version 0 = plaintext (legacy), 1 = encrypted.
+
+	addContentEncryptedColumn  = `ALTER TABLE memories ADD COLUMN content_encrypted BLOB`
+	addMetadataEncryptedColumn = `ALTER TABLE memories ADD COLUMN metadata_encrypted BLOB`
+	addEncryptionVersionColumn = `ALTER TABLE memories ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 0`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -213,6 +223,9 @@ type SQLiteDestination struct {
 	db     *sql.DB
 	path   string
 	logger *slog.Logger
+	// mkm provides per-row AES-256-GCM encryption via HKDF-derived keys.
+	// Nil or disabled means plaintext storage (backward compatible).
+	mkm *nexuscrypto.MasterKeyManager
 }
 
 // OpenSQLite opens (or creates) a SQLite database at path, applies the
@@ -382,6 +395,17 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 		return fmt.Errorf("destination: sqlite: create substrate_cuckoo_filter: %w", err)
 	}
 
+	// Idempotent migration: add CU.0.2 memory content encryption columns.
+	if _, err := d.db.Exec(addContentEncryptedColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addMetadataEncryptedColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+	if _, err := d.db.Exec(addEncryptionVersionColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+
 	return nil
 }
 
@@ -390,6 +414,8 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 // All values are bound via parameterized placeholders — no string interpolation.
 // If p.Embedding is non-empty it is serialized as a little-endian float32 BLOB
 // and stored in the embedding column for Stage 4 semantic retrieval.
+// When encryption is enabled, content and metadata are AES-256-GCM encrypted
+// using a per-row HKDF-derived key; plaintext columns are stored as empty values.
 func (d *SQLiteDestination) Write(p TranslatedPayload) error {
 	metadataJSON, err := marshalMetadata(p.Metadata)
 	if err != nil {
@@ -413,6 +439,33 @@ func (d *SQLiteDestination) Write(p TranslatedPayload) error {
 		lshBucket = p.LSHBucket
 	}
 
+	// CU.0.2: per-row content encryption when MasterKeyManager is enabled.
+	// Plaintext columns are set to empty values; ciphertext columns hold the data.
+	contentToStore := p.Content
+	metadataToStore := metadataJSON
+	var contentEncrypted, metadataEncrypted []byte
+	encVersion := 0
+
+	if d.encryptionEnabled() {
+		subKey := d.mkm.SubKey("nexus-memory-key-v1")
+		perRowKey, err := derivePerRowKey(subKey, p.PayloadID)
+		if err != nil {
+			return fmt.Errorf("destination: sqlite: derive per-row key: %w", err)
+		}
+		aad := []byte(p.PayloadID)
+		contentEncrypted, err = sealAES256GCM(perRowKey, []byte(p.Content), aad)
+		if err != nil {
+			return fmt.Errorf("destination: sqlite: encrypt content: %w", err)
+		}
+		metadataEncrypted, err = sealAES256GCM(perRowKey, []byte(metadataJSON), aad)
+		if err != nil {
+			return fmt.Errorf("destination: sqlite: encrypt metadata: %w", err)
+		}
+		contentToStore = ""
+		metadataToStore = "{}"
+		encVersion = 1
+	}
+
 	const query = `
 INSERT OR IGNORE INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
@@ -420,8 +473,9 @@ INSERT OR IGNORE INTO memories (
     schema_version, transform_version, actor_type, actor_id, metadata, embedding,
     sensitivity_labels, classification_tier, tier,
     lsh_bucket, cluster_id, cluster_role,
-    signature, signing_key_id, signature_alg
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    signature, signing_key_id, signature_alg,
+    content_encrypted, metadata_encrypted, encryption_version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = d.db.Exec(query,
 		p.PayloadID,
@@ -431,7 +485,7 @@ INSERT OR IGNORE INTO memories (
 		p.Namespace,
 		p.Destination,
 		p.Collection,
-		p.Content,
+		contentToStore,
 		p.Model,
 		p.Role,
 		p.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z"),
@@ -440,7 +494,7 @@ INSERT OR IGNORE INTO memories (
 		p.TransformVersion,
 		p.ActorType,
 		p.ActorID,
-		metadataJSON,
+		metadataToStore,
 		embeddingBlob,
 		sensitivityLabelsStr,
 		classificationTier,
@@ -451,6 +505,9 @@ INSERT OR IGNORE INTO memories (
 		p.Signature,
 		p.SigningKeyID,
 		p.SignatureAlg,
+		contentEncrypted,
+		metadataEncrypted,
+		encVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
@@ -523,7 +580,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 	args = append(args, candidateLimit)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
+	q := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, embedding, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg, content_encrypted, metadata_encrypted, encryption_version FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ?"
 
 	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -542,6 +599,8 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 		var embeddingBlob []byte
 		var sensitivityLabelsStr string
 		var lshBucket sql.NullInt64
+		var contentEnc, metaEnc []byte
+		var encVersion int
 
 		if err := rows.Scan(
 			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
@@ -551,6 +610,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
 			&tp.Signature, &tp.SigningKeyID, &tp.SignatureAlg,
+			&contentEnc, &metaEnc, &encVersion,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: semantic search: scan row: %w", err)
 		}
@@ -571,9 +631,7 @@ func (d *SQLiteDestination) SemanticSearch(ctx context.Context, vec []float32, p
 		if t, parseErr := parseTimestamp(timestampStr); parseErr == nil {
 			tp.Timestamp = t
 		}
-		if metadataStr != "" && metadataStr != "{}" {
-			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
-		}
+		d.decryptPayload(&tp, metadataStr, contentEnc, metaEnc, encVersion)
 		tp.Embedding = rowVec
 
 		scored = append(scored, ScoredRecord{Payload: tp, Score: score})
@@ -745,7 +803,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause is built from a fixed set of conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg, content_encrypted, metadata_encrypted, encryption_version FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -764,6 +822,8 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 		var metadataStr string
 		var sensitivityLabelsStr string
 		var lshBucket sql.NullInt64
+		var contentEnc, metaEnc []byte
+		var encVersion int
 		if err := rows.Scan(
 			&tp.PayloadID,
 			&tp.RequestID,
@@ -791,6 +851,9 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 			&tp.Signature,
 			&tp.SigningKeyID,
 			&tp.SignatureAlg,
+			&contentEnc,
+			&metaEnc,
+			&encVersion,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: query: scan row: %w", err)
 		}
@@ -808,16 +871,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 			tp.Timestamp = t
 		}
 
-		// Parse metadata JSON back to map.
-		if metadataStr != "" && metadataStr != "{}" {
-			if err := json.Unmarshal([]byte(metadataStr), &tp.Metadata); err != nil {
-				d.logger.Warn("destination: sqlite: query: unmarshal metadata",
-					"component", "destination",
-					"payload_id", tp.PayloadID,
-					"error", err,
-				)
-			}
-		}
+		d.decryptPayload(&tp, metadataStr, contentEnc, metaEnc, encVersion)
 
 		records = append(records, tp)
 	}
@@ -870,6 +924,136 @@ func (d *SQLiteDestination) Close() error {
 	return nil
 }
 
+// SetEncryption wires a MasterKeyManager for per-row AES-256-GCM encryption.
+// Must be called before any writes or reads if encryption is desired.
+// Safe to call with a nil or disabled mkm — writes and reads remain plaintext.
+func (d *SQLiteDestination) SetEncryption(mkm *nexuscrypto.MasterKeyManager) {
+	d.mkm = mkm
+}
+
+// encryptionEnabled reports whether per-row encryption is active.
+func (d *SQLiteDestination) encryptionEnabled() bool {
+	return d.mkm != nil && d.mkm.IsEnabled()
+}
+
+// decryptPayload decrypts content and metadata in-place when encryption_version == 1.
+// Falls back to parsing metadataStr from the plaintext column for unencrypted rows.
+func (d *SQLiteDestination) decryptPayload(tp *TranslatedPayload, metadataStr string, contentEnc, metaEnc []byte, encVersion int) {
+	if encVersion == 1 && d.encryptionEnabled() {
+		subKey := d.mkm.SubKey("nexus-memory-key-v1")
+		perRowKey, err := derivePerRowKey(subKey, tp.PayloadID)
+		if err != nil {
+			d.logger.Warn("destination: sqlite: derive per-row key for read",
+				"component", "destination",
+				"payload_id", tp.PayloadID, "error", err)
+			return
+		}
+		aad := []byte(tp.PayloadID)
+		if len(contentEnc) > 0 {
+			plain, err := openAES256GCM(perRowKey, contentEnc, aad)
+			if err != nil {
+				d.logger.Warn("destination: sqlite: decrypt content",
+					"component", "destination",
+					"payload_id", tp.PayloadID, "error", err)
+			} else {
+				tp.Content = string(plain)
+			}
+		}
+		if len(metaEnc) > 0 {
+			plain, err := openAES256GCM(perRowKey, metaEnc, aad)
+			if err != nil {
+				d.logger.Warn("destination: sqlite: decrypt metadata",
+					"component", "destination",
+					"payload_id", tp.PayloadID, "error", err)
+			} else if len(plain) > 0 && string(plain) != "{}" {
+				_ = json.Unmarshal(plain, &tp.Metadata)
+			}
+		}
+		return
+	}
+	// Plaintext path: parse metadata JSON from the unencrypted column.
+	if metadataStr != "" && metadataStr != "{}" {
+		_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
+	}
+}
+
+// EncryptExistingRows migrates plaintext rows to encrypted storage in batches.
+// It is resumable: rows with encryption_version = 1 are skipped. After encrypting
+// each batch the plaintext columns are overwritten with empty values.
+// batchSize controls rows per iteration; pause is the sleep between batches.
+func (d *SQLiteDestination) EncryptExistingRows(ctx context.Context, batchSize int, pause time.Duration) error {
+	if !d.encryptionEnabled() {
+		return nil
+	}
+	subKey := d.mkm.SubKey("nexus-memory-key-v1")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		const selectQ = `SELECT payload_id, content, metadata FROM memories WHERE encryption_version = 0 LIMIT ?`
+		rows, err := d.db.QueryContext(ctx, selectQ, batchSize)
+		if err != nil {
+			return fmt.Errorf("destination: sqlite: encrypt existing: query: %w", err)
+		}
+
+		type rowData struct{ id, content, metadata string }
+		batch := make([]rowData, 0, batchSize)
+		for rows.Next() {
+			var r rowData
+			if err := rows.Scan(&r.id, &r.content, &r.metadata); err != nil {
+				_ = rows.Close()
+				return fmt.Errorf("destination: sqlite: encrypt existing: scan: %w", err)
+			}
+			batch = append(batch, r)
+		}
+		_ = rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("destination: sqlite: encrypt existing: rows: %w", err)
+		}
+
+		if len(batch) == 0 {
+			break
+		}
+
+		for _, r := range batch {
+			perRowKey, err := derivePerRowKey(subKey, r.id)
+			if err != nil {
+				return fmt.Errorf("destination: sqlite: encrypt existing: derive key %q: %w", r.id, err)
+			}
+			aad := []byte(r.id)
+			contentEnc, err := sealAES256GCM(perRowKey, []byte(r.content), aad)
+			if err != nil {
+				return fmt.Errorf("destination: sqlite: encrypt existing: seal content %q: %w", r.id, err)
+			}
+			metaEnc, err := sealAES256GCM(perRowKey, []byte(r.metadata), aad)
+			if err != nil {
+				return fmt.Errorf("destination: sqlite: encrypt existing: seal metadata %q: %w", r.id, err)
+			}
+			// Write encrypted blobs and wipe plaintext columns atomically.
+			// WHERE encryption_version = 0 guards against double-encrypting a row
+			// that was already migrated by a concurrent run.
+			const updateQ = `UPDATE memories
+				SET content_encrypted = ?, metadata_encrypted = ?,
+				    encryption_version = 1, content = '', metadata = '{}'
+				WHERE payload_id = ? AND encryption_version = 0`
+			if _, err := d.db.ExecContext(ctx, updateQ, contentEnc, metaEnc, r.id); err != nil {
+				return fmt.Errorf("destination: sqlite: encrypt existing: update %q: %w", r.id, err)
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pause):
+		}
+	}
+	return nil
+}
+
 // DB returns the underlying *sql.DB handle. Used by the substrate coordinator
 // to execute substrate-specific queries on the same database.
 // Reference: v0.1.3 BF-Sketch Substrate Build Plan, Step 2.
@@ -898,7 +1082,8 @@ func (d *SQLiteDestination) QueryClusterMembers(params ClusterQueryParams) ([]Tr
 		collection, content, model, role, timestamp, idempotency_key,
 		schema_version, transform_version, actor_type, actor_id, metadata,
 		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role,
-		signature, signing_key_id, signature_alg
+		signature, signing_key_id, signature_alg,
+		content_encrypted, metadata_encrypted, encryption_version
 		FROM memories WHERE cluster_id = ?` + tierClause + `
 		ORDER BY CASE cluster_role WHEN 'primary' THEN 0 WHEN 'member' THEN 1 ELSE 2 END,
 		timestamp DESC`
@@ -920,7 +1105,8 @@ func (d *SQLiteDestination) QueryBucketCandidates(tier, bucket, candidateLimit i
 		collection, content, model, role, timestamp, idempotency_key,
 		schema_version, transform_version, actor_type, actor_id, metadata, embedding,
 		sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role,
-		signature, signing_key_id, signature_alg
+		signature, signing_key_id, signature_alg,
+		content_encrypted, metadata_encrypted, encryption_version
 		FROM memories
 		WHERE tier = ? AND lsh_bucket = ? AND embedding IS NOT NULL AND length(embedding) > 0
 		ORDER BY timestamp DESC LIMIT ?`
@@ -937,6 +1123,8 @@ func (d *SQLiteDestination) QueryBucketCandidates(tier, bucket, candidateLimit i
 		var timestampStr, metadataStr, sensitivityLabelsStr string
 		var embeddingBlob []byte
 		var lshBucket sql.NullInt64
+		var contentEnc, metaEnc []byte
+		var encVersion int
 		if err := rows.Scan(
 			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
@@ -945,6 +1133,7 @@ func (d *SQLiteDestination) QueryBucketCandidates(tier, bucket, candidateLimit i
 			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
 			&tp.Signature, &tp.SigningKeyID, &tp.SignatureAlg,
+			&contentEnc, &metaEnc, &encVersion,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: bucket candidates scan: %w", err)
 		}
@@ -957,9 +1146,7 @@ func (d *SQLiteDestination) QueryBucketCandidates(tier, bucket, candidateLimit i
 		if t, parseErr := parseTimestamp(timestampStr); parseErr == nil {
 			tp.Timestamp = t
 		}
-		if metadataStr != "" && metadataStr != "{}" {
-			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
-		}
+		d.decryptPayload(&tp, metadataStr, contentEnc, metaEnc, encVersion)
 		tp.Embedding = decodeEmbedding(embeddingBlob)
 		records = append(records, tp)
 	}
@@ -988,6 +1175,8 @@ func (d *SQLiteDestination) scanClusterRows(rows *sql.Rows) ([]TranslatedPayload
 		var tp TranslatedPayload
 		var timestampStr, metadataStr, sensitivityLabelsStr string
 		var lshBucket sql.NullInt64
+		var contentEnc, metaEnc []byte
+		var encVersion int
 		if err := rows.Scan(
 			&tp.PayloadID, &tp.RequestID, &tp.Source, &tp.Subject, &tp.Namespace,
 			&tp.Destination, &tp.Collection, &tp.Content, &tp.Model, &tp.Role,
@@ -996,6 +1185,7 @@ func (d *SQLiteDestination) scanClusterRows(rows *sql.Rows) ([]TranslatedPayload
 			&sensitivityLabelsStr, &tp.ClassificationTier, &tp.Tier,
 			&lshBucket, &tp.ClusterID, &tp.ClusterRole,
 			&tp.Signature, &tp.SigningKeyID, &tp.SignatureAlg,
+			&contentEnc, &metaEnc, &encVersion,
 		); err != nil {
 			return nil, fmt.Errorf("destination: sqlite: scan cluster row: %w", err)
 		}
@@ -1008,9 +1198,7 @@ func (d *SQLiteDestination) scanClusterRows(rows *sql.Rows) ([]TranslatedPayload
 		if t, parseErr := parseTimestamp(timestampStr); parseErr == nil {
 			tp.Timestamp = t
 		}
-		if metadataStr != "" && metadataStr != "{}" {
-			_ = json.Unmarshal([]byte(metadataStr), &tp.Metadata)
-		}
+		d.decryptPayload(&tp, metadataStr, contentEnc, metaEnc, encVersion)
 		records = append(records, tp)
 	}
 	if err := rows.Err(); err != nil {
@@ -1176,7 +1364,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 	args = append(args, fetchLimit, offset)
 
 	//nolint:gosec // whereClause from fixed conditions — no user input.
-	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	query := "SELECT payload_id, request_id, source, subject, namespace, destination, collection, content, model, role, timestamp, idempotency_key, schema_version, transform_version, actor_type, actor_id, metadata, sensitivity_labels, classification_tier, tier, lsh_bucket, cluster_id, cluster_role, signature, signing_key_id, signature_alg, content_encrypted, metadata_encrypted, encryption_version FROM memories " + whereClause + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -1193,6 +1381,8 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 		var rec TranslatedPayload
 		var ts, metaStr, sensitivityLabelsStr string
 		var lshBucket sql.NullInt64
+		var contentEnc, metaEnc []byte
+		var encVersion int
 		if err := rows.Scan(
 			&rec.PayloadID, &rec.RequestID, &rec.Source, &rec.Subject,
 			&rec.Namespace, &rec.Destination, &rec.Collection, &rec.Content,
@@ -1202,6 +1392,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 			&rec.Tier,
 			&lshBucket, &rec.ClusterID, &rec.ClusterRole,
 			&rec.Signature, &rec.SigningKeyID, &rec.SignatureAlg,
+			&contentEnc, &metaEnc, &encVersion,
 		); err != nil {
 			return QueryResult{}, fmt.Errorf("destination: sqlite: time travel scan: %w", err)
 		}
@@ -1212,9 +1403,7 @@ func (d *SQLiteDestination) QueryTimeTravel(params TimeTravelParams) (QueryResul
 			rec.SensitivityLabels = strings.Split(sensitivityLabelsStr, ",")
 		}
 		rec.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
-		if metaStr != "" && metaStr != "{}" {
-			_ = json.Unmarshal([]byte(metaStr), &rec.Metadata)
-		}
+		d.decryptPayload(&rec, metaStr, contentEnc, metaEnc, encVersion)
 		records = append(records, rec)
 	}
 	if err := rows.Err(); err != nil {
