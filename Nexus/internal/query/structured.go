@@ -20,7 +20,7 @@ package query
 import (
 	"context"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // runStage3 executes Stage 3 (Structured Lookup) of the retrieval cascade.

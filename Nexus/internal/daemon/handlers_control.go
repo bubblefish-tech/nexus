@@ -29,11 +29,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/BubbleFish-Nexus/internal/actions"
-	"github.com/BubbleFish-Nexus/internal/approvals"
-	"github.com/BubbleFish-Nexus/internal/audit"
-	"github.com/BubbleFish-Nexus/internal/grants"
-	"github.com/BubbleFish-Nexus/internal/tasks"
+	"github.com/bubblefish-tech/nexus/internal/actions"
+	"github.com/bubblefish-tech/nexus/internal/approvals"
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/grants"
+	"github.com/bubblefish-tech/nexus/internal/tasks"
 )
 
 // ---------------------------------------------------------------------------

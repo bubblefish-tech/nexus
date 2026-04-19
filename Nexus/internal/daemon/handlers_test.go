@@ -25,8 +25,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
 )
 
 // buildWriteSource returns a Source with CanWrite=true and an idempotency window.

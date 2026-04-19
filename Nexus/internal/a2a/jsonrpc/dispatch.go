@@ -22,7 +22,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
 )
 
 // Handler handles a single JSON-RPC method call.

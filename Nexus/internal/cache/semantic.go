@@ -24,7 +24,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

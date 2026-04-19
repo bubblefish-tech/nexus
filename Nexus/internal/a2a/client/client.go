@@ -26,9 +26,9 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 )
 
 // reqCounter is a global atomic counter for generating unique request IDs.

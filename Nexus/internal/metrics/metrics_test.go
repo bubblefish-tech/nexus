@@ -23,7 +23,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/BubbleFish-Nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/metrics"
 )
 
 // TestMultipleRegistriesNoPanic verifies that creating multiple Metrics

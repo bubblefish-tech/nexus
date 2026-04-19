@@ -15,7 +15,7 @@ This repo maintains a build ledger at `BUILD_LEDGER.md` (repo root).
 The ledger is the single source of truth for which phase/subtask is active, which branches are in-flight, and what's merged. If the ledger and reality disagree, stop and reconcile before continuing.
 
 ## Go Module
-github.com/BubbleFish-Nexus
+github.com/bubblefish-tech/nexus
 
 ## Build Commands
 - Build: `go build ./...`

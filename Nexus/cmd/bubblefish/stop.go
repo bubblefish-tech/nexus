@@ -26,7 +26,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // stopOptions collects resolved parameters so the core logic can be tested

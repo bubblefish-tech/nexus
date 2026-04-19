@@ -24,7 +24,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // RebuildOptions configures a destination rebuild from WAL replay.

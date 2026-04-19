@@ -25,7 +25,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/BubbleFish-Nexus/internal/fsutil"
+	"github.com/bubblefish-tech/nexus/internal/fsutil"
 )
 
 // WALUpdater is implemented by WAL and consumed by the queue worker to mark

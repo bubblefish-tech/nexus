@@ -23,8 +23,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
 
 // contextKey is an unexported type used for context keys to avoid collisions.

@@ -39,17 +39,17 @@ import (
 	"github.com/tidwall/gjson"
 	"golang.org/x/time/rate"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/demo"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/eventsink"
-	"github.com/BubbleFish-Nexus/internal/lint"
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/vizpipe"
-	"github.com/BubbleFish-Nexus/internal/query"
-	"github.com/BubbleFish-Nexus/internal/version"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/demo"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/eventsink"
+	"github.com/bubblefish-tech/nexus/internal/lint"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/vizpipe"
+	"github.com/bubblefish-tech/nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // embedContent computes a vector embedding for the given content string.

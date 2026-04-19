@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // Provider identifies an upstream AI provider.

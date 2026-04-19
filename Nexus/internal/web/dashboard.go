@@ -35,7 +35,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // SourcePolicyInfo is a read-only summary of a source's policies for the

@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
 )
 
 // SkillFunc is the signature of a skill execution function.

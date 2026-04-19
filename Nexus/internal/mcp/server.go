@@ -32,8 +32,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/mcp/bridge"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/mcp/bridge"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // JSON-RPC 2.0 error codes.

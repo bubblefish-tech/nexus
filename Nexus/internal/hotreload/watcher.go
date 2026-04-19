@@ -41,9 +41,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/fsutil"
-	"github.com/BubbleFish-Nexus/internal/signing"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/fsutil"
+	"github.com/bubblefish-tech/nexus/internal/signing"
 	"github.com/fsnotify/fsnotify"
 )
 

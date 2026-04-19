@@ -21,7 +21,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/mcp/bridge"
+	"github.com/bubblefish-tech/nexus/internal/mcp/bridge"
 )
 
 // TestClaudeDesktop_IdentityDerivation verifies that a synthetic Claude Desktop

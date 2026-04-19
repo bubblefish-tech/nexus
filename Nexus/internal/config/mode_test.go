@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // setupModeConfig creates a config directory with the given daemon.toml body,

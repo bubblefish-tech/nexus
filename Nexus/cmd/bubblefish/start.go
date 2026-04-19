@@ -24,12 +24,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/daemon"
-	"github.com/BubbleFish-Nexus/internal/tray"
-	"github.com/BubbleFish-Nexus/internal/version"
-	"github.com/BubbleFish-Nexus/internal/web"
-	dashboardui "github.com/BubbleFish-Nexus/web/dashboard"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/tray"
+	"github.com/bubblefish-tech/nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/web"
+	dashboardui "github.com/bubblefish-tech/nexus/web/dashboard"
 )
 
 // runStart executes the `bubblefish start` command.

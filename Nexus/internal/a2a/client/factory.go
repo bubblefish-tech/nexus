@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 )
 
 // Factory creates NA2A Clients by selecting the appropriate transport

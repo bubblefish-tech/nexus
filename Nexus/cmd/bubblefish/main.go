@@ -31,11 +31,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/lint"
-	"github.com/BubbleFish-Nexus/internal/mcp"
-	"github.com/BubbleFish-Nexus/internal/signing"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/lint"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/signing"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 func main() {

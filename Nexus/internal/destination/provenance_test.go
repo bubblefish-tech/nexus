@@ -20,7 +20,7 @@ package destination_test
 import (
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // ---------------------------------------------------------------------------

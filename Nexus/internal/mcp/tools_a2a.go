@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/BubbleFish-Nexus/internal/mcp/bridge"
+	"github.com/bubblefish-tech/nexus/internal/mcp/bridge"
 )
 
 // a2aToolDefs converts bridge.ToolDefinitions into MCP toolDef structs

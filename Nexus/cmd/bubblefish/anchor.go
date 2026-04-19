@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // runAnchor dispatches anchor management subcommands.

@@ -25,7 +25,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/chaos"
+	"github.com/bubblefish-tech/nexus/internal/chaos"
 )
 
 // runChaos executes `bubblefish chaos`.

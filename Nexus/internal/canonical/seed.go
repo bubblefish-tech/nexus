@@ -22,7 +22,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 const seedFileName = "canonical.seed"

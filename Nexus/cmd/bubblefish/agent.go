@@ -26,7 +26,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/agent"
+	"github.com/bubblefish-tech/nexus/internal/agent"
 	_ "modernc.org/sqlite"
 )
 

@@ -26,7 +26,7 @@ package query
 import (
 	"errors"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // CanonicalQuery is the normalised, validated form of a query request. It is

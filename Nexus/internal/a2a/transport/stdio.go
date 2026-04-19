@@ -28,7 +28,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
 
 // StdioTransport implements Transport over newline-delimited JSON on stdin/stdout.

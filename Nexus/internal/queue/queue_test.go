@@ -29,9 +29,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/queue"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/queue"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // ── Test doubles ────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ package tray
 import (
 	"fmt"
 
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // Run starts the system tray on Windows. It blocks until Quit() is called.

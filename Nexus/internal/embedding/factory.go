@@ -22,7 +22,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 const (

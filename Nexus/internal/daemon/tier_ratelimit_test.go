@@ -20,8 +20,8 @@ package daemon_test
 import (
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
 )
 
 // TestEffectiveRPM verifies the tier rate limit precedence chain:

@@ -21,7 +21,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // neutralCosSim is the cosine similarity assigned to Stage 3-only records

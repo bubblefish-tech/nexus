@@ -24,7 +24,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/BubbleFish-Nexus/internal/demo"
+	"github.com/bubblefish-tech/nexus/internal/demo"
 )
 
 // runDemo executes `bubblefish demo`.

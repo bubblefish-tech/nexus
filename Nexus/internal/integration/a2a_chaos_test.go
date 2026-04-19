@@ -28,11 +28,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/governance"
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/governance"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 )
 
 // --- Fault-injection transport wrapper ---

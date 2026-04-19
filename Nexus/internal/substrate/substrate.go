@@ -34,9 +34,9 @@ import (
 	"log/slog"
 	"math"
 
-	"github.com/BubbleFish-Nexus/internal/canonical"
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/canonical"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // Substrate is the top-level coordinator for the BF-Sketch substrate.

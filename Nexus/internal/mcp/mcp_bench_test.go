@@ -27,8 +27,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // benchPipeline is a minimal Pipeline implementation for benchmarks.

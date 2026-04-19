@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/server"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/server"
 )
 
 // runA2AAudit dispatches audit subcommands for A2A.

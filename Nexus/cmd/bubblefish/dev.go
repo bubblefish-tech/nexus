@@ -25,11 +25,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/daemon"
-	"github.com/BubbleFish-Nexus/internal/tray"
-	"github.com/BubbleFish-Nexus/internal/version"
-	"github.com/BubbleFish-Nexus/internal/web"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/tray"
+	"github.com/bubblefish-tech/nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/web"
 )
 
 // runDev executes the `bubblefish dev` command.

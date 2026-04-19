@@ -22,7 +22,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
 )
 
 // Pool manages a set of NA2A Clients keyed by agent ID. It lazily creates

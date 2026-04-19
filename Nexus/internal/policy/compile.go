@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/fsutil"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/fsutil"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // Compile writes a compiled/policies.json artifact to outputDir containing

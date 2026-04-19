@@ -27,15 +27,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
-	"github.com/BubbleFish-Nexus/internal/actions"
-	"github.com/BubbleFish-Nexus/internal/approvals"
-	"github.com/BubbleFish-Nexus/internal/grants"
-	"github.com/BubbleFish-Nexus/internal/mcp"
-	"github.com/BubbleFish-Nexus/internal/policy"
-	"github.com/BubbleFish-Nexus/internal/tasks"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/actions"
+	"github.com/bubblefish-tech/nexus/internal/approvals"
+	"github.com/bubblefish-tech/nexus/internal/grants"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/tasks"
 )
 
 // ---------------------------------------------------------------------------

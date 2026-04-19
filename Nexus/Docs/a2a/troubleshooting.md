@@ -213,4 +213,4 @@ If your issue is not covered here:
 
 1. Check daemon logs: `~/.bubblefish/Nexus/logs/`
 2. Run diagnostics: `bubblefish doctor`
-3. Report an issue: https://github.com/BubbleFish-Nexus/issues
+3. Report an issue: https://github.com/bubblefish-tech/nexus/issues

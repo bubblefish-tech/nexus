@@ -21,7 +21,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 const (

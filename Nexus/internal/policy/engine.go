@@ -24,10 +24,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/actions"
-	"github.com/BubbleFish-Nexus/internal/approvals"
-	"github.com/BubbleFish-Nexus/internal/grants"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/actions"
+	"github.com/bubblefish-tech/nexus/internal/approvals"
+	"github.com/bubblefish-tech/nexus/internal/grants"
 )
 
 // EngineConfig holds the runtime configuration for the policy engine. The

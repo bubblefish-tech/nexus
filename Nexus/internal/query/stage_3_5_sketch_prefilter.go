@@ -21,9 +21,9 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/BubbleFish-Nexus/internal/canonical"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/substrate"
+	"github.com/bubblefish-tech/nexus/internal/canonical"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/substrate"
 )
 
 // SketchPrefilterConfig holds the dependencies for Stage 3.5.

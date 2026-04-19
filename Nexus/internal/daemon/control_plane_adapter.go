@@ -22,12 +22,12 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/BubbleFish-Nexus/internal/actions"
-	"github.com/BubbleFish-Nexus/internal/approvals"
-	"github.com/BubbleFish-Nexus/internal/grants"
-	"github.com/BubbleFish-Nexus/internal/mcp"
-	"github.com/BubbleFish-Nexus/internal/policy"
-	"github.com/BubbleFish-Nexus/internal/tasks"
+	"github.com/bubblefish-tech/nexus/internal/actions"
+	"github.com/bubblefish-tech/nexus/internal/approvals"
+	"github.com/bubblefish-tech/nexus/internal/grants"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/tasks"
 )
 
 // controlPlaneAdapter adapts the daemon's control-plane stores and policy

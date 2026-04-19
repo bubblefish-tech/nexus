@@ -20,9 +20,9 @@ package tabs
 import (
 	"fmt"
 
-	"github.com/BubbleFish-Nexus/internal/tui/api"
-	"github.com/BubbleFish-Nexus/internal/tui/components"
-	"github.com/BubbleFish-Nexus/internal/tui/styles"
+	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
+	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

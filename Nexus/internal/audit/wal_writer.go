@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // WALWriter submits audit records to the WAL as EntryTypeAudit entries.

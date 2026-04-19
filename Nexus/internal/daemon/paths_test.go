@@ -24,8 +24,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/metrics"
 )
 
 func TestDaemon_SQLitePathFallsBackToConfigDir(t *testing.T) {

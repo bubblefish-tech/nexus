@@ -22,7 +22,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
 )
 
 // echoHandler returns the params as the result.

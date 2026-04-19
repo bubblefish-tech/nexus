@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BubbleFish-Nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
 )
 
 // runVerify executes `bubblefish verify <proof-file.json>`.

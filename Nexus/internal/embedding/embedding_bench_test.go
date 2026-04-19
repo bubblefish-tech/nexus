@@ -27,7 +27,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // benchEmbeddingHandler returns an httptest handler that mimics the OpenAI

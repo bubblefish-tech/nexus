@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // statusOptions collects resolved parameters so the core logic can be tested

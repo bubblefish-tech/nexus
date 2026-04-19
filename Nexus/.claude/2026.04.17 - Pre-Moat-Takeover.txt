@@ -1,0 +1,129 @@
+# CONTINUATION DIRECTIVES — SUBSTRATE GAP + REVISED SEQUENCE
+
+## Decision on blocker: Option (a) — add interfaces on v0.1.3-bf-sketch before Phase 1A
+
+The enterprise seam interfaces must be added BEFORE Phase 1A, not deferred. Phase 1A's REST handlers (MT.2) and audit integration (MT.3) are exactly the surfaces these interfaces abstract. Adding them later forces rewriting every new handler. They belong on v0.1.3-bf-sketch as a dedicated substrate step, then substrate merges to main before A2A.
+
+## CRITICAL: Verify substrate merge status on main BEFORE anything else
+
+Before executing any sequence, verify whether substrate work is actually on main. Run:
+
+```
+git log main --oneline | grep -iE "substrate|bf-sketch|BS\." | head -20
+git show main:Nexus/internal/substrate/substrate.go 2>&1 | head -5
+git ls-tree -r main --name-only | grep -i substrate | head -20
+```
+
+**Report the results to Shawn before proceeding.** Three possible outcomes:
+
+- **Outcome A — substrate IS on main:** proceed with the revised sequence below but SKIP Steps 3-5 (substrate merge already done).
+- **Outcome B — substrate is NOT on main:** execute the full revised sequence below.
+- **Outcome C — partial/ambiguous:** STOP and report what you found. Shawn decides.
+
+## Revised execution sequence (strict order, pending substrate verification)
+
+### Step 1 — Ledger bootstrap on main
+- Update .gitignore to cover: BUILD_LEDGER.md, .claude/*.md, .claude/settings.local.json, .a2a-debug/, *.bak
+- Verify: `git check-ignore BUILD_LEDGER.md` must print `BUILD_LEDGER.md`
+- Present CLAUDE.md diff + initial BUILD_LEDGER.md contents to Shawn for review
+- On approval: commit CLAUDE.md + .gitignore to main as `docs: establish CLAUDE.md and BUILD_LEDGER.md work ledger system (pre-MT.1)`
+- Create BUILD_LEDGER.md locally (not committed — gitignored)
+
+### Step 2 — Dogfood baseline P0.2 smoke check
+- Start daemon at D:\Test\BubbleFish\v010-dogfood
+- Verify /health, MCP port 7474, dashboard port 8081, Claude Desktop MCP tools
+- Record results in BUILD_LEDGER.md
+- If any check fails: STOP, report, wait
+
+### Step 3 — Substrate Enterprise Interfaces on v0.1.3-bf-sketch (ONLY IF Outcome B)
+- Checkout v0.1.3-bf-sketch
+- Create `Nexus/internal/substrate/interfaces.go` per SUBSTRATE_ENTERPRISE_INTERFACES.md spec:
+  - `Identity` struct (ID, DisplayName, Roles, Attributes)
+  - `AuthProvider` interface (Authenticate method)
+  - `AuditEvent` struct + `AuditSink` interface
+  - `PermissionChecker` interface
+  - `Option` type + default implementations
+  - `WithAuthProvider()`, `WithAuditSink()`, `WithPermissionChecker()` option functions
+  - Wire into existing `substrate.New()` without breaking its current signature
+- Write tests in `interfaces_test.go` covering each default implementation + option injection (15+ tests)
+- AGPL header on new file. Follow spec's public framing: "interfaces allow customization" — do NOT mention commercial product separation in comments or docs
+- Quality gate: `go build ./... && go vet ./... && CGO_ENABLED=1 go test ./... -race -count=1` green on v0.1.3-bf-sketch
+- Commit as: `substrate: add dependency-injection seams for auth, audit, permissions`
+- Update BUILD_LEDGER.md
+
+### Step 4 — Run substrate exit gate on v0.1.3-bf-sketch (ONLY IF Outcome B)
+- Full test suite green
+- Test count baseline for substrate recorded in BUILD_LEDGER.md
+- Three-binary sync verification skipped here (substrate doesn't change CLI surface)
+
+### Step 5 — Merge v0.1.3-bf-sketch → main (ONLY IF Outcome B)
+```
+git checkout main
+git merge --no-ff v0.1.3-bf-sketch
+go build ./... && go vet ./... && CGO_ENABLED=1 go test ./... -race -count=1
+```
+- Merge must be green. If conflicts arise, STOP and report — do NOT resolve silently
+- Update BUILD_LEDGER.md: substrate phase status → MERGED, enterprise interfaces → SHIPPED
+
+### Step 6 — A2A cleanup on v0.1.3-a2a
+- Checkout v0.1.3-a2a
+- **Before splitting the daemon.go diff:** rebase v0.1.3-a2a onto the new main so it picks up substrate code
+```
+  git checkout v0.1.3-a2a
+  git rebase main
+```
+  If rebase conflicts: STOP and report. Do NOT resolve silently.
+- Split mixed internal/daemon/daemon.go diff into TWO commits:
+```
+  git add -p Nexus/internal/daemon/daemon.go   # stage only setupA2ABridge hunk
+  git commit -m "a2a: wire A2A bridge into daemon startup"
+  git add Nexus/internal/daemon/daemon.go      # stage remaining walwatchdog hunks
+  git commit -m "supervisor: clamp walwatchdog interval and emit initial heartbeat"
+```
+- Delete CLAUDE.md.bak (`rm CLAUDE.md.bak`)
+- Revert .claude/settings.local.json (`git checkout -- .claude/settings.local.json`)
+
+### Step 7 — Run A2A exit gate on v0.1.3-a2a
+- Full test suite green WITH substrate code now included
+- Record test count in BUILD_LEDGER.md
+
+### Step 8 — Merge v0.1.3-a2a → main
+```
+git checkout main
+git merge --no-ff v0.1.3-a2a
+go build ./... && go vet ./... && CGO_ENABLED=1 go test ./... -race -count=1
+```
+- Update BUILD_LEDGER.md: A2A phase status → MERGED
+
+### Step 9 — Create v0.1.3-moat-takeover off new main
+```
+git checkout -b v0.1.3-moat-takeover
+```
+- Update BUILD_LEDGER.md: new branch row, current subtask = MT.1
+
+### Step 10 — Execute MT.1 → MT.2 → MT.3 → MT.4
+- Per previously-approved Phase 1A directives (new packages, nexus_* tool names, narrow policy scope, etc.)
+- Ledger update in SAME commit as each subtask
+- STOP after MT.4 and wait for Shawn review
+
+## Scope boundaries for Step 3 (interfaces addition)
+
+Add ONLY what SUBSTRATE_ENTERPRISE_INTERFACES.md specifies. Do NOT:
+- Create commercial implementations (not our job)
+- Wire the interfaces through every substrate consumer (that's a separate consolidation, out of scope here)
+- Modify existing substrate public API signatures beyond additive Option parameters
+- Add interfaces beyond the three specified (AuthProvider, AuditSink, PermissionChecker)
+
+Stay minimal. The file defines the seams. Default implementations preserve current behavior bit-for-bit. Commercial alternatives are a future concern.
+
+## Required confirmations before proceeding
+
+Reply with:
+
+1. Confirmation you will run the substrate-on-main verification FIRST and report before proceeding
+2. Confirmation that if substrate is absent from main, you will add interfaces to v0.1.3-bf-sketch and merge substrate to main BEFORE touching v0.1.3-a2a
+3. Confirmation you will rebase v0.1.3-a2a onto the new main (if substrate merges) before splitting the daemon.go diff
+4. Confirmation the scope boundaries for Step 3 are understood (just the three interfaces, no wiring, no commercial code)
+5. Confirmation that any rebase or merge conflict triggers STOP + report, no silent resolution
+
+After confirmation and substrate verification, proceed with the appropriate branch of the sequence (A or B depending on substrate status).

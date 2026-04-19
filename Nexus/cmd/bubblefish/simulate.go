@@ -25,7 +25,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/simulate"
+	"github.com/bubblefish-tech/nexus/internal/simulate"
 )
 
 // runSimulate executes `bubblefish simulate`.

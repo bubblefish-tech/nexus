@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // buildTLSConfig constructs a *tls.Config from the daemon TLS configuration.

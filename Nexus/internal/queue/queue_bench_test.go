@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // bench helpers — defined here because queue_test.go uses package queue_test

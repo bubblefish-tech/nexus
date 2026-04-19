@@ -30,8 +30,8 @@ package mcp
 import (
 	"context"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // Pipeline is the internal interface the MCP server uses to route tool calls

@@ -31,7 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // WALReader is the WAL interface needed by Sentinel (subset of wal.WAL).

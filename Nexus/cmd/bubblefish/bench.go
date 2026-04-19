@@ -24,7 +24,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/BubbleFish-Nexus/internal/bench"
+	"github.com/bubblefish-tech/nexus/internal/bench"
 )
 
 // runBench executes `bubblefish bench`.

@@ -32,7 +32,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 const (

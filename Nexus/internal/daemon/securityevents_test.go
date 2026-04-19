@@ -26,9 +26,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/metrics"
-	"github.com/BubbleFish-Nexus/internal/securitylog"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/securitylog"
 )
 
 func newTestDaemonWithSecurityLog(t *testing.T) *Daemon {

@@ -24,8 +24,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 	"github.com/BurntSushi/toml"
 	_ "modernc.org/sqlite" // SQLite driver
 )

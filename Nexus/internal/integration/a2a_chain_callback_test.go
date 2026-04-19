@@ -25,9 +25,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
-	"github.com/BubbleFish-Nexus/internal/a2a/server"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/server"
 )
 
 // fakeClientPool is a test double for server.ClientPool that maps target agent

@@ -29,12 +29,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/idempotency"
-	"github.com/BubbleFish-Nexus/internal/queue"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/idempotency"
+	"github.com/bubblefish-tech/nexus/internal/queue"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // fakeDestination is a no-op DestinationWriter + Querier used in tests.

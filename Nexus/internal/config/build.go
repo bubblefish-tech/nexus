@@ -22,7 +22,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/BubbleFish-Nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/policy"
 )
 
 // RunBuild implements the `bubblefish build` command.

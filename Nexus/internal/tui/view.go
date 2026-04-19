@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/tui/components"
-	"github.com/BubbleFish-Nexus/internal/tui/styles"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
+	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/lipgloss"
 )
 

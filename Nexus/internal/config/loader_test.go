@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // toTOMLPath converts a filesystem path to a forward-slash path safe for

@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/governance"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/governance"
 	_ "modernc.org/sqlite"
 )
 

@@ -18,7 +18,7 @@
 package tui
 
 import (
-	"github.com/BubbleFish-Nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

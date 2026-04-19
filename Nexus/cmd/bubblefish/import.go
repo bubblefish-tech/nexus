@@ -27,7 +27,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/ingest/importer"
+	"github.com/bubblefish-tech/nexus/internal/ingest/importer"
 )
 
 // runImport executes `bubblefish import`.

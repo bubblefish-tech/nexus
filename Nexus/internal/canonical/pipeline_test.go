@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // newTestManager creates a fully initialized Manager for testing.

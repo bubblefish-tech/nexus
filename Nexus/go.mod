@@ -1,4 +1,4 @@
-module github.com/BubbleFish-Nexus
+module github.com/bubblefish-tech/nexus
 
 go 1.26.1
 
@@ -17,7 +17,8 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/seiflotfy/cuckoofilter v0.0.0-20240715131351-a2f2c23f1771
 	github.com/tidwall/gjson v1.18.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/sys v0.43.0
 	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.48.1
 )
@@ -59,8 +60,8 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

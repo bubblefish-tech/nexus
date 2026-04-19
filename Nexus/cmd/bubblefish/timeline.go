@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/audit"
 )
 
 // runTimeline walks the audit log and displays the full history of a memory.

@@ -24,7 +24,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/BubbleFish-Nexus/internal/securitylog"
+	"github.com/bubblefish-tech/nexus/internal/securitylog"
 )
 
 // emitSecurityEvent writes a structured security event to both the main

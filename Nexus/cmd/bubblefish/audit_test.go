@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/audit"
 )
 
 func TestAuditCLI_DefaultLogFilePath(t *testing.T) {

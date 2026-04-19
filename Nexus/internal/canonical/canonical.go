@@ -39,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // Metadata holds information about a canonicalized vector.

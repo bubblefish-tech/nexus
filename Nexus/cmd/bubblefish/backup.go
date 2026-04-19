@@ -24,7 +24,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/BubbleFish-Nexus/internal/backup"
+	"github.com/bubblefish-tech/nexus/internal/backup"
 )
 
 // runBackup dispatches to backup create or backup restore subcommands.

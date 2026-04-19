@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/BubbleFish-Nexus/internal/agent"
+	"github.com/bubblefish-tech/nexus/internal/agent"
 	"github.com/go-chi/chi/v5"
 )
 

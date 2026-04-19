@@ -21,7 +21,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/canonical"
+	"github.com/bubblefish-tech/nexus/internal/canonical"
 )
 
 // makeCanonicalVec creates a deterministic unit-norm canonical vector.

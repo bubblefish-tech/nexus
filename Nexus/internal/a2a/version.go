@@ -17,7 +17,7 @@
 
 package a2a
 
-import "github.com/BubbleFish-Nexus/internal/version"
+import "github.com/bubblefish-tech/nexus/internal/version"
 
 const (
 	// ProtocolVersion is the A2A wire protocol version this implementation targets.

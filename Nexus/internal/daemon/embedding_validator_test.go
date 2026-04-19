@@ -20,7 +20,7 @@ package daemon_test
 import (
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
 )
 
 func TestEmbeddingValidator_ShapeCheck(t *testing.T) {

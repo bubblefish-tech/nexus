@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // newTestSQLite opens a SQLite destination in a temporary directory. The

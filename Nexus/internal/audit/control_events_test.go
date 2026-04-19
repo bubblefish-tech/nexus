@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/audit"
 )
 
 func TestControlEventTypes(t *testing.T) {

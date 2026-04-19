@@ -28,7 +28,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/audit"
 )
 
 // ---------------------------------------------------------------------------

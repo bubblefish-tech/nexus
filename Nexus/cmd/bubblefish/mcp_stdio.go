@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // runMCPStdio is the entry point for `bubblefish mcp stdio`.

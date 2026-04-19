@@ -24,10 +24,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/cluster"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/lsh"
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/cluster"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/lsh"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // openTestDB creates a fresh SQLite destination in t.TempDir().

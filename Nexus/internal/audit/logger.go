@@ -32,7 +32,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/fsutil"
+	"github.com/bubblefish-tech/nexus/internal/fsutil"
 )
 
 // AuditLogger is an append-only, CRC32-protected, optionally HMAC'd and encrypted

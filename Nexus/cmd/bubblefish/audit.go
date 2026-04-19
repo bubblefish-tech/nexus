@@ -29,9 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
 )
 
 // runAudit dispatches `bubblefish audit <subcommand>`.
