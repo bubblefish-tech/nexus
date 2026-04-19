@@ -506,8 +506,34 @@
   - Vet: OK
   - 68 packages PASS — zero failures (50 tests in internal/discover, +20 new connector tests)
 
+## DISC.4: COMPLETE — Orchestration Engine
+- New package: `internal/orchestrate/`
+  - `engine.go`: Engine struct + Config; 5 public methods: ListAgents, Orchestrate, Council, Broadcast, Collect
+  - AgentLister, GrantChecker, MemoryWriter interfaces (daemon-side adapters)
+  - Orchestrate: caller must hold "orchestrate" + "dispatch:<agent_id>" grants; parallel dispatch; fail strategies (wait_all, return_partial, fail_fast); optional memory persistence; result cache for nexus_collect
+  - Council: deliberation mode with "reason step-by-step" prefix; synthesises responses
+  - Broadcast: fire-and-forget goroutines; 10s per-agent timeout
+  - Collect: retrieve cached OrchestrationResult by ID
+  - `engine_test.go`: 20 tests covering all methods, strategies, token-limit detection (HTTP 413/429/body phrase), OpenAI-compat response extraction, immune scan, memory storage, latency population
+- New package: `internal/immune/`
+  - `scanner.go`: Scanner stub — ScanOrchestrationResult + ScanWrite both return Action="accept"; Tier-0 rules added in DEF.1
+  - `scanner_test.go`: 6 tests (always-accept, empty inputs, embedding, zero-value, field round-trip)
+- New file: `internal/mcp/tools_orchestrate.go`
+  - OrchestrateProvider interface; 6 DTOs; orchestrateToolDefs() (5 tools); 5 call handlers (callNexusListAgents, callNexusOrchestrate, callNexusCouncil, callNexusBroadcast, callNexusCollect)
+  - SetOrchestrateProvider setter on Server; all tools fail gracefully when provider is nil
+- Modified: `internal/mcp/server.go` — orchestrateProvider field; tool list + tool dispatch wired
+- New file: `internal/daemon/orchestrate_adapter.go`
+  - orchestrateAdapter (mcp.OrchestrateProvider → orchestrate.Engine)
+  - registryAgentLister (orchestrate.AgentLister → registry.Store)
+  - grantStoreChecker (orchestrate.GrantChecker → grants.Store)
+- Modified: `internal/daemon/daemon.go` — wires orchestration engine when registryStore + grantStore + mcpServer are all non-nil
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 70 packages PASS — zero failures (2 new: internal/orchestrate, internal/immune)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DISC.3 complete. Next: DISC.4 — Orchestration Engine.
+## Current subtask: DISC.4 complete. Next: DEF.1 — Immune System Tier-0 Rules.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

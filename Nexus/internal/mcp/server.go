@@ -218,6 +218,10 @@ type Server struct {
 	// Nil when the control plane is disabled.
 	controlPlane ControlPlaneProvider
 
+	// orchestrateProvider handles multi-agent orchestration MCP tools (DISC.4).
+	// Nil when orchestration is not enabled.
+	orchestrateProvider OrchestrateProvider
+
 	tlsConfig *tls.Config // nil when TLS is disabled (default)
 
 	httpServer *http.Server
@@ -777,6 +781,9 @@ func (s *Server) handleToolsList(w http.ResponseWriter, r *http.Request, req rpc
 	if s.controlPlane != nil {
 		tools = append(tools, controlToolDefs()...)
 	}
+	if s.orchestrateProvider != nil {
+		tools = append(tools, orchestrateToolDefs()...)
+	}
 	s.writeRPCResult(w, r, req.ID, toolsListResult{Tools: tools})
 }
 
@@ -832,6 +839,16 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 		s.callNexusTaskStatus(w, r, req, params.Arguments)
 	case "nexus_action_log":
 		s.callNexusActionLog(w, r, req, params.Arguments)
+	case "nexus_list_agents":
+		s.callNexusListAgents(w, r, req)
+	case "nexus_orchestrate":
+		s.callNexusOrchestrate(w, r, req, params.Arguments)
+	case "nexus_council":
+		s.callNexusCouncil(w, r, req, params.Arguments)
+	case "nexus_broadcast":
+		s.callNexusBroadcast(w, r, req, params.Arguments)
+	case "nexus_collect":
+		s.callNexusCollect(w, r, req, params.Arguments)
 	default:
 		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
 	}

@@ -66,6 +66,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/idempotency"
 	"github.com/bubblefish-tech/nexus/internal/mcp"
 	"github.com/bubblefish-tech/nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/orchestrate"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
 	"github.com/bubblefish-tech/nexus/internal/firewall"
 	"github.com/bubblefish-tech/nexus/internal/grants"
@@ -1096,6 +1097,19 @@ func (d *Daemon) Start() error {
 		})
 		d.logger.Info("daemon: MCP control-plane tools enabled",
 			"component", "control",
+		)
+	}
+
+	// Wire the orchestration engine when the registry and grant stores are available.
+	if d.registryStore != nil && d.grantStore != nil && d.mcpServer != nil {
+		orchEngine := orchestrate.New(orchestrate.Config{
+			Agents: &registryAgentLister{store: d.registryStore},
+			Grants: &grantStoreChecker{store: d.grantStore},
+			Logger: d.logger,
+		})
+		d.mcpServer.SetOrchestrateProvider(&orchestrateAdapter{engine: orchEngine})
+		d.logger.Info("daemon: MCP orchestration tools enabled",
+			"component", "orchestrate",
 		)
 	}
 
