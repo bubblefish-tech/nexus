@@ -305,7 +305,7 @@
 - Daemon wiring: `d.mkm` stored on Daemon struct; `MigrateEncryptionColumns` called at registry open; `SetEncryption` called on all 4 stores
 - New files: `internal/crypto/aead.go`, `internal/a2a/registry/encrypt_migration.go`
 - New test files: `internal/grants/encryption_test.go` (10 tests), `internal/approvals/encryption_test.go` (7 tests), `internal/tasks/encryption_test.go` (8 tests), `internal/actions/encryption_test.go` (7 tests)
-- Commit: (pending)
+- Commit: 998000d
 - Exit gate:
   - Build: OK
   - Vet: OK
