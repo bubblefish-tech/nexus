@@ -22,9 +22,11 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/crypto"
 	"github.com/bubblefish-tech/nexus/internal/daemon"
 	"github.com/bubblefish-tech/nexus/internal/tray"
 	"github.com/bubblefish-tech/nexus/internal/version"
@@ -52,8 +54,18 @@ func runStart() {
 		Level: slog.LevelInfo,
 	}))
 
-	// Load config.
-	cfg, err := config.Load(configDir, logger)
+	// Derive master key before loading config so ENC:v1: fields can be decrypted.
+	// Non-fatal: if no password is configured, mkm is disabled and plaintext config is used.
+	var mkm *crypto.MasterKeyManager
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		saltPath := filepath.Join(home, ".nexus", "crypto.salt")
+		if m, mkmErr := crypto.NewMasterKeyManager("", saltPath); mkmErr == nil {
+			mkm = m
+		}
+	}
+
+	// Load config, decrypting any ENC:v1: fields with the config sub-key.
+	cfg, err := config.LoadWithKey(configDir, logger, mkm)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish start: config load: %v\n", err)
 		os.Exit(1)
