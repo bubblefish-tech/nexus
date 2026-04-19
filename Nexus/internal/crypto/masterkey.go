@@ -43,6 +43,7 @@ var subKeyDomains = []string{
 	"nexus-memory-key-v1",
 	"nexus-audit-key-v1",
 	"nexus-control-key-v1",
+	"nexus-backup-key-v1",
 }
 
 // MasterKeyManager derives encryption sub-keys from a user password using

@@ -23,8 +23,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/bubblefish-tech/nexus/internal/backup"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/crypto"
 )
 
 // runBackup dispatches to backup create or backup restore subcommands.
@@ -37,11 +40,13 @@ import (
 // Reference: Tech Spec Section 14.5, Phase R-24.
 func runBackup(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: bubblefish backup <create|restore|verify>")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish backup <create|restore|verify|export|import>")
 		fmt.Fprintln(os.Stderr, "subcommands:")
-		fmt.Fprintln(os.Stderr, "  create   create a backup of config, compiled, and WAL files")
+		fmt.Fprintln(os.Stderr, "  create   create a backup of config, compiled, and WAL files (directory)")
 		fmt.Fprintln(os.Stderr, "  restore  restore from a backup directory")
 		fmt.Fprintln(os.Stderr, "  verify   verify backup integrity without restoring")
+		fmt.Fprintln(os.Stderr, "  export   create an encrypted single-file backup (.bfbk)")
+		fmt.Fprintln(os.Stderr, "  import   restore from an encrypted single-file backup (.bfbk)")
 		os.Exit(1)
 	}
 
@@ -52,6 +57,10 @@ func runBackup(args []string) {
 		runBackupRestore(args[1:])
 	case "verify":
 		runBackupVerify(args[1:])
+	case "export":
+		runBackupExport(args[1:])
+	case "import":
+		runBackupImport(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "bubblefish backup: unknown subcommand %q\n", args[0])
 		os.Exit(1)
@@ -165,4 +174,103 @@ func runBackupVerify(args []string) {
 			result.PassedFiles, result.FailedFiles, result.MissingFiles)
 		os.Exit(1)
 	}
+}
+
+// runBackupExport implements `bubblefish backup export`.
+// Creates an encrypted single-file backup using AES-256-GCM.
+// Requires encryption to be configured via `bubblefish config set-password`.
+func runBackupExport(args []string) {
+	fs := flag.NewFlagSet("bubblefish backup export", flag.ExitOnError)
+	output := fs.String("output", "", "output path for the encrypted backup file (required)")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if *output == "" {
+		fmt.Fprintln(os.Stderr, "bubblefish backup export: --output is required")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish backup export --output /path/to/backup.bfbk")
+		os.Exit(1)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish backup export: %v\n", err)
+		os.Exit(1)
+	}
+
+	saltPath := filepath.Join(configDir, "crypto.salt")
+	mkm, err := crypto.NewMasterKeyManager("", saltPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish backup export: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := backup.ExportEncrypted(mkm, backup.ExportEncryptedOptions{
+		SourceDir:  configDir,
+		OutputPath: *output,
+		Logger:     logger,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish backup export: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("bubblefish backup export: ok")
+}
+
+// runBackupImport implements `bubblefish backup import`.
+// Decrypts and restores an encrypted .bfbk backup file.
+func runBackupImport(args []string) {
+	fs := flag.NewFlagSet("bubblefish backup import", flag.ExitOnError)
+	input := fs.String("input", "", "path to the encrypted backup file (required)")
+	dest := fs.String("dest", "", "destination directory (default: nexus config dir)")
+	force := fs.Bool("force", false, "overwrite existing files")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if *input == "" {
+		fmt.Fprintln(os.Stderr, "bubblefish backup import: --input is required")
+		fmt.Fprintln(os.Stderr, "usage: bubblefish backup import --input /path/to/backup.bfbk [--dest /dir] [--force]")
+		os.Exit(1)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish backup import: %v\n", err)
+		os.Exit(1)
+	}
+
+	saltPath := filepath.Join(configDir, "crypto.salt")
+	mkm, err := crypto.NewMasterKeyManager("", saltPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish backup import: %v\n", err)
+		os.Exit(1)
+	}
+
+	destDir := *dest
+	if destDir == "" {
+		destDir = configDir
+	}
+
+	if err := backup.ImportEncrypted(mkm, backup.ImportEncryptedOptions{
+		InputPath: *input,
+		DestDir:   destDir,
+		Force:     *force,
+		Logger:    logger,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "bubblefish backup import: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("bubblefish backup import: ok")
 }
