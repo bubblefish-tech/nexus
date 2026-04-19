@@ -311,8 +311,29 @@
   - Vet: OK
   - 61 packages PASS — zero failures
 
+## CU.0.5: COMPLETE — Audit Event Payload Encryption
+- Selective disclosure: chain metadata (record_id, prev_hash, timestamp, event_type, hash) stays PLAINTEXT; sensitive payload encrypted with AES-256-GCM
+- Key domain: `"nexus-audit-key-v1"` (from MasterKeyManager)
+- Per-record HKDF key: `DeriveRowKey(auditSubKey, recordID, "audit-payload")` with AAD = recordID
+- New file: `internal/audit/encrypt.go`
+  - `PayloadCrypto` struct + `NewPayloadCrypto(mkm)` (nil when disabled)
+  - `encryptInteractionPayload` / `DecryptInteractionPayload` for `InteractionRecord`
+  - `encryptControlPayload` / `DecryptControlPayload` for `ControlEventRecord`
+- Modified: `InteractionRecord` — `PayloadEncrypted []byte`, `EncryptionVersion int`
+- Modified: `ControlEventRecord` — same two fields; `ComputeHash()` unchanged (covers encrypted blob naturally)
+- Modified: `WALWriter` — `crypto *PayloadCrypto` field; `SetEncryption(mkm)` method
+  - `Submit`: encrypts interaction payload before chain extend
+  - `SubmitControl`: encrypts control payload BEFORE `ComputeHash` — hash covers encrypted envelope
+- Modified: `internal/daemon/daemon.go` — `d.auditWAL.SetEncryption(d.mkm)` wired after WAL creation
+- New test file: `internal/audit/encrypt_test.go` — 13 tests (round-trips, wrong key, backward compat, chain verifiable without key, per-record distinct blobs, hash coverage, nil-MKM no-op, empty entity JSON)
+- Commit: a7183b9
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 61 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: CU.0.4 complete. Next: CU.0.5 — Audit Event Payload Encryption.
+## Current subtask: CU.0.5 complete. Next: CU.0.6 — Agent Registry Encryption.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
