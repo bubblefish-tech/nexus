@@ -778,8 +778,33 @@
   - `internal/destination/cockroachdb` PASS (13 unit tests pass; 11 integration tests skip cleanly)
   - Full suite: zero failures
 
+## DB.7: COMPLETE — MongoDB Destination Adapter
+- New package: `internal/destination/mongodb/`
+  - `mongodb.go`: MongoDBDestination implementing `destination.Destination`
+  - Driver: `go.mongodb.org/mongo-driver/v2 v2.5.1` (MongoDB Go Driver v2)
+  - Collection: `memories` in database named from URI path (default: "nexus")
+  - Document schema: `_id` = payload_id; embedding as little-endian float32 BLOB;
+    metadata as native BSON map[string]string; sensitivity_labels as string array;
+    timestamps as BSON Date (UTC)
+  - Indexes: idempotency_key, classification_tier, tier, namespace+destination+timestamp DESC,
+    subject+timestamp DESC — all idempotent via CreateMany
+  - Write: `ReplaceOne` with `upsert=true` keyed on `_id` (payload_id)
+  - VectorSearch: application-level cosine similarity (same as MySQL/CockroachDB);
+    fetches docs with `embedding` field present, decodes in Go, sorts by cosine score
+  - Migrate: no-op (indexes created at Open time)
+  - Health: `client.Ping` with latency measurement
+  - `export_test.go`: white-box exports (encodeEmbedding, decodeEmbedding, cosineSimilarity,
+    docFromPayload, payloadFromDoc)
+  - `mongodb_test.go`: 9 unit tests (pass without DB) + 12 integration tests (skip without TEST_MONGODB_URI)
+- New dependency: `go.mongodb.org/mongo-driver/v2 v2.5.1`
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/destination/mongodb` PASS (9 unit tests pass; 12 integration tests skip cleanly)
+  - Full suite: zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.6 complete. Next: DB.7 (MongoDB destination adapter).
+## Current subtask: DB.7 complete. Next: DB.8 (Firebase/Firestore destination adapter) or as directed.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
