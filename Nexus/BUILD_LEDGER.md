@@ -913,8 +913,18 @@
   - Vet: OK
   - `internal/tui` PASS (race, count=1)
 
+## TUI.2: COMPLETE — ASCII BubbleFish Logo
+- `internal/tui/components/logo.go`: real ASCII art replacing TUI.1 stub
+  - Full (≥82 cols): 3-row fish+bubbles section (teal body, green °/· bubbles) + 6-row BUBBLEFISH block-letter banner (teal→green gradient) + subtitle + copyright
+  - Compact (<82 cols): inline fish glyph `><((((°>` + "BubbleFish NEXUS" + muted subtitle
+- `internal/tui/components/logo_test.go`: 6 tests (full non-empty, contains BubbleFish, min height ≥8 lines, compact non-empty, compact contains BubbleFish, Width=0 non-empty)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/tui/components` PASS (6 logo tests)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: TUI.1 complete. Next: TUI.2 (ASCII BubbleFish logo).
+## Current subtask: TUI.2 complete. Next: TUI.3 (setup wizard pages + install refactor).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

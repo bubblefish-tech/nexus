@@ -24,14 +24,27 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Logo renders the ASCII BubbleFish logo with lipgloss colors.
-// The full ASCII art is populated in TUI.2; this stub shows a text banner.
+// Logo renders the BubbleFish ASCII art logo with lipgloss colors.
 type Logo struct {
 	Width int
 }
 
-// asciiArt is the BubbleFish logo. Replaced with full art in TUI.2.
-var asciiArt = []struct {
+// fishLines is the ASCII fish with bubbles. Teal body, green bubbles (°/·).
+// Each entry: (text, isBubble). Bubbles render in green; body lines in teal.
+//
+// Design goal: ~40 chars wide, 5 lines, readable in any terminal font.
+var fishLines = []struct {
+	text   string
+	bubble bool
+}{
+	{`      °   ·        °    ·  °`, true},
+	{`  °       ·   ><((((°>      °`, false},
+	{`    ·   °      ·   °   ·`, true},
+}
+
+// bannerLines is the BUBBLEFISH NEXUS block-letter banner.
+// Rendered in teal (top rows) shading to green (bottom rows).
+var bannerLines = []struct {
 	text  string
 	color lipgloss.Color
 }{
@@ -41,26 +54,50 @@ var asciiArt = []struct {
 	{`  ██╔══██╗██║   ██║██╔══██╗██╔══██╗██║     ██╔══╝  ██╔══╝  ██║╚════██║██╔══██║`, styles.ColorTeal},
 	{`  ██████╔╝╚██████╔╝██████╔╝██████╔╝███████╗███████╗██║     ██║███████║██║  ██║`, styles.ColorGreen},
 	{`  ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝`, styles.ColorGreen},
-	{`         N  E  X  U  S  ·  Governed AI Memory Daemon`, styles.TextSecondary},
-	{`         BubbleFish Technologies, Inc.  ·  Copyright © 2026`, styles.TextMuted},
 }
 
-// View renders the logo. If the terminal is too narrow for the full banner,
-// it falls back to a compact text version.
+// View renders the logo. Full art for terminals ≥82 columns; compact fish for
+// narrower terminals.
 func (l Logo) View() string {
 	const fullWidth = 82
 	if l.Width >= fullWidth {
-		var lines []string
-		for _, row := range asciiArt {
-			lines = append(lines, lipgloss.NewStyle().Foreground(row.color).Render(row.text))
+		return l.fullView()
+	}
+	return l.compactView()
+}
+
+func (l Logo) fullView() string {
+	var lines []string
+
+	// Fish + bubbles row above the banner.
+	for _, row := range fishLines {
+		color := styles.ColorTeal
+		if row.bubble {
+			color = styles.ColorGreen
 		}
-		return strings.Join(lines, "\n") + "\n"
+		lines = append(lines, lipgloss.NewStyle().Foreground(color).Render(row.text))
 	}
 
-	// Compact fallback.
-	top := lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
-		Render("BubbleFish NEXUS")
+	// Block-letter banner.
+	for _, row := range bannerLines {
+		lines = append(lines, lipgloss.NewStyle().Foreground(row.color).Render(row.text))
+	}
+
+	// Subtitle + copyright.
+	lines = append(lines,
+		lipgloss.NewStyle().Foreground(styles.TextSecondary).
+			Render("         N  E  X  U  S  ·  Governed AI Memory Daemon"),
+		lipgloss.NewStyle().Foreground(styles.TextMuted).
+			Render("         BubbleFish Technologies, Inc.  ·  Copyright © 2026"),
+	)
+
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func (l Logo) compactView() string {
+	fish := lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
+		Render("  ><((((°>  BubbleFish NEXUS")
 	sub := lipgloss.NewStyle().Foreground(styles.TextMuted).
-		Render("Governed AI Memory Daemon  ·  © 2026 BubbleFish Technologies, Inc.")
-	return lipgloss.JoinVertical(lipgloss.Left, top, sub) + "\n"
+		Render("  Governed AI Memory Daemon  ·  © 2026 BubbleFish Technologies, Inc.")
+	return lipgloss.JoinVertical(lipgloss.Left, fish, sub) + "\n"
 }
