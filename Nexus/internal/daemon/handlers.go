@@ -43,6 +43,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/demo"
 	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/eventbus"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
 	"github.com/bubblefish-tech/nexus/internal/immune"
 	"github.com/bubblefish-tech/nexus/internal/lint"
@@ -821,6 +822,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		TotalMs:     float64(time.Since(writeStart).Microseconds()) / 1000.0,
 		Stages:      nil,
 	})
+	d.eventBus.Publish(eventbus.Event{
+		Type:   eventbus.EventMemoryWritten,
+		Source: src.Name,
+	})
 
 	// Step 13 — Return 200 + payload_id.
 	d.writeJSON(w, http.StatusOK, writeResponse{
@@ -889,6 +894,11 @@ func (d *Daemon) interceptWrite(
 		PolicyDecision: "quarantined",
 		PolicyReason:   scan.Rule,
 		LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+	})
+	d.eventBus.Publish(eventbus.Event{
+		Type:   eventbus.EventQuarantineEvent,
+		Source: sourceName,
+		Meta:   map[string]string{"rule": scan.Rule, "action": scan.Action},
 	})
 	// Identical shape to a successful write — response-shape indistinguishability.
 	d.writeJSON(w, http.StatusOK, writeResponse{
@@ -1157,6 +1167,10 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		ResultCount: len(cascResult.Records),
 		TotalMs:     float64(queryDuration.Microseconds()) / 1000.0,
 		Stages:      stages,
+	})
+	d.eventBus.Publish(eventbus.Event{
+		Type:   eventbus.EventMemoryQueried,
+		Source: src.Name,
 	})
 
 	meta := nexusMetadata{

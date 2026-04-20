@@ -611,6 +611,29 @@ body{
 .a-line.flash-amber{animation:af-amber 0.5s ease-out;}
 @keyframes af-amber{0%{background:var(--amber-dim);}100%{background:transparent;}}
 
+/* ═══ SECONDARY STAT ROW (WEB.2) ═══ */
+.secondary-stat-row{display:flex;gap:14px;margin-bottom:14px;}
+.secondary-stat-row .metric-card{flex:1;min-width:0;}
+
+/* ═══ ACTIVITY FEED PANEL (WEB.3) ═══ */
+.activity-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px 12px;display:flex;flex-direction:column;margin-bottom:14px;max-height:280px;position:relative;}
+.activity-panel::before{content:'';position:absolute;top:0;left:14px;right:14px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.05),transparent);}
+.activity-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;}
+.activity-list::-webkit-scrollbar{width:6px;}
+.activity-list::-webkit-scrollbar-track{background:transparent;}
+.activity-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.act-line{font-family:'Geist Mono',monospace;font-size:10.5px;padding:4px 0;display:flex;gap:10px;animation:a-in 0.3s ease-out;border-bottom:1px solid transparent;}
+.act-line .act-time{color:var(--text-dim);min-width:88px;}
+.act-line .act-type{font-weight:600;min-width:90px;}
+.act-type.memory_written{color:var(--cyan);}
+.act-type.memory_queried{color:var(--green);}
+.act-type.quarantine_event{color:var(--amber);}
+.act-type.agent_connected{color:var(--green);}
+.act-type.agent_disconnected{color:var(--text-tertiary);}
+.act-type.sentinel_ingest{color:var(--cyan);}
+.act-type.discovery_event{color:var(--text-secondary);}
+.act-line .act-detail{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
 /* ═══ WITNESS MODE OVERLAY ═══ */
 .witness-overlay{
   display:none;
@@ -1949,6 +1972,38 @@ body{
 
       </div>
 
+      <!-- ROW 1.5: Security & ops stat cards (WEB.2) -->
+      <div class="secondary-stat-row">
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+            Audit Records
+          </div>
+          <div class="metric-value" id="mAuditRecords">—</div>
+          <div class="metric-sub" id="mAuditSub">live · /api/audit/status</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Quarantine Pending
+          </div>
+          <div class="metric-value" style="color:var(--amber)" id="mQuarantine">—</div>
+          <div class="metric-sub" id="mQuarantineSub">live · /api/quarantine/count</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Discovered Tools
+          </div>
+          <div class="metric-value" id="mDiscovered">—</div>
+          <div class="metric-sub" id="mDiscoveredSub">5 min cache · /api/discover/results</div>
+        </div>
+
+      </div>
+
       <!-- ROW 2: Source / connected clients -->
       <div class="sources-panel">
         <div class="panel-header">
@@ -2006,6 +2061,21 @@ body{
           <div class="empty-state">waiting for events… (perform a write or query against the daemon)</div>
         </div>
       </div>
+
+      <!-- ROW 4: Activity Feed — /api/events/stream (WEB.3) -->
+      <div class="activity-panel">
+        <div class="panel-header">
+          <span class="panel-title">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Activity Feed — Live
+          </span>
+          <span class="panel-meta" id="activityFeedMeta">SSE · /api/events/stream</span>
+        </div>
+        <div class="activity-list" id="activityList">
+          <div class="empty-state">waiting for activity events…</div>
+        </div>
+      </div>
+
     </div>
     </div><!-- /view-control -->
 
@@ -2763,13 +2833,16 @@ function animateCascade(scopeId, ev) {
    CONTROL PLANE / OPS VIEW
 ═══════════════════════════════════════════════════════════════════ */
 const controlView = (() => {
-  let timer = null, busOff = null, statsTimer = null;
+  let timer = null, busOff = null, statsTimer = null, activityFeedHandle = null;
 
   async function refresh() {
-    const [s, c, p] = await Promise.all([
+    const [s, c, p, auditSt, qCount, discResults] = await Promise.all([
       nx.fetch('/api/status'),
       nx.fetch('/api/cache'),
-      nx.fetch('/api/policies')
+      nx.fetch('/api/policies'),
+      nx.fetch('/api/audit/status'),
+      nx.fetch('/api/quarantine/count'),
+      nx.fetch('/api/discover/results')
     ]);
 
     // ─ ROW 1: metric cards ─
@@ -2900,6 +2973,30 @@ const controlView = (() => {
       }
     }
 
+    // ─ ROW 1.5: secondary stat cards (WEB.2) ─
+    if (auditSt) {
+      setText('mAuditRecords', fmt.num(auditSt.total_records));
+      setText('mAuditSub', auditSt.audit_enabled ? 'live · /api/audit/status' : 'disabled');
+    } else {
+      setText('mAuditRecords', DASH);
+      setText('mAuditSub', 'endpoint unreachable');
+    }
+    if (qCount) {
+      setText('mQuarantine', fmt.num(qCount.pending));
+      setText('mQuarantineSub', fmt.num(qCount.total) + ' total · ' + fmt.num(qCount.pending) + ' pending');
+    } else {
+      setText('mQuarantine', DASH);
+      setText('mQuarantineSub', 'endpoint unreachable');
+    }
+    if (discResults) {
+      setText('mDiscovered', fmt.num(discResults.total));
+      const cachedNote = discResults.cached_at ? 'cached ' + fmt.ts(discResults.cached_at) : '5 min cache';
+      setText('mDiscoveredSub', cachedNote + ' · /api/discover/results');
+    } else {
+      setText('mDiscovered', DASH);
+      setText('mDiscoveredSub', 'endpoint unreachable');
+    }
+
     // ─ ROW 3: pipeline profile + cache fields are updated below in updateWindowStats ─
     if (p && p.sources && p.sources[0]) {
       // Profile is per-source; show the first source's profile (or default text)
@@ -2947,18 +3044,64 @@ const controlView = (() => {
     }
   }
 
+  // ─ Activity Feed (WEB.3) — /api/events/stream ─
+  function onActivityEvent(ev) {
+    const list = $('activityList');
+    if (!list) return;
+    const empty = list.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const line = document.createElement('div');
+    line.className = 'act-line';
+
+    const timeEl = createEl('span', 'act-time', fmt.ts(ev.ts));
+    line.appendChild(timeEl);
+
+    const typeStr = String(ev.type || '');
+    const typeEl = document.createElement('span');
+    typeEl.className = 'act-type ' + typeStr;
+    typeEl.textContent = typeStr;
+    line.appendChild(typeEl);
+
+    const parts = [];
+    if (ev.source) parts.push(ev.source);
+    if (ev.agent_id) parts.push('agent:' + ev.agent_id);
+    if (ev.meta) { Object.keys(ev.meta).forEach(function(k) { parts.push(k + ':' + ev.meta[k]); }); }
+    const detailEl = createEl('span', 'act-detail', parts.join(' · ') || '—');
+    line.appendChild(detailEl);
+
+    list.insertBefore(line, list.firstChild);
+    while (list.children.length > 50) list.removeChild(list.lastChild);
+  }
+
+  function startActivityFeed() {
+    if (activityFeedHandle) return;
+    activityFeedHandle = nx.sse('/api/events/stream',
+      onActivityEvent,
+      function(state) {
+        const el = $('activityFeedMeta');
+        if (el) el.textContent = 'SSE · ' + state;
+      });
+  }
+
+  function stopActivityFeed() {
+    if (activityFeedHandle) { activityFeedHandle.close(); activityFeedHandle = null; }
+  }
+
   return {
     mount() {
       refresh();
       timer = setInterval(refresh, CONFIG.REFRESH_MS);
       statsTimer = setInterval(updateWindowStats, 1000);
       busOff = bus.on(onEvent);
+      startActivityFeed();
       updateWindowStats();
     },
     unmount() {
       clearInterval(timer); timer = null;
       clearInterval(statsTimer); statsTimer = null;
       if (busOff) busOff();
+      stopActivityFeed();
     }
   };
 })();

@@ -13,6 +13,7 @@
   .nav a.active, .nav a:hover { color: #e0e6ed; }
   .content { padding: 1.5rem 2rem; }
   .page-title { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+  .readonly-note { font-size: 0.8rem; color: #6b7fa3; background: #131a2b; border: 1px solid #1e2a42; border-radius: 4px; padding: 0.4rem 0.75rem; margin-bottom: 1rem; }
   .filter-bar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
   .filter-bar input { background: #131a2b; border: 1px solid #1e2a42; color: #e0e6ed; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.8rem; width: 200px; }
   .filter-bar label { color: #6b7fa3; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; }
@@ -27,11 +28,6 @@
   .badge-approved { background: #064e3b; color: #34d399; }
   .badge-rejected { background: #7f1d1d; color: #fca5a5; }
   .content-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 0.8rem; color: #94a3b8; }
-  .action-btn { background: transparent; border: 1px solid; border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.75rem; cursor: pointer; margin-right: 0.25rem; }
-  .action-btn.approve { border-color: #34d399; color: #34d399; }
-  .action-btn.approve:hover { background: #064e3b; }
-  .action-btn.reject { border-color: #fca5a5; color: #fca5a5; }
-  .action-btn.reject:hover { background: #7f1d1d; }
   #msg { color: #6b7fa3; font-size: 0.85rem; padding: 0.5rem 0; }
 </style>
 </head>
@@ -50,6 +46,7 @@
 </div>
 <div class="content">
   <div class="page-title">Quarantine</div>
+  <div class="readonly-note">Read-only view. Use <code>bubblefish quarantine approve/reject</code> or the CLI to take action.</div>
   <div class="filter-bar">
     <input type="text" id="source-filter" placeholder="Source name (optional)">
     <label><input type="checkbox" id="include-reviewed"> Include reviewed</label>
@@ -58,7 +55,7 @@
   <div id="msg">Click Load to query quarantined records.</div>
   <table id="tbl" style="display:none">
     <thead><tr>
-      <th>ID</th><th>Payload ID</th><th>Source</th><th>Rule</th><th>Content</th><th>Quarantined At</th><th>Status</th><th>Actions</th>
+      <th>ID</th><th>Payload ID</th><th>Source</th><th>Rule</th><th>Content</th><th>Quarantined At</th><th>Status</th>
     </tr></thead>
     <tbody id="tbody"></tbody>
   </table>
@@ -70,7 +67,7 @@
   var ADMIN_TOKEN = '';
 
   function apiHeaders() {
-    return { 'Authorization': 'Bearer ' + ADMIN_TOKEN, 'Content-Type': 'application/json' };
+    return { 'Authorization': 'Bearer ' + ADMIN_TOKEN };
   }
 
   function fmtTime(ms) {
@@ -85,17 +82,6 @@
     if (action === 'approved') { span.className = 'badge badge-approved'; span.textContent = 'approved'; }
     else if (action === 'rejected') { span.className = 'badge badge-rejected'; span.textContent = 'rejected'; }
     return span;
-  }
-
-  function decide(id, action, row) {
-    fetch('/api/quarantine/' + encodeURIComponent(id) + '/' + action, {
-      method: 'POST',
-      headers: apiHeaders(),
-      body: JSON.stringify({ reviewed_by: 'dashboard' })
-    }).then(function(r) {
-      if (!r.ok) { alert('Decision failed: ' + r.status); return; }
-      loadRecords();
-    }).catch(function(e) { alert('Error: ' + e); });
   }
 
   function renderRow(rec) {
@@ -131,24 +117,6 @@
     tdStatus.appendChild(statusBadge(rec.review_action));
     tr.appendChild(tdStatus);
 
-    var tdActions = document.createElement('td');
-    if (!rec.review_action) {
-      var approveBtn = document.createElement('button');
-      approveBtn.className = 'action-btn approve';
-      approveBtn.textContent = 'Approve';
-      approveBtn.addEventListener('click', function() { decide(rec.id, 'approve', tr); });
-      tdActions.appendChild(approveBtn);
-
-      var rejectBtn = document.createElement('button');
-      rejectBtn.className = 'action-btn reject';
-      rejectBtn.textContent = 'Reject';
-      rejectBtn.addEventListener('click', function() { decide(rec.id, 'reject', tr); });
-      tdActions.appendChild(rejectBtn);
-    } else {
-      tdActions.textContent = '-';
-    }
-    tr.appendChild(tdActions);
-
     return tr;
   }
 
@@ -156,7 +124,7 @@
     var msg = document.getElementById('msg');
     var tbl = document.getElementById('tbl');
     var tbody = document.getElementById('tbody');
-    msg.textContent = 'Loading…';
+    msg.textContent = 'Loading\u2026';
     tbl.style.display = 'none';
 
     var params = new URLSearchParams();

@@ -229,3 +229,35 @@ func TestInsert_DuplicateID(t *testing.T) {
 		t.Error("expected error on duplicate primary key")
 	}
 }
+
+func TestCount_Empty(t *testing.T) {
+	t.Helper()
+	s := openTestStore(t)
+	total, pending, err := s.Count()
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if total != 0 || pending != 0 {
+		t.Errorf("want 0/0, got %d/%d", total, pending)
+	}
+}
+
+func TestCount_MixedReviewed(t *testing.T) {
+	t.Helper()
+	s := openTestStore(t)
+	_ = s.Insert(makeRecord("qtn_c1", "p1", "src", "T0-001"))
+	_ = s.Insert(makeRecord("qtn_c2", "p2", "src", "T0-002"))
+	_ = s.Insert(makeRecord("qtn_c3", "p3", "src", "T0-003"))
+	_ = s.Decide("qtn_c1", quarantine.ReviewActionApproved, "admin")
+
+	total, pending, err := s.Count()
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("want total 3, got %d", total)
+	}
+	if pending != 2 {
+		t.Errorf("want pending 2, got %d", pending)
+	}
+}

@@ -151,7 +151,14 @@ func (d *Daemon) buildRouter() http.Handler {
 			r.Get("/api/quarantine/{id}", d.handleQuarantineGet)
 			r.Post("/api/quarantine/{id}/approve", d.handleQuarantineApprove)
 			r.Post("/api/quarantine/{id}/reject", d.handleQuarantineReject)
+			// WEB.2: quarantine count for dashboard.
+			r.Get("/api/quarantine/count", d.handleQuarantineCount)
 		}
+
+		// WEB.2: audit chain length for dashboard.
+		r.Get("/api/audit/status", d.handleAuditStatus)
+		// WEB.2: AI-tool discovery results for dashboard.
+		r.Get("/api/discover/results", d.handleDiscoverResults)
 
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
@@ -161,10 +168,12 @@ func (d *Daemon) buildRouter() http.Handler {
 		).ServeHTTP)
 	})
 
-	// SSE endpoint — accepts admin token from either Authorization header
-	// OR ?token= query param (EventSource cannot send headers).
+	// SSE endpoints — accept admin token from Authorization header OR ?token=
+	// query param (EventSource cannot send custom headers).
 	// Reference: dashboard-contract.md Authentication section.
 	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
+	// WEB.3: WebUI activity feed SSE endpoint.
+	r.Get("/api/events/stream", d.handleEventsStreamWithQueryAuth)
 
 	// Control-plane dashboard HTML pages — MT.5. Accept token from
 	// Authorization header or ?token= query param (browser navigation).
@@ -264,7 +273,12 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 			r.Get("/api/quarantine/{id}", d.handleQuarantineGet)
 			r.Post("/api/quarantine/{id}/approve", d.handleQuarantineApprove)
 			r.Post("/api/quarantine/{id}/reject", d.handleQuarantineReject)
+			r.Get("/api/quarantine/count", d.handleQuarantineCount)
 		}
+
+		// WEB.2: audit status + discovery results.
+		r.Get("/api/audit/status", d.handleAuditStatus)
+		r.Get("/api/discover/results", d.handleDiscoverResults)
 
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),
@@ -274,6 +288,8 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 
 	// SSE with query-param auth.
 	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)
+	// WEB.3: WebUI activity feed SSE.
+	r.Get("/api/events/stream", d.handleEventsStreamWithQueryAuth)
 
 	// Control-plane dashboard HTML pages — MT.5. Accept token from
 	// Authorization header or ?token= query param (browser navigation).

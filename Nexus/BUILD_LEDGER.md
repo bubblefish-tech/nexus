@@ -999,8 +999,49 @@
 
 ## Phase 6 — BubbleTea TUI: COMPLETE (TUI.1–TUI.7 all done)
 
+## Phase 7 — WebUI Wiring: COMPLETE (WEB.1–WEB.4 all done)
+
+### WEB.1: COMPLETE — WebUI Audit
+- Audited all 9 HTML files in web/dashboard/
+- Found 3 non-compliant files with write operations: quarantine.html, a2a_permissions.html, openclaw.html
+- Found 6 compliant files: index.html, agents.html, grants.html, approvals.html, tasks.html, actions.html
+
+### WEB.2: COMPLETE — Wire dashboard panels to real APIs
+- New endpoint GET /api/audit/status → handleAuditStatus (audit chain length)
+  - auditStatusResponse{TotalRecords, AuditEnabled}
+  - Registered in buildRouter() + BuildAdminRouter() inside requireAdminToken
+- New endpoint GET /api/quarantine/count → handleQuarantineCount (in handlers_webui.go)
+  - quarantineCountResponse{Total, Pending}; gated on quarantineStore != nil
+- New endpoint GET /api/discover/results → handleDiscoverResults (in handlers_webui.go)
+  - discoverResultsResponse{Tools, Total, CachedAt}; 5-min TTL cache; 10s scan timeout
+  - Publishes EventDiscoveryEvent on each fresh scan
+- quarantine.Store.Count() method added (+ 2 tests: TestCount_Empty, TestCount_MixedReviewed)
+- index.html: new secondary-stat-row (ROW 1.5) with 3 metric cards: Audit Records, Quarantine Pending, Discovered Tools
+- controlView.refresh() extended to fetch all 3 new endpoints and populate stat cards
+
+### WEB.3: COMPLETE — SSE activity feed
+- New package: internal/eventbus/
+  - Bus{} — lossy pub/sub; non-blocking Publish; Subscribe() returns channel + unsub func
+  - Event{Type, Timestamp, Source, AgentID, Meta}; 7 event type constants
+  - MarshalSSE(e) for data: {json}\n\n wire format
+  - eventbus_test.go: 8 tests, all PASS
+- GET /api/events/stream SSE endpoint → handleEventsStreamWithQueryAuth
+  - Accepts admin token from Authorization header OR ?token= query param (EventSource pattern)
+- Publish points wired in handlers.go: handleWrite → EventMemoryWritten, handleQuery → EventMemoryQueried, interceptWrite → EventQuarantineEvent
+- index.html: activity-panel (ROW 4) consuming /api/events/stream via nx.sse(); onActivityEvent renders timestamped act-line entries; max 50 items
+
+### WEB.4: COMPLETE — Enforce read-only dashboard
+- quarantine.html: removed decide(), Approve/Reject buttons, Actions column; added readonly-note
+- a2a_permissions.html: removed register-agent form, deleteAgent(), create-grant form, revokeGrant(), decideApproval() + approve/deny buttons; Actions columns removed from all 3 tables; readonly-notes added
+- openclaw.html: removed create-grant form, revoke buttons, showSuccess(); Actions column removed; readonly-note added
+
+### Exit gate (WEB.1–WEB.4):
+- Build: OK
+- Vet: OK (implicit — clean build)
+- Tests: 82 packages PASS (internal/eventbus +1 new, internal/quarantine +2 new Count tests) — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: Phase 6 complete. Next phase TBD.
+## Current subtask: Phase 7 complete. Branch ready for merge to main.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

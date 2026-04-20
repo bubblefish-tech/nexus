@@ -153,6 +153,38 @@ func (d *Daemon) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
+// Audit Status — GET /api/audit/status
+// ---------------------------------------------------------------------------
+
+// auditStatusResponse is returned by GET /api/audit/status.
+type auditStatusResponse struct {
+	TotalRecords int  `json:"total_records"`
+	AuditEnabled bool `json:"audit_enabled"`
+}
+
+// handleAuditStatus serves GET /api/audit/status — returns the total number
+// of audit records, used by the WebUI to show audit chain length.
+func (d *Daemon) handleAuditStatus(w http.ResponseWriter, r *http.Request) {
+	d.metrics.AdminCallsTotal.WithLabelValues("/api/audit/status").Inc()
+
+	if d.auditReader == nil {
+		d.writeJSON(w, http.StatusOK, auditStatusResponse{AuditEnabled: false})
+		return
+	}
+
+	result, err := d.auditReader.Query(audit.AuditFilter{Limit: 1})
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+			"audit status query failed", 0)
+		return
+	}
+	d.writeJSON(w, http.StatusOK, auditStatusResponse{
+		TotalRecords: result.TotalMatching,
+		AuditEnabled: true,
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Audit Stats — GET /api/audit/stats
 // ---------------------------------------------------------------------------
 

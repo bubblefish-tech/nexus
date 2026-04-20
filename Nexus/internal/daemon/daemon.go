@@ -61,22 +61,24 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/destination"
 	destfactory "github.com/bubblefish-tech/nexus/internal/destination/factory"
+	"github.com/bubblefish-tech/nexus/internal/discover"
 	"github.com/bubblefish-tech/nexus/internal/doctor"
 	"github.com/bubblefish-tech/nexus/internal/embedding"
-	"github.com/bubblefish-tech/nexus/internal/hotreload"
-	"github.com/bubblefish-tech/nexus/internal/idempotency"
-	"github.com/bubblefish-tech/nexus/internal/mcp"
-	"github.com/bubblefish-tech/nexus/internal/metrics"
-	"github.com/bubblefish-tech/nexus/internal/immune"
-	"github.com/bubblefish-tech/nexus/internal/orchestrate"
-	"github.com/bubblefish-tech/nexus/internal/quarantine"
+	"github.com/bubblefish-tech/nexus/internal/eventbus"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
 	"github.com/bubblefish-tech/nexus/internal/firewall"
 	"github.com/bubblefish-tech/nexus/internal/grants"
+	"github.com/bubblefish-tech/nexus/internal/hotreload"
+	"github.com/bubblefish-tech/nexus/internal/idempotency"
+	"github.com/bubblefish-tech/nexus/internal/immune"
 	"github.com/bubblefish-tech/nexus/internal/jwtauth"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/metrics"
 	"github.com/bubblefish-tech/nexus/internal/oauth"
+	"github.com/bubblefish-tech/nexus/internal/orchestrate"
 	"github.com/bubblefish-tech/nexus/internal/policy"
 	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/quarantine"
 	"github.com/bubblefish-tech/nexus/internal/queue"
 	"github.com/bubblefish-tech/nexus/internal/secrets"
 	"github.com/bubblefish-tech/nexus/internal/securitylog"
@@ -273,6 +275,21 @@ type Daemon struct {
 	// Reference: DEF.2.
 	quarantineStore *quarantine.Store
 
+	// eventBus is the WebUI activity event bus (WEB.3). Always initialised in
+	// New(); never nil. Publishes memory_written, memory_queried,
+	// agent_connected, agent_disconnected, quarantine_event, sentinel_ingest,
+	// and discovery_event to SSE clients at GET /api/events/stream.
+	eventBus *eventbus.Bus
+
+	// discoveryScanner runs the 5-tier AI-tool discovery scan on demand for
+	// GET /api/discover/results. Nil until Start() resolves configDir.
+	discoveryScanner *discover.Scanner
+
+	// lastDiscoveryMu guards lastDiscovery and lastDiscoveryAt.
+	lastDiscoveryMu sync.RWMutex
+	lastDiscovery   []discover.DiscoveredTool
+	lastDiscoveryAt time.Time
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -291,12 +308,13 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	}
 	m := metrics.New()
 	d := &Daemon{
-		cfg:     cfg,
-		logger:  logger,
-		metrics: m,
-		rl:      newRateLimiter(),
-		bytesRL: newBytesRateLimiter(),
-		vizPipe: vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
+		cfg:      cfg,
+		logger:   logger,
+		metrics:  m,
+		rl:       newRateLimiter(),
+		bytesRL:  newBytesRateLimiter(),
+		vizPipe:  vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
+		eventBus: eventbus.New(256),
 		stopped:     make(chan struct{}),
 		shutdownReq: make(chan struct{}),
 	}
@@ -590,6 +608,11 @@ func (d *Daemon) Start() error {
 		}
 	}
 
+	// WEB.2: init discovery scanner for GET /api/discover/results.
+	if configDir, cdErr := config.ConfigDir(); cdErr == nil {
+		d.discoveryScanner = discover.NewScanner(configDir, d.logger)
+	}
+
 	// Create embedding client from config. Returns nil when disabled.
 	// INVARIANT: resolved API key is never logged.
 	if cfg.Daemon.Embedding.Enabled {
@@ -693,8 +716,9 @@ func (d *Daemon) Start() error {
 		)
 	}
 
-	// Start visualization pipe.
+	// Start visualization pipe and WebUI activity event bus.
 	d.vizPipe.Start()
+	d.eventBus.Start()
 
 	// Initialise provenance: daemon Ed25519 key, source signing keys, and
 	// audit hash chain state. Non-fatal — the daemon runs without provenance
@@ -1304,10 +1328,11 @@ func (d *Daemon) Stop() error {
 			}
 		}
 
-		// Stop visualization pipe.
+		// Stop visualization pipe and WebUI activity event bus.
 		if d.vizPipe != nil {
 			d.vizPipe.Stop()
 		}
+		d.eventBus.Stop()
 
 		// Drain event sink workers.
 		// Reference: Tech Spec Section 14.2 — drain in Stage 3.

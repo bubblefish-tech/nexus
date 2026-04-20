@@ -215,6 +215,22 @@ WHERE id = ?`
 	return nil
 }
 
+// Count returns the total number of quarantine records and the number of
+// pending (unreviewed) records. Used by GET /api/quarantine/count.
+func (s *Store) Count() (total, pending int, err error) {
+	const q = `SELECT COUNT(*),
+		SUM(CASE WHEN review_action IS NULL THEN 1 ELSE 0 END)
+		FROM quarantine`
+	var pendingNull *int
+	if err = s.db.QueryRow(q).Scan(&total, &pendingNull); err != nil {
+		return 0, 0, fmt.Errorf("quarantine: count: %w", err)
+	}
+	if pendingNull != nil {
+		pending = *pendingNull
+	}
+	return total, pending, nil
+}
+
 // Close releases the underlying database connection.
 func (s *Store) Close() error {
 	return s.db.Close()

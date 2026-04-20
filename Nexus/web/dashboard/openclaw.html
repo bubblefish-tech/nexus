@@ -21,7 +21,6 @@
   .stat .label { color: #6b7fa3; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .stat .value { font-size: 1.1rem; font-weight: 600; margin-top: 0.25rem; }
   .stat .value.ok { color: #34d399; }
-  .stat .value.warn { color: #fbbf24; }
   .stat .value.error { color: #fca5a5; }
   table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
   th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e2a42; }
@@ -29,17 +28,9 @@
   td { font-size: 0.875rem; }
   .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
   .badge-ok { background: #064e3b; color: #34d399; }
-  .badge-warn { background: #78350f; color: #fbbf24; }
   .badge-deny { background: #7f1d1d; color: #fca5a5; }
-  .btn { padding: 0.35rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
-  .btn-primary { background: #3b82f6; color: #fff; }
-  .btn-danger { background: #dc2626; color: #fff; }
-  .btn:hover { opacity: 0.9; }
-  .form-row { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
-  .form-input { background: #0a0e17; border: 1px solid #1e2a42; color: #e0e6ed; padding: 0.35rem 0.5rem; border-radius: 4px; font-size: 0.8rem; }
+  .readonly-note { font-size: 0.8rem; color: #6b7fa3; border: 1px solid #1e2a42; border-radius: 4px; padding: 0.4rem 0.75rem; margin-bottom: 1rem; }
   #error-banner { display: none; background: #7f1d1d; color: #fecaca; padding: 0.75rem 2rem; }
-  #success-banner { display: none; background: #064e3b; color: #34d399; padding: 0.75rem 2rem; }
-  .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 1.5rem; }
 </style>
 </head>
 <body>
@@ -52,7 +43,6 @@
   </div>
 </div>
 <div id="error-banner"></div>
-<div id="success-banner"></div>
 <div class="content">
 
   <!-- Connection Panel -->
@@ -98,25 +88,17 @@
     </table>
   </div>
 
-  <!-- Grant Management -->
+  <!-- Grant View (read-only) -->
   <div class="panel">
     <div class="panel-title">OpenClaw Grants</div>
+    <div class="readonly-note">Read-only view. Use <code>bubblefish grant create/revoke</code> or the CLI to manage grants.</div>
     <table>
       <thead><tr>
         <th>Grant ID</th><th>Source</th><th>Target</th><th>Decision</th>
-        <th>Reason</th><th>Created</th><th>Actions</th>
+        <th>Reason</th><th>Created</th>
       </tr></thead>
       <tbody id="oc-grants-body"></tbody>
     </table>
-    <div class="form-row">
-      <input type="text" id="oc-grant-source" class="form-input" placeholder="Source Agent ID" style="width:200px;">
-      <select id="oc-grant-decision" class="form-input">
-        <option value="allow">Allow</option>
-        <option value="deny">Deny</option>
-      </select>
-      <input type="text" id="oc-grant-skill" class="form-input" placeholder="Skill (optional)" style="width:150px;">
-      <button class="btn btn-primary" id="btn-oc-grant">Create Grant for OpenClaw</button>
-    </div>
   </div>
 
 </div>
@@ -127,7 +109,6 @@
   // INVARIANT: All dynamic content uses textContent exclusively.
 
   var errorBanner = document.getElementById("error-banner");
-  var successBanner = document.getElementById("success-banner");
 
   function getToken() {
     var params = new URLSearchParams(window.location.search);
@@ -137,21 +118,13 @@
   }
 
   function authHeaders() {
-    return { "Authorization": "Bearer " + getToken(), "Content-Type": "application/json" };
+    return { "Authorization": "Bearer " + getToken() };
   }
 
   function showError(msg) {
     errorBanner.textContent = msg;
     errorBanner.style.display = "block";
-    successBanner.style.display = "none";
     setTimeout(function() { errorBanner.style.display = "none"; }, 5000);
-  }
-
-  function showSuccess(msg) {
-    successBanner.textContent = msg;
-    successBanner.style.display = "block";
-    errorBanner.style.display = "none";
-    setTimeout(function() { successBanner.style.display = "none"; }, 3000);
   }
 
   function clearChildren(el) {
@@ -175,7 +148,6 @@
     return td;
   }
 
-  // Fetch OpenClaw status.
   function fetchStatus() {
     fetch("/api/a2a/openclaw/status", { headers: authHeaders() })
     .then(function(r) { return r.json(); })
@@ -185,12 +157,6 @@
 
   function renderStatus(data) {
     var statusEl = document.getElementById("oc-status");
-    var transportEl = document.getElementById("oc-transport");
-    var versionEl = document.getElementById("oc-version");
-    var heartbeatEl = document.getElementById("oc-heartbeat");
-    var agentIdEl = document.getElementById("oc-agent-id");
-    var lastErrorEl = document.getElementById("oc-last-error");
-
     if (data.connected) {
       statusEl.textContent = "Connected";
       statusEl.className = "value ok";
@@ -200,13 +166,12 @@
     }
 
     if (data.agent) {
-      transportEl.textContent = data.agent.transport || "--";
-      versionEl.textContent = data.agent.version || "--";
-      agentIdEl.textContent = data.agent.agent_id || "--";
-      lastErrorEl.textContent = data.agent.last_error || "none";
+      document.getElementById("oc-transport").textContent = data.agent.transport || "--";
+      document.getElementById("oc-version").textContent = data.agent.version || "--";
+      document.getElementById("oc-agent-id").textContent = data.agent.agent_id || "--";
+      document.getElementById("oc-last-error").textContent = data.agent.last_error || "none";
     }
-
-    heartbeatEl.textContent = data.last_heartbeat || "--";
+    document.getElementById("oc-heartbeat").textContent = data.last_heartbeat || "--";
 
     // Skills.
     var skillsBody = document.getElementById("skills-body");
@@ -233,14 +198,14 @@
       });
     }
 
-    // Grants.
+    // Grants (read-only).
     var grantsBody = document.getElementById("oc-grants-body");
     clearChildren(grantsBody);
     var grants = data.grants || [];
     if (grants.length === 0) {
       var tr2 = document.createElement("tr");
       var td2 = document.createElement("td");
-      td2.setAttribute("colspan", "7");
+      td2.setAttribute("colspan", "6");
       td2.textContent = "No grants for OpenClaw.";
       td2.style.color = "#6b7fa3";
       tr2.appendChild(td2);
@@ -255,70 +220,11 @@
         addBadgeCell(tr, g.decision, decClass);
         addCell(tr, g.reason);
         addCell(tr, g.createdAt);
-
-        var tdAction = document.createElement("td");
-        var revokeBtn = document.createElement("button");
-        revokeBtn.className = "btn btn-danger";
-        revokeBtn.textContent = "Revoke";
-        revokeBtn.addEventListener("click", function() {
-          fetch("/api/a2a/grants?id=" + encodeURIComponent(g.grantId), {
-            method: "DELETE", headers: authHeaders()
-          })
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            if (d.error) { showError(d.message); return; }
-            showSuccess("Grant revoked.");
-            fetchStatus();
-          })
-          .catch(function(e) { showError("Revoke failed: " + e.message); });
-        });
-        tdAction.appendChild(revokeBtn);
-        tr.appendChild(tdAction);
-
         grantsBody.appendChild(tr);
       });
     }
   }
 
-  // Create grant for OpenClaw.
-  document.getElementById("btn-oc-grant").addEventListener("click", function() {
-    var source = document.getElementById("oc-grant-source").value.trim();
-    var decision = document.getElementById("oc-grant-decision").value;
-    var skill = document.getElementById("oc-grant-skill").value.trim();
-
-    // We need the OpenClaw agent ID; fetch it from status.
-    fetch("/api/a2a/openclaw/status", { headers: authHeaders() })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (!data.agent || !data.agent.agent_id) {
-        showError("OpenClaw agent not found. Register it first.");
-        return;
-      }
-      var targetID = data.agent.agent_id;
-      if (!source) { showError("Source Agent ID is required."); return; }
-
-      return fetch("/api/a2a/grants", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          source_agent_id: source,
-          target_agent_id: targetID,
-          skill: skill,
-          decision: decision
-        })
-      });
-    })
-    .then(function(r) { if (r) return r.json(); })
-    .then(function(data) {
-      if (!data) return;
-      if (data.error) { showError(data.message); return; }
-      showSuccess("Grant created for OpenClaw.");
-      fetchStatus();
-    })
-    .catch(function(e) { showError("Create grant failed: " + e.message); });
-  });
-
-  // Initial load and periodic refresh.
   fetchStatus();
   setInterval(fetchStatus, 10000);
 })();
