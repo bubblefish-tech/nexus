@@ -198,8 +198,8 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 		}
 	}
 
-	return []components.SidebarSection{
-		{
+	all := map[string]components.SidebarSection{
+		"Daemon": {
 			Title: "Daemon",
 			Items: []components.SidebarItem{
 				{Name: "Status", Value: statusVal, Dot: statusDot},
@@ -207,20 +207,20 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 				{Name: "Mode", Value: "simple"},
 			},
 		},
-		{
+		"Sources": {
 			Title: "Sources",
 			Items: []components.SidebarItem{
 				{Name: "default", Value: "active", Dot: "green"},
 			},
 		},
-		{
+		"Destinations": {
 			Title: "Destinations",
 			Items: []components.SidebarItem{
 				{Name: "sqlite", Value: "ok", Dot: "green"},
 				{Name: "wal", Value: queue + " pend"},
 			},
 		},
-		{
+		"Ports": {
 			Title: "Ports",
 			Items: []components.SidebarItem{
 				{Name: "API", Value: ":8080"},
@@ -228,7 +228,7 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 				{Name: "Dashboard", Value: ":8081"},
 			},
 		},
-		{
+		"Health": {
 			Title: "Health",
 			Items: []components.SidebarItem{
 				{Name: "Consistency", Value: consistency},
@@ -236,4 +236,15 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 			},
 		},
 	}
+
+	available := []string{"Daemon", "Sources", "Destinations", "Ports", "Health"}
+	ordered := m.prefs.ApplySidebarOrder(available)
+
+	sections := make([]components.SidebarSection, 0, len(ordered))
+	for _, name := range ordered {
+		if sec, ok := all[name]; ok {
+			sections = append(sections, sec)
+		}
+	}
+	return sections
 }

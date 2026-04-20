@@ -103,7 +103,7 @@ func NewSetupApp(configDir string) App {
 func NewRunningApp(client *api.Client, tabList []tabs.Tab) App {
 	return App{
 		mode:     modeRunning,
-		running:  NewModel(client, tabList),
+		running:  NewModel(client, tabList, nil),
 		slashCmd: components.NewSlashCommandModel(allSlashCommands()),
 		client:   client,
 	}

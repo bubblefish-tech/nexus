@@ -56,7 +56,12 @@ func runTUI() {
 		tabs.NewSettingsTab(),
 	}
 
-	model := tui.NewModel(client, tabList)
+	prefs, err := tui.LoadPrefs(configDir)
+	if err != nil {
+		slog.Warn("failed to load tui prefs, using defaults", "err", err)
+	}
+
+	model := tui.NewModel(client, tabList, prefs)
 
 	p := tea.NewProgram(model,
 		tea.WithAltScreen(),

@@ -48,6 +48,7 @@ type Model struct {
 	tabInited    []bool // tracks which tabs have been lazily initialized
 	statusCache  *api.StatusResponse
 	dotFrame     int // incremented by dotTickMsg for status dot pulse
+	prefs        *TUIPrefs
 }
 
 // tickMsg drives periodic API refresh.
@@ -78,8 +79,11 @@ func healthCheckCmd(client *api.Client) tea.Cmd {
 }
 
 // NewModel creates the root model with all tabs.
-func NewModel(client *api.Client, tabList []tabs.Tab) Model {
+func NewModel(client *api.Client, tabList []tabs.Tab, prefs *TUIPrefs) Model {
 	inited := make([]bool, len(tabList))
+	if prefs == nil {
+		prefs = DefaultPrefs()
+	}
 	return Model{
 		activeTab:   0,
 		tabs:        tabList,
@@ -87,6 +91,7 @@ func NewModel(client *api.Client, tabList []tabs.Tab) Model {
 		sidebarOpen: true,
 		daemonUp:    true,
 		tabInited:   inited,
+		prefs:       prefs,
 	}
 }
 

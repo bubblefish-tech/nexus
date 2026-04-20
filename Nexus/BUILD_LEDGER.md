@@ -985,8 +985,22 @@
   - Vet: OK
   - `internal/tui/components` PASS (7 new statusdot tests)
 
+## TUI.7: COMPLETE — Sidebar Section Customization via tui_prefs.toml
+- New file: `internal/tui/prefs.go` — `TUIPrefs{Sidebar SidebarPrefs}`, `LoadPrefs(configDir)` (nil on missing file), `DefaultPrefs()`, `ApplySidebarOrder(available []string)`
+- New file: `internal/tui/prefs_test.go` — 8 tests: missing file returns nil, valid TOML, invalid TOML error, DefaultPrefs, reorder, hidden, nil prefs passthrough, empty sections uses available order, unknown sections skipped
+- `internal/tui/model.go`: `prefs *TUIPrefs` field added; `NewModel` accepts `prefs *TUIPrefs` (nil → DefaultPrefs)
+- `internal/tui/view.go`: `buildSidebarSections()` now builds all 5 sections as a map, calls `m.prefs.ApplySidebarOrder` to determine output order and filter hidden sections
+- `internal/tui/app.go`: `NewRunningApp` passes `nil` to updated `NewModel` signature
+- `cmd/bubblefish/tui.go`: loads prefs via `tui.LoadPrefs(configDir)` before `tui.NewModel`; logs warning on error, falls back to defaults
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/tui` (and all sub-packages): PASS
+
+## Phase 6 — BubbleTea TUI: COMPLETE (TUI.1–TUI.7 all done)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: TUI.6 complete. Next: TUI.7 (sidebar section customization).
+## Current subtask: Phase 6 complete. Next phase TBD.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
