@@ -45,9 +45,10 @@ type HealthStatus struct {
 // Destination is the unified interface implemented by every memory backend.
 // Adapters MUST be safe for concurrent use by multiple goroutines.
 //
-// Write and Read use pointer receivers so callers can distinguish a nil
-// return (record not found) from an error. All methods accept a context so
+// Read, Search, Delete, VectorSearch, Migrate, and Health accept a context so
 // callers can enforce deadlines and propagate cancellation across backends.
+// Write matches the existing DestinationWriter.Write signature for zero-churn
+// compatibility with the WAL queue and rebuild paths.
 //
 // Reference: DB.1 — Destination Interface Definition.
 type Destination interface {
@@ -55,10 +56,10 @@ type Destination interface {
 	// "postgres"). Used in log output and error messages.
 	Name() string
 
-	// Write persists memory to the destination. Implementations MUST be
-	// idempotent: writing the same PayloadID twice must succeed without
-	// producing a duplicate record.
-	Write(ctx context.Context, memory *Memory) error
+	// Write persists p to the destination. Implementations MUST be idempotent:
+	// writing the same PayloadID twice must succeed without producing a
+	// duplicate record.
+	Write(p TranslatedPayload) error
 
 	// Read retrieves a single memory record by its PayloadID. Returns nil, nil
 	// when the record does not exist.
