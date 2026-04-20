@@ -1242,3 +1242,27 @@
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
 - fix/bench-windows-clock: fully merged to main
+
+---
+
+## feat/maintain-module — Worm Detection & Maintenance Module
+
+**Base:** v0.1.3-moat-takeover (branched after NAMING commit)
+**Package:** `internal/maintain/` (not `internal/agent/` — occupied by A2A identity management)
+**Coordinator type:** `Maintainer` · CLI: `nexus maintain ...` · TUI: `/maintain`
+**New deps:** `howett.net/plist v1.0.1` (plist parsing), `gopkg.in/yaml.v3` promoted from indirect
+
+### W2: COMPLETE — Universal Config Reader (configio)
+- New package: `internal/maintain/configio/`
+  - `reader.go`: ConfigFile struct + Open/Get/Set/Delete/Has/Save/SaveTo; format detection; keypath navigation with dot-notation + [N] array indexing
+  - `json.go`: JSON + JSONC (BOM strip, // and /* */ comment removal with string-literal awareness); 2-space MarshalIndent write-back
+  - `toml.go`: BurntSushi/toml decode+encode; top-level map required for serialize
+  - `yaml.go`: gopkg.in/yaml.v3; normalizeYAML handles map[any]any defensively
+  - `plist.go`: howett.net/plist; XML plist read/write with tab indent
+  - `ini.go`: minimal in-house parser (~80 lines); [section]/key=value; inline ; and # comment stripping; no external dep
+  - `sqlite.go`: read-only via modernc.org/sqlite; discovers key/value tables by trying common column-name pairs (key/value, name/value, key/data); never writes
+  - `configio_test.go`: 19 tests — format detection (5), JSON round-trip, JSONC comment stripping, BOM, missing-key nil, nested keypath creation, delete, Has, array index, TOML round-trip, YAML round-trip, INI round-trip, SQLite read-only enforcement, SaveTo, plist round-trip
+- Exit gate:
+  - Build: OK
+  - Vet: OK (implicit clean build)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
