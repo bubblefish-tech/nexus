@@ -738,8 +738,29 @@
   - Vet: OK
   - 65 packages PASS — zero failures
 
+## DB.5: COMPLETE — MySQL/MariaDB Destination Adapter
+- New package: `internal/destination/mysql/`
+  - `mysql.go`: MySQLDestination implementing `destination.Destination`
+  - Driver: `github.com/go-sql-driver/mysql v1.9.3` (+ transitive `filippo.io/edwards25519`)
+  - DDL: memories table with InnoDB + utf8mb4_unicode_ci; backtick-quoted `timestamp` and `destination` reserved words
+  - Idempotent migrations: ADD COLUMN (ignores MySQL error 1060) + CREATE INDEX (ignores error 1061)
+  - Columns: MEDIUMTEXT content, LONGBLOB embedding (little-endian float32), VARCHAR(1000) sensitivity_labels, DATETIME(6) timestamps
+  - Write: INSERT IGNORE (idempotent); all values via `?` parameterised placeholders
+  - Query: WHERE clause built from fixed condition strings; LIKE for text search; LIMIT ? OFFSET ? pagination
+  - VectorSearch: application-level cosine similarity (full table scan, no native vector extension required)
+  - CanSemanticSearch: checks for non-null LONGBLOB embeddings
+  - Health: PingContext with latency measurement
+  - `export_test.go`: white-box exports for helper functions
+  - `mysql_test.go`: 9 unit tests (encoding, cosine, marshal) + 13 integration tests (skip without TEST_MYSQL_DSN)
+- New dependency: `github.com/go-sql-driver/mysql v1.9.3`
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/destination/mysql` PASS (9 unit tests pass; 13 integration tests skip cleanly without live MySQL)
+  - Full suite: zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.4 complete. Next: DB.5 (MySQL/MariaDB destination adapter).
+## Current subtask: DB.5 complete. Next: DB.6 (CockroachDB destination adapter).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
