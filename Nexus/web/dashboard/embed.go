@@ -66,6 +66,11 @@ var ActionsHTML string
 //go:embed quarantine.html
 var QuarantineHTML string
 
+// MemgraphHTML is the SHOW.2 memory-graph D3.js visualization dashboard page.
+//
+//go:embed memgraph.html
+var MemgraphHTML string
+
 // LogoPNG is the BubbleFish logo used in the sidebar and witness HUD.
 //
 //go:embed assets/logo_metal.png

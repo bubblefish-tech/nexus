@@ -1166,8 +1166,62 @@
 
 ## Phase 9 — Wire Up Remaining Mocks: COMPLETE (WIRE.1–WIRE.7 all done)
 
+## Phase 10 — SHOW-OFF FEATURES: COMPLETE (SHOW.1–SHOW.3 all done)
+
+### SHOW.1: COMPLETE — Browser-Verifiable Proof HTML
+- New file: `internal/provenance/htmlproof.go`
+  - `GenerateHTML(bundle *ProofBundle) ([]byte, error)` — self-contained HTML with embedded proof JSON
+  - Client-side SHA-256 content-hash verification via `crypto.subtle.digest` (no external libraries)
+  - Ed25519 source-signature verification via WebCrypto (Chrome 113+, Firefox 105+)
+  - Audit chain linkage check (prev_hash links) when chain entries present
+  - Dark-theme UI: per-check badges (PASS/FAIL/SKIPPED), visual verdict banner
+- New test file: `internal/provenance/htmlproof_test.go` — 5 tests
+  - BasicStructure, EmbedsBundleJSON, ValidJSON (JSON parseable), ContentHashCheck, Idempotent
+- Enhanced `cmd/bubblefish/verify.go`:
+  - `--proof <memory_id>` — fetches proof bundle from running daemon via GET /verify/{memory_id}
+  - `--output <path>` — writes HTML (*.html) or JSON; creates parent dirs (0700)
+  - `--url URL` — daemon URL (default http://localhost:8081)
+  - `--token TOKEN` — admin token (or NEXUS_ADMIN_KEY env)
+  - Backward compat: `bubblefish verify <file.json>` still works unchanged
+
+### SHOW.2: COMPLETE — Cross-Tool Memory Graph Dashboard (D3.js)
+- New file: `web/dashboard/memgraph.html`
+  - D3.js v7 force-directed graph loaded from CDN
+  - Central "BubbleFish Nexus" hub (gold); AI tool nodes (teal); A2A agent nodes (purple)
+  - All peripheral nodes connect to hub; node size proportional to interaction count
+  - Hover tooltip, drag, zoom+pan, 60-second auto-refresh
+  - Token injection via `ADMIN_TOKEN: ''` sentinel (matches serveDashboardPage pattern)
+  - textContent only — NEVER innerHTML
+- New file: `internal/daemon/handlers_viz_graph.go`
+  - `handleMemoryGraph` — GET /api/viz/memory-graph (admin-authed)
+    - Reads cached discovery result (no new scan triggered)
+    - Lists A2A agents from registryStore (nil-safe)
+    - Returns `{nodes, edges, generated_at}`
+  - `handleDashboardMemgraph` — GET /dashboard/memgraph (query-param token)
+- Modified: `web/dashboard/embed.go` — added `MemgraphHTML` var
+- Modified: `internal/daemon/server.go` — registered in both buildRouter() and BuildAdminRouter():
+  - GET /api/viz/memory-graph (in admin requireAdminToken group)
+  - GET /dashboard/memgraph (query-param auth via serveDashboardPage)
+
+### SHOW.3: COMPLETE — 60-Second Demo Scripts
+- New file: `scripts/demo.ps1` — PowerShell demo
+  - Steps: health check → write 3 memories → search → fetch+verify proof (HTML) → open memory graph
+  - Reads $env:NEXUS_URL, $env:NEXUS_DASH_URL, $env:NEXUS_API_KEY, $env:NEXUS_ADMIN_KEY
+  - Generates browser-verifiable HTML proof at $env:TEMP\nexus-proof-demo.html
+  - Opens proof HTML and memory graph in default browser
+  - Colored PASS/FAIL/WARN per step; summary with elapsed time; exit 0/1
+- New file: `scripts/demo.sh` — Bash demo (macOS/Linux)
+  - Same 5 steps as PS1; reads NEXUS_* env vars
+  - Opens proof HTML and graph URL via `open` (macOS) or `xdg-open` (Linux)
+  - ANSI color output; exit 0/1
+
+### Exit gate (SHOW.1–SHOW.3):
+- Build: OK
+- Vet: OK
+- Tests: 90 packages — `internal/provenance` PASS (5 new htmlproof tests), `internal/daemon` PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: Phase 9 complete. Phase 10 (SHOW-OFF FEATURES) is next.
+## Current subtask: Phase 10 complete. Final exit gate / v0.1.3 tag prep is next.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

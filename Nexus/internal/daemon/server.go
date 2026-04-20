@@ -159,6 +159,8 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/audit/status", d.handleAuditStatus)
 		// WEB.2: AI-tool discovery results for dashboard.
 		r.Get("/api/discover/results", d.handleDiscoverResults)
+		// SHOW.2: memory graph for D3.js visualization.
+		r.Get("/api/viz/memory-graph", d.handleMemoryGraph)
 
 		// /metrics serves Prometheus text format from the private registry.
 		// INVARIANT: served only from private registry; DefaultRegisterer is never used.
@@ -190,6 +192,9 @@ func (d *Daemon) buildRouter() http.Handler {
 	if d.quarantineStore != nil {
 		r.Get("/dashboard/quarantine", d.handleDashboardQuarantine)
 	}
+
+	// SHOW.2: memory graph dashboard — always registered.
+	r.Get("/dashboard/memgraph", d.handleDashboardMemgraph)
 
 	// Review routes — require bfn_review_list_ or bfn_review_read_ tokens.
 	// Any other token class receives 401 wrong_token_class.
@@ -279,6 +284,8 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		// WEB.2: audit status + discovery results.
 		r.Get("/api/audit/status", d.handleAuditStatus)
 		r.Get("/api/discover/results", d.handleDiscoverResults)
+		// SHOW.2: memory graph for D3.js visualization.
+		r.Get("/api/viz/memory-graph", d.handleMemoryGraph)
 
 		r.Get("/metrics", promhttp.HandlerFor(
 			d.metrics.Registry(),
@@ -305,6 +312,9 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 	if d.quarantineStore != nil {
 		r.Get("/dashboard/quarantine", d.handleDashboardQuarantine)
 	}
+
+	// SHOW.2: memory graph dashboard — always registered.
+	r.Get("/dashboard/memgraph", d.handleDashboardMemgraph)
 
 	return r
 }
