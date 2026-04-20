@@ -88,23 +88,53 @@ func stage35SketchPrefilter(
 		return records
 	}
 
-	// Get current ratchet state
-	// TODO(shawn): wire ratchet access through Substrate.CurrentRatchetState()
-	// For now, Stage 3.5 is structurally complete but returns records unchanged
-	// until the full Substrate coordinator (BS.2+) exposes the ratchet and
-	// sketch store via public methods.
-	_ = canonicalQ
+	// Get current ratchet state.
+	state := cfg.Substrate.CurrentRatchetState()
+	if state == nil {
+		logger.Warn("stage 3.5: no ratchet state, falling through to stage 4",
+			"component", "cascade")
+		return records
+	}
 
-	// Stage 3.5 structural placeholder: when fully wired, this will:
-	// 1. Check cuckoo filter for each candidate
-	// 2. Compute query sketch at current ratchet state
-	// 3. Score each candidate by EstimateInnerProduct
-	// 4. Sort by score descending, keep top-K
-	// 5. Return reduced candidate set
+	// Compute query sketch at current ratchet state.
+	querySketch, err := substrate.ComputeQuerySketch(canonicalQ, state.StateBytes, state.StateID)
+	if err != nil {
+		logger.Warn("stage 3.5: compute query sketch failed, falling through to stage 4",
+			"component", "cascade", "error", err)
+		return records
+	}
 
-	// For now, return all candidates (Stage 3.5 is a no-op until the
-	// Substrate coordinator exposes sketch loading).
-	return records
+	// Check cuckoo filter coverage: Stage 3.5 only helps when ≥50% of
+	// candidates have stored sketches. Below that fraction, ranking is too noisy.
+	cuckooHits := 0
+	for _, r := range records {
+		if cfg.Substrate.CuckooLookup(r.PayloadID) {
+			cuckooHits++
+		}
+	}
+	if cuckooHits*2 < len(records) {
+		return records
+	}
+
+	// Score each candidate via EstimateInnerProduct.
+	// Candidates without sketches receive score 0 (neutral) — ranked below
+	// positively-scored entries but kept in the result set.
+	scored := make([]scoredCandidate, len(records))
+	for i, r := range records {
+		sc := scoredCandidate{record: r, score: 0}
+		if cfg.Substrate.CuckooLookup(r.PayloadID) {
+			storeSketch, loadErr := cfg.Substrate.LoadStoreSketch(r.PayloadID)
+			if loadErr != nil {
+				logger.Warn("stage 3.5: load sketch failed",
+					"component", "cascade", "memory_id", r.PayloadID, "error", loadErr)
+			} else if estimate, estErr := substrate.EstimateInnerProduct(storeSketch, querySketch); estErr == nil {
+				sc.score = estimate
+			}
+		}
+		scored[i] = sc
+	}
+
+	return rankAndTruncate(scored, topK)
 }
 
 // scoredCandidate pairs a record with its sketch inner-product estimate.
