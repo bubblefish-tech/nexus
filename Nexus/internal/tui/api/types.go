@@ -244,3 +244,17 @@ type ConfigAudit struct {
 	Enabled   bool `json:"enabled"`
 	DualWrite bool `json:"dual_write"`
 }
+
+// AgentSummary is a condensed view of a registered A2A agent.
+type AgentSummary struct {
+	AgentID     string    `json:"agent_id"`
+	DisplayName string    `json:"display_name"`
+	Status      string    `json:"status"`
+	TrustTier   int       `json:"trust_tier"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+}
+
+// AgentsResponse is the shape of GET /api/control/agents.
+type AgentsResponse struct {
+	Agents []AgentSummary `json:"agents"`
+}

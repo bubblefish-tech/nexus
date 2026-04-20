@@ -146,3 +146,12 @@ func (c *Client) Config() (*ConfigResponse, error) {
 	var r ConfigResponse
 	return &r, c.get("/api/config", &r)
 }
+
+// Agents fetches GET /api/control/agents.
+func (c *Client) Agents() ([]AgentSummary, error) {
+	var r AgentsResponse
+	if err := c.get("/api/control/agents", &r); err != nil {
+		return nil, err
+	}
+	return r.Agents, nil
+}

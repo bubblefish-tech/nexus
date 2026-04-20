@@ -897,8 +897,24 @@
   - 70 packages PASS — zero failures
   - `internal/integration` flaky timing test confirmed passing (pre-existing, passes in isolation)
 
+## TUI.1: COMPLETE — Core TUI Framework
+- New package `internal/tui/pages/`: `page.go` (WizardState, Page interface, WizardCompleteMsg), 9 stub pages (welcome, scan, features, tools, database, security, tunnel, directory, summary)
+- New package `internal/tui/components/`: logo.go, checkbox.go, textinput.go, progress.go, slash_cmd.go (stubs)
+- New package `internal/tui/commands/`: command.go (Command interface), doctor.go, test.go, update.go, connect.go, feature.go, logs.go (stubs using real api.Client calls)
+- `internal/tui/api/types.go` + `client.go`: AgentSummary, AgentsResponse, Agents() method added
+- `internal/tui/wizard.go`: WizardModel — logo+progress+page+navHint layout; Ctrl+N/Ctrl+B navigation; ViewWithState dispatch
+- `internal/tui/app.go`: App top-level model; modeSetup/modeRunning enum; NewSetupApp (9 pages) / NewRunningApp; WizardCompleteMsg → tea.Quit
+- `cmd/bubblefish/setup.go`: runSetup() — creates App in modeSetup, runs BubbleTea with alt screen
+- `cmd/bubblefish/main.go`: "setup" case added; help text updated
+- `internal/tui/app_test.go`: 4 tests (mode check, view non-empty, WizardCompleteMsg quits, window size propagates)
+- `internal/tui/wizard_test.go`: 8 tests (advance, no-advance, back, no-back-at-first, no-advance-past-last, view, empty pages)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/tui` PASS (race, count=1)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.11 complete. Phase 5 — Database Adapters DONE. Next: Phase 6 (TUI).
+## Current subtask: TUI.1 complete. Next: TUI.2 (ASCII BubbleFish logo).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
