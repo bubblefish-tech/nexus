@@ -953,8 +953,24 @@
   - Vet: OK
   - `internal/tui` PASS, `internal/tui/components` PASS (10 new slash cmd tests)
 
+## TUI.5: COMPLETE — Test Runner with Category Selection
+- `internal/tui/commands/test.go` (replaces TUI.1 stub):
+  - `TestCaseResult{Name, Desc, Passed, ErrMsg}`, `TestResultMsg{Category, Results, Passed, Failed, Err}`
+  - `testCase` (name, desc, run func), `testCategory` (name, tests)
+  - `testCategories`: Quick Health (5 tests: daemon_alive, daemon_ready, status_ok, config_readable, audit_accessible), Core (2 tests: lint_clean, security_summary), Full Suite (all tests combined via init())
+  - `Categories() []string` — returns category names
+  - `RunCategory(client, name) tea.Cmd` — exported for use outside the command
+  - `executeCategory(client, cat) TestResultMsg` — runs each test case, accumulates pass/fail counts
+  - `TestCommand.Execute` runs Quick Health by default
+- `internal/tui/commands/test_test.go`: 8 tests
+  - Categories not empty, contains Quick Health, contains Full Suite, TestCommand name, RunCategory quick health all pass, unknown category returns error, Core all pass, Full Suite has results, result fields populated
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/tui/commands` PASS (8 tests)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: TUI.4 complete. Next: TUI.5 (test runner with category selection).
+## Current subtask: TUI.5 complete. Next: TUI.6 (status dot indicators).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

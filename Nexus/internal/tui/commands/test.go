@@ -18,21 +18,176 @@
 package commands
 
 import (
+	"fmt"
+
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// TestResultMsg carries the outcome of a test run.
-// Full implementation added in TUI.5.
+// TestCaseResult holds the pass/fail outcome of a single test case.
+type TestCaseResult struct {
+	Name    string
+	Desc    string
+	Passed  bool
+	ErrMsg  string
+}
+
+// TestResultMsg carries the full outcome of a test category run.
 type TestResultMsg struct {
 	Category string
+	Results  []TestCaseResult
 	Passed   int
 	Failed   int
 	Err      error
 }
 
-// TestCommand opens the test runner category selector.
-// Real implementation added in TUI.5.
+// testCase is a single check with a name, description, and a run function.
+type testCase struct {
+	name string
+	desc string
+	run  func(client *api.Client) (bool, string)
+}
+
+// testCategory groups related tests.
+type testCategory struct {
+	name  string
+	tests []testCase
+}
+
+// testCategories defines all available test categories.
+var testCategories = []testCategory{
+	{
+		name: "Quick Health",
+		tests: []testCase{
+			{
+				name: "daemon_alive",
+				desc: "Daemon responds to health probe",
+				run: func(c *api.Client) (bool, string) {
+					ok, err := c.Health()
+					if err != nil {
+						return false, err.Error()
+					}
+					if !ok {
+						return false, "health returned false"
+					}
+					return true, ""
+				},
+			},
+			{
+				name: "daemon_ready",
+				desc: "Daemon reports ready state",
+				run: func(c *api.Client) (bool, string) {
+					ok, err := c.Ready()
+					if err != nil {
+						return false, err.Error()
+					}
+					if !ok {
+						return false, "ready returned false"
+					}
+					return true, ""
+				},
+			},
+			{
+				name: "status_ok",
+				desc: "Status API returns ok",
+				run: func(c *api.Client) (bool, string) {
+					st, err := c.Status()
+					if err != nil {
+						return false, err.Error()
+					}
+					if st.Status != "ok" {
+						return false, fmt.Sprintf("status=%q", st.Status)
+					}
+					return true, ""
+				},
+			},
+			{
+				name: "config_readable",
+				desc: "Config API accessible",
+				run: func(c *api.Client) (bool, string) {
+					_, err := c.Config()
+					if err != nil {
+						return false, err.Error()
+					}
+					return true, ""
+				},
+			},
+			{
+				name: "audit_accessible",
+				desc: "Audit log API accessible",
+				run: func(c *api.Client) (bool, string) {
+					_, err := c.AuditLog(1)
+					if err != nil {
+						return false, err.Error()
+					}
+					return true, ""
+				},
+			},
+		},
+	},
+	{
+		name: "Core",
+		tests: []testCase{
+			{
+				name: "lint_clean",
+				desc: "No lint errors in config",
+				run: func(c *api.Client) (bool, string) {
+					resp, err := c.Lint()
+					if err != nil {
+						return false, err.Error()
+					}
+					for _, f := range resp.Findings {
+						if f.Severity == "error" {
+							return false, fmt.Sprintf("lint error: %s", f.Message)
+						}
+					}
+					return true, ""
+				},
+			},
+			{
+				name: "security_summary",
+				desc: "Security summary accessible",
+				run: func(c *api.Client) (bool, string) {
+					_, err := c.SecuritySummary()
+					if err != nil {
+						return false, err.Error()
+					}
+					return true, ""
+				},
+			},
+		},
+	},
+	{
+		name: "Full Suite",
+		tests: nil, // populated dynamically (all categories combined)
+	},
+}
+
+func init() {
+	// Populate Full Suite with all tests from all non-full-suite categories.
+	var all []testCase
+	for _, cat := range testCategories {
+		if cat.name != "Full Suite" {
+			all = append(all, cat.tests...)
+		}
+	}
+	for i := range testCategories {
+		if testCategories[i].name == "Full Suite" {
+			testCategories[i].tests = all
+		}
+	}
+}
+
+// Categories returns the list of available test category names.
+func Categories() []string {
+	out := make([]string, len(testCategories))
+	for i, c := range testCategories {
+		out[i] = c.name
+	}
+	return out
+}
+
+// TestCommand opens the test runner.
 type TestCommand struct{}
 
 var _ Command = TestCommand{}
@@ -40,17 +195,52 @@ var _ Command = TestCommand{}
 func (TestCommand) Name() string        { return "test" }
 func (TestCommand) Description() string { return "Run test suite (select category)" }
 
+// Execute runs the Quick Health category by default. TUI wiring for category
+// selection is handled by the running view in TUI.5.
 func (TestCommand) Execute(client *api.Client) tea.Cmd {
+	return runCategory(client, "Quick Health")
+}
+
+// RunCategory executes all tests in the named category and returns a tea.Cmd.
+func RunCategory(client *api.Client, categoryName string) tea.Cmd {
+	return runCategory(client, categoryName)
+}
+
+func runCategory(client *api.Client, categoryName string) tea.Cmd {
 	return func() tea.Msg {
-		// Quick health check — full category UI added in TUI.5.
-		ok, err := client.Health()
-		if err != nil {
-			return TestResultMsg{Category: "health", Failed: 1, Err: err}
+		for _, cat := range testCategories {
+			if cat.name == categoryName {
+				return executeCategory(client, cat)
+			}
 		}
-		passed := 0
+		return TestResultMsg{
+			Category: categoryName,
+			Err:      fmt.Errorf("unknown category %q", categoryName),
+		}
+	}
+}
+
+func executeCategory(client *api.Client, cat testCategory) TestResultMsg {
+	results := make([]TestCaseResult, 0, len(cat.tests))
+	passed, failed := 0, 0
+	for _, tc := range cat.tests {
+		ok, errMsg := tc.run(client)
+		results = append(results, TestCaseResult{
+			Name:   tc.name,
+			Desc:   tc.desc,
+			Passed: ok,
+			ErrMsg: errMsg,
+		})
 		if ok {
-			passed = 1
+			passed++
+		} else {
+			failed++
 		}
-		return TestResultMsg{Category: "health", Passed: passed}
+	}
+	return TestResultMsg{
+		Category: cat.name,
+		Results:  results,
+		Passed:   passed,
+		Failed:   failed,
 	}
 }
