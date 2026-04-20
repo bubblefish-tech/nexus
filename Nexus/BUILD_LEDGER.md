@@ -698,8 +698,27 @@
   - Vet: OK
   - 65 packages PASS — zero failures
 
+## DB.3: COMPLETE — PostgreSQL Adapter Interface Compliance
+- New file: `internal/destination/postgres_compliance.go`
+  - Compile-time check: `var _ Destination = (*PostgresDestination)(nil)`
+  - `Name() string` → returns "postgres"
+  - `Read(ctx, id) (*Memory, error)` → SELECT by payload_id; nil, nil for missing
+  - `Search(ctx, *Query) ([]*Memory, error)` → wraps Query(), converts []TranslatedPayload to []*Memory
+  - `Delete(ctx, id) error` → ExecContext DELETE, idempotent (no-op for missing ID)
+  - `VectorSearch(ctx, embedding, limit) ([]*Memory, error)` → wraps SemanticSearch; empty slice for nil embedding
+  - `Migrate(ctx, version) error` → no-op (all migrations applied at open time in applySchema)
+  - `Health(ctx) (*HealthStatus, error)` → PingContext with latency measurement
+- New file: `internal/destination/postgres_compliance_test.go` — 11 tests
+  - InterfaceCompliance (compile-time), Name, Read_Found, Read_NotFound, Search, Search_Empty,
+    Delete_Exists, Delete_NotExists, VectorSearch_EmptyEmbedding, Migrate, Health_OK, Health_ClosedDB
+  - All DB tests require `TEST_POSTGRES_DSN` env var; skipped in CI without live Postgres
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 65 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.2 complete. Next: DB.3 (PostgreSQL adapter interface compliance).
+## Current subtask: DB.3 complete. Next: DB.4 (Supabase adapter interface compliance).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
