@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 
+	nexusinstall "github.com/bubblefish-tech/nexus/internal/install"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -186,9 +187,14 @@ func maskDSN(dsn string) string {
 	return dsn[:8] + "…"
 }
 
-// runInstallFromState generates the Nexus config from the wizard state.
-// The full implementation (using internal/install/) is added in TUI.3.
-// For TUI.1 this is a no-op that succeeds immediately.
-func runInstallFromState(_ *WizardState) error {
-	return nil
+// runInstallFromState generates the Nexus config from wizard state.
+func runInstallFromState(state *WizardState) error {
+	return nexusinstall.Install(nexusinstall.Options{
+		ConfigDir:      state.InstallDir,
+		Mode:           state.Mode,
+		DestType:       state.DatabaseType,
+		DSN:            state.DatabaseDSN,
+		EncryptionPass: state.EncryptionPass,
+		Force:          false,
+	})
 }

@@ -923,8 +923,23 @@
   - Vet: OK
   - `internal/tui/components` PASS (6 logo tests)
 
+## TUI.3: COMPLETE — Setup Wizard Pages + Install Refactor
+- New package `internal/install/install.go`:
+  - `GenerateKey`, `WriteConfigFile`, `ResolveInstallHome`, `BuildDaemonTOML`, `WriteDestination` (all 8 backends), `WriteDefaultSource`
+  - `Install(Options) error` — top-level entry point called by summary page
+  - `internal/install/install_test.go` — 16 tests (key prefix/length/uniqueness, TOML content, file write/skip/overwrite, WriteDestination sqlite+postgres+unknown, Install creates dirs + daemon.toml)
+- `internal/tui/pages/summary.go` — `runInstallFromState` now calls `nexusinstall.Install(...)` (replaces TUI.1 no-op stub)
+- `internal/tui/pages/pages_test.go` — 30 tests covering Init/Update/View/CanAdvance for all 9 pages
+- `internal/tui/components/checkbox_test.go` — 8 tests (cursor movement, toggle, disabled, Selected())
+- `internal/tui/components/progress_test.go` — 5 tests (determinate, spinner, zero Total)
+- `internal/tui/components/textinput_test.go` — 6 tests (Valid, View, mismatch, match, Tab phase advance)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/install` PASS (16 tests), `internal/tui/components` PASS, `internal/tui/pages` PASS, `internal/tui` PASS
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: TUI.2 complete. Next: TUI.3 (setup wizard pages + install refactor).
+## Current subtask: TUI.3 complete. Next: TUI.4 (slash-command system).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
