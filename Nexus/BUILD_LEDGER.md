@@ -759,8 +759,27 @@
   - `internal/destination/mysql` PASS (9 unit tests pass; 13 integration tests skip cleanly without live MySQL)
   - Full suite: zero failures
 
+## DB.6: COMPLETE — CockroachDB Destination Adapter
+- New package: `internal/destination/cockroachdb/`
+  - `cockroachdb.go`: CockroachDBDestination implementing `destination.Destination`
+  - Driver: `jackc/pgx/v5/stdlib` (already in go.mod); CockroachDB is PostgreSQL-wire-compatible
+  - Schema: PostgreSQL-compatible DDL; BYTEA for embeddings (no pgvector extension); TEXT[] for sensitivity_labels; JSONB for metadata; TIMESTAMPTZ for timestamps
+  - Schema setup: skips `CREATE EXTENSION vector` and IVFFlat index (not supported by CockroachDB)
+  - Migrations: `ADD COLUMN IF NOT EXISTS` (CockroachDB 22.1+); `CREATE INDEX IF NOT EXISTS` — fully idempotent, no error-code workarounds needed
+  - Write: `INSERT ... ON CONFLICT DO NOTHING`; `$N` parameterised placeholders
+  - VectorSearch: application-level cosine similarity over BYTEA embeddings (same encoding as SQLite/MySQL)
+  - Query: ILIKE for text search; $N placeholders; LIMIT $N OFFSET $N pagination
+  - `export_test.go`: white-box exports (encode/decode/cosine/marshal/pgTextArray helpers)
+  - `cockroachdb_test.go`: 13 unit tests (pass without DB) + 11 integration tests (skip without TEST_CRDB_DSN)
+- No new dependencies
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/destination/cockroachdb` PASS (13 unit tests pass; 11 integration tests skip cleanly)
+  - Full suite: zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.5 complete. Next: DB.6 (CockroachDB destination adapter).
+## Current subtask: DB.6 complete. Next: DB.7 (MongoDB destination adapter).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
