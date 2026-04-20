@@ -666,8 +666,20 @@
 - `internal/ingest` + `internal/ingest/importer`: PASS (all tests green)
 - Full suite: 0 failures
 
+## DB.1: COMPLETE — Destination Interface Definition
+- New file: `internal/destination/interface.go`
+  - `type Memory = TranslatedPayload` — type alias keeps existing write-path code unchanged
+  - `type Query = QueryParams` — type alias; callers need no changes
+  - `HealthStatus{OK bool, Latency time.Duration, Error string}` — liveness probe result
+  - `Destination` interface: Name, Write(ctx, *Memory), Read(ctx, id), Search(ctx, *Query), Delete(ctx, id), VectorSearch(ctx, embedding, limit), Migrate(ctx, version), Health(ctx), Close
+  - `ErrVectorSearchUnsupported` sentinel for backends lacking vector search
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/destination` PASS (all pre-existing tests green)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: SN.1–SN.6 complete. Next: DB.1 (Destination Interface Definition).
+## Current subtask: DB.1 complete. Next: DB.2 (SQLite adapter interface compliance).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
