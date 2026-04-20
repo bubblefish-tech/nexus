@@ -65,6 +65,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/doctor"
 	"github.com/bubblefish-tech/nexus/internal/embedding"
 	"github.com/bubblefish-tech/nexus/internal/eventbus"
+	"github.com/bubblefish-tech/nexus/internal/events"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
 	"github.com/bubblefish-tech/nexus/internal/firewall"
 	"github.com/bubblefish-tech/nexus/internal/grants"
@@ -281,6 +282,11 @@ type Daemon struct {
 	// and discovery_event to SSE clients at GET /api/events/stream.
 	eventBus *eventbus.Bus
 
+	// liteBus is the Event Bus Lite (EVT.1). Single-consumer bus with richer
+	// Data map[string]any payload. A bridge goroutine forwards events to
+	// eventBus so all events appear in the SSE feed.
+	liteBus *events.LiteBus
+
 	// discoveryScanner runs the 5-tier AI-tool discovery scan on demand for
 	// GET /api/discover/results. Nil until Start() resolves configDir.
 	discoveryScanner *discover.Scanner
@@ -315,6 +321,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		bytesRL:  newBytesRateLimiter(),
 		vizPipe:  vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
 		eventBus: eventbus.New(256),
+		liteBus:  events.NewLiteBus(512),
 		stopped:     make(chan struct{}),
 		shutdownReq: make(chan struct{}),
 	}
@@ -716,9 +723,10 @@ func (d *Daemon) Start() error {
 		)
 	}
 
-	// Start visualization pipe and WebUI activity event bus.
+	// Start visualization pipe, WebUI activity event bus, and LiteBus bridge.
 	d.vizPipe.Start()
 	d.eventBus.Start()
+	go d.runLiteBusBridge()
 
 	// Initialise provenance: daemon Ed25519 key, source signing keys, and
 	// audit hash chain state. Non-fatal — the daemon runs without provenance
@@ -1328,10 +1336,11 @@ func (d *Daemon) Stop() error {
 			}
 		}
 
-		// Stop visualization pipe and WebUI activity event bus.
+		// Stop visualization pipe, WebUI activity event bus, and LiteBus.
 		if d.vizPipe != nil {
 			d.vizPipe.Stop()
 		}
+		d.liteBus.Close()
 		d.eventBus.Stop()
 
 		// Drain event sink workers.
@@ -1847,10 +1856,24 @@ func (d *Daemon) runWatchdogCheck(walDir string) {
 	}
 
 	// Set atomic health flag for /ready endpoint.
+	prev := d.walHealthy.Load()
 	if healthy {
 		d.walHealthy.Store(1)
 	} else {
 		d.walHealthy.Store(0)
+	}
+
+	// EVT.2: emit health_changed when status transitions.
+	newVal := int32(0)
+	if healthy {
+		newVal = 1
+	}
+	if prev != newVal {
+		status := "healthy"
+		if !healthy {
+			status = "unhealthy"
+		}
+		d.liteBus.Emit("health_changed", map[string]any{"status": status, "component": "wal"})
 	}
 }
 

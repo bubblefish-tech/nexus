@@ -43,7 +43,6 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/demo"
 	"github.com/bubblefish-tech/nexus/internal/destination"
-	"github.com/bubblefish-tech/nexus/internal/eventbus"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
 	"github.com/bubblefish-tech/nexus/internal/immune"
 	"github.com/bubblefish-tech/nexus/internal/lint"
@@ -822,10 +821,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		TotalMs:     float64(time.Since(writeStart).Microseconds()) / 1000.0,
 		Stages:      nil,
 	})
-	d.eventBus.Publish(eventbus.Event{
-		Type:   eventbus.EventMemoryWritten,
-		Source: src.Name,
-	})
+	d.liteBus.Emit("memory_written", map[string]any{"source": src.Name, "payload_id": payloadID})
 
 	// Step 13 — Return 200 + payload_id.
 	d.writeJSON(w, http.StatusOK, writeResponse{
@@ -895,11 +891,8 @@ func (d *Daemon) interceptWrite(
 		PolicyReason:   scan.Rule,
 		LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
 	})
-	d.eventBus.Publish(eventbus.Event{
-		Type:   eventbus.EventQuarantineEvent,
-		Source: sourceName,
-		Meta:   map[string]string{"rule": scan.Rule, "action": scan.Action},
-	})
+	d.liteBus.Emit("quarantine_event", map[string]any{"source": sourceName, "rule": scan.Rule, "action": scan.Action, "payload_id": payloadID})
+	d.liteBus.Emit("immune_detection", map[string]any{"source": sourceName, "rule": scan.Rule, "action": scan.Action, "payload_id": payloadID})
 	// Identical shape to a successful write — response-shape indistinguishability.
 	d.writeJSON(w, http.StatusOK, writeResponse{
 		PayloadID: payloadID,
@@ -1168,10 +1161,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		TotalMs:     float64(queryDuration.Microseconds()) / 1000.0,
 		Stages:      stages,
 	})
-	d.eventBus.Publish(eventbus.Event{
-		Type:   eventbus.EventMemoryQueried,
-		Source: src.Name,
-	})
+	d.liteBus.Emit("memory_queried", map[string]any{"source": src.Name, "result_count": len(cascResult.Records)})
 
 	meta := nexusMetadata{
 		ResultCount:               len(cascResult.Records),

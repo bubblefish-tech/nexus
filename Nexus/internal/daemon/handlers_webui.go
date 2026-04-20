@@ -126,10 +126,7 @@ func (d *Daemon) handleDiscoverResults(w http.ResponseWriter, r *http.Request) {
 	d.lastDiscoveryAt = now
 	d.lastDiscoveryMu.Unlock()
 
-	d.eventBus.Publish(eventbus.Event{
-		Type: eventbus.EventDiscoveryEvent,
-		Meta: map[string]string{"count": intToStr(len(tools))},
-	})
+	d.liteBus.Emit("discovery_event", map[string]any{"count": len(tools)})
 
 	d.writeJSON(w, http.StatusOK, toDiscoverResponse(tools, now))
 }

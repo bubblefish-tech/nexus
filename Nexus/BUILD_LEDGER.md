@@ -1040,8 +1040,32 @@
 - Vet: OK (implicit — clean build)
 - Tests: 82 packages PASS (internal/eventbus +1 new, internal/quarantine +2 new Count tests) — zero failures
 
+## EVT.1–2: COMPLETE — Event Bus Lite with emit points and SSE feed
+- New package: `internal/events/`
+  - `lite.go`: LiteEvent{Type, Timestamp, Data map[string]any} + LiteBus{ch, closed atomic.Bool}
+  - `Emitter` interface for nil-safe injection into non-daemon packages
+  - `NewLiteBus(bufferSize)`, `Emit(type, data)` (non-blocking drop), `Stream() <-chan LiteEvent`, `Close()`
+  - `lite_test.go`: 7 tests (emit+stream, non-blocking drop, close closes channel, emit-after-close no-op, idempotent close, default buffer, UTC timestamp)
+- New file: `internal/daemon/daemon_events.go`
+  - `runLiteBusBridge()`: goroutine that reads liteBus.Stream() and forwards to eventBus.Publish() so SSE clients receive all liteBus events
+  - `liteToEventBus()`: converts LiteEvent.Data map[string]any → eventbus.Event (source/agent_id promoted; remainder in Meta)
+- Wired in `internal/daemon/daemon.go`:
+  - `liteBus *events.LiteBus` field (512-buffer); initialised in New(), bridge goroutine started at eventBus.Start()
+  - `liteBus.Close()` in Stop() stage 3 (before eventBus.Stop() so bridge drains cleanly)
+  - EVT.2: `health_changed` emitted in `runWatchdogCheck()` on WAL health transitions (component=wal, status=healthy/unhealthy)
+- Emit points wired (EVT.2):
+  - `memory_written` (source, payload_id) — handlers.go handleWrite (replaces direct eventBus.Publish)
+  - `memory_queried` (source, result_count) — handlers.go handleQuery (replaces direct eventBus.Publish)
+  - `quarantine_event` + `immune_detection` (source, rule, action, payload_id) — handlers.go interceptWrite (replaces direct eventBus.Publish)
+  - `discovery_event` (count) — handlers_webui.go handleDiscoverResults (replaces direct eventBus.Publish)
+  - `agent_connected` / `agent_disconnected` — internal/web/api_a2a.go A2ADashboard via SetEmitter(events.Emitter)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 87 packages PASS (internal/events +1 new with 7 tests) — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: Phase 7 complete. Branch ready for merge to main.
+## Current subtask: Phase 8 complete. Phase 9 is next.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
