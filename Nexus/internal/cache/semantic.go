@@ -32,8 +32,8 @@ import (
 // Register via NewSemanticStats on the daemon's private registry.
 //
 // Metric names:
-//   - bubblefish_cache_semantic_hits_total
-//   - bubblefish_cache_semantic_misses_total
+//   - nexus_cache_semantic_hits_total
+//   - nexus_cache_semantic_misses_total
 //
 // Reference: Tech Spec Section 11.3.
 type SemanticStats struct {
@@ -51,11 +51,11 @@ type SemanticStats struct {
 // private registry).
 func NewSemanticStats(reg prometheus.Registerer) *SemanticStats {
 	hits := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_cache_semantic_hits_total",
+		Name: "nexus_cache_semantic_hits_total",
 		Help: "Total number of Stage 2 semantic-cache hits.",
 	})
 	misses := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_cache_semantic_misses_total",
+		Name: "nexus_cache_semantic_misses_total",
 		Help: "Total number of Stage 2 semantic-cache misses.",
 	})
 	reg.MustRegister(hits, misses)

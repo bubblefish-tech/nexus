@@ -44,7 +44,7 @@ func (d *Daemon) initProvenance(cfg *config.Config) {
 		return
 	}
 
-	basePath := filepath.Join(home, ".bubblefish", "Nexus")
+	basePath := filepath.Join(home, ".nexus", "Nexus")
 	sd, err := secrets.Open(basePath)
 	if err != nil {
 		d.logger.Warn("daemon: provenance disabled — cannot open secrets directory",

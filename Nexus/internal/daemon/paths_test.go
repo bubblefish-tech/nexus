@@ -57,8 +57,8 @@ func TestDaemon_SQLitePathFallsBackToConfigDir(t *testing.T) {
 	if got != want {
 		t.Errorf("resolveSQLitePath() = %q, want %q", got, want)
 	}
-	if strings.Contains(got, ".bubblefish/Nexus") && !strings.Contains(dir, ".bubblefish/Nexus") {
-		t.Error("SQLite fallback path should not contain hardcoded .bubblefish/Nexus")
+	if strings.Contains(got, ".nexus/Nexus") && !strings.Contains(dir, ".nexus/Nexus") {
+		t.Error("SQLite fallback path should not contain hardcoded .nexus/Nexus")
 	}
 }
 

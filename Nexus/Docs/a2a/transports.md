@@ -9,7 +9,7 @@ The default transport. Nexus connects to the agent's HTTP endpoint and sends
 JSON-RPC requests as POST bodies.
 
 ```bash
-bubblefish a2a agent add myagent \
+nexus a2a agent add myagent \
   --transport http \
   --url http://localhost:9100
 ```
@@ -17,7 +17,7 @@ bubblefish a2a agent add myagent \
 ### Configuration
 
 ```toml
-# ~/.bubblefish/Nexus/a2a/agents/myagent.toml
+# ~/.nexus/Nexus/a2a/agents/myagent.toml
 [transport]
 kind = "http"
 url = "http://localhost:9100"
@@ -38,7 +38,7 @@ Nexus spawns the agent as a child process and communicates via stdin/stdout
 using newline-delimited JSON-RPC.
 
 ```bash
-bubblefish a2a agent add localagent \
+nexus a2a agent add localagent \
   --transport stdio \
   --command /usr/local/bin/myagent \
   --args "--mode a2a"
@@ -76,7 +76,7 @@ flags. This is functionally identical to the HTTP transport but signals to
 Nexus that the connection may traverse a tunnel with additional latency.
 
 ```bash
-bubblefish a2a agent add tunneled \
+nexus a2a agent add tunneled \
   --transport tunnel \
   --url https://myagent.example.com
 ```
@@ -105,7 +105,7 @@ automatically forwards `localhost` ports, so this transport dials
 `localhost:<port>` and performs a health check.
 
 ```bash
-bubblefish a2a agent add wsl-agent \
+nexus a2a agent add wsl-agent \
   --transport wsl \
   --url http://localhost:8200
 ```
@@ -177,10 +177,10 @@ agent status transitions to `error`.
 
 ```bash
 # Manual health check
-bubblefish a2a agent test myagent
+nexus a2a agent test myagent
 
 # View agent status
-bubblefish a2a agent show myagent
+nexus a2a agent show myagent
 ```
 
 ## Changing Transports
@@ -188,8 +188,8 @@ bubblefish a2a agent show myagent
 To change an agent's transport, retire the old registration and add a new one:
 
 ```bash
-bubblefish a2a agent retire myagent
-bubblefish a2a agent add myagent --transport stdio --command /path/to/agent
+nexus a2a agent retire myagent
+nexus a2a agent add myagent --transport stdio --command /path/to/agent
 ```
 
 Existing grants are preserved across re-registration if the agent name

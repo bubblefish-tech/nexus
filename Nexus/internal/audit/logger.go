@@ -209,7 +209,7 @@ func (l *AuditLogger) openShadowFile() error {
 // is logged and the request still succeeds.
 //
 // Log failure MUST NOT cause request failure — the caller logs WARN and
-// increments bubblefish_audit_log_errors_total.
+// increments nexus_audit_log_errors_total.
 //
 // Reference: Tech Spec Addendum Sections A2.3, A2.4, Update U1.1–U1.3.
 func (l *AuditLogger) Log(record InteractionRecord) error {

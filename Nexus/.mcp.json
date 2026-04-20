@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "bubblefish-nexus": {
-      "command": "D:\\BubbleFish\\Nexus\\mcpb-stdio\\bubblefish.exe",
+      "command": "D:\\BubbleFish\\Nexus\\mcpb-stdio\\nexus.exe",
       "args": ["mcp", "stdio"],
       "env": {
         "BUBBLEFISH_HOME": "D:\\Test\\BubbleFish\\v010-dogfood\\home"

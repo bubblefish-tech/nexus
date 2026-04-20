@@ -48,8 +48,8 @@ import (
 
 // Domain separation constants. Part of the on-disk format.
 const (
-	ratchetAdvanceLabelV1 = "bubblefish-ratchet-advance-v1"
-	ratchetInitLabelV1    = "bubblefish-ratchet-init-v1"
+	ratchetAdvanceLabelV1 = "nexus-ratchet-advance-v1"
+	ratchetInitLabelV1    = "nexus-ratchet-init-v1"
 	ratchetSecretName     = "ratchet.state"
 )
 

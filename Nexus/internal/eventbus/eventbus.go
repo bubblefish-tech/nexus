@@ -37,7 +37,7 @@ const (
 	EventAgentConnected    EventType = "agent_connected"
 	EventAgentDisconnected EventType = "agent_disconnected"
 	EventQuarantineEvent   EventType = "quarantine_event"
-	EventSentinelIngest    EventType = "sentinel_ingest"
+	EventIngest            EventType = "ingest"
 	EventDiscoveryEvent    EventType = "discovery_event"
 )
 

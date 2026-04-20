@@ -10,8 +10,8 @@
 #   6. Print summary
 #
 # Prerequisites:
-#   - bubblefish binary built and on PATH
-#   - Nexus daemon running  (run `bubblefish start` first)
+#   - nexus binary built and on PATH
+#   - Nexus daemon running  (run `nexus start` first)
 #   - NEXUS_API_KEY   set to a data-plane API key
 #   - NEXUS_ADMIN_KEY set to the admin token
 #
@@ -53,8 +53,8 @@ if status=$(curl -sf --max-time 5 "${BASE}/health" 2>/dev/null); then
     s=$(echo "${status}" | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "?")
     pass "Daemon is up (${s}) — $(elapsed)"
 else
-    fail "Daemon unreachable at ${BASE} — is \`bubblefish start\` running?"
-    echo "  Hint: run 'bubblefish start' in another terminal, then retry."
+    fail "Daemon unreachable at ${BASE} — is \`nexus start\` running?"
+    echo "  Hint: run 'nexus start' in another terminal, then retry."
     exit 1
 fi
 
@@ -109,8 +109,8 @@ if [ -n "${WRITTEN_ID}" ] && [ -n "${ADMIN_KEY}" ]; then
         echo "${proof}" > "${PROOF_JSON}"
         pass "Proof bundle fetched for ${WRITTEN_ID} — $(elapsed)"
         # Generate HTML via CLI if available
-        if command -v bubblefish &>/dev/null; then
-            if bubblefish verify --proof "${WRITTEN_ID}" \
+        if command -v nexus &>/dev/null; then
+            if nexus verify --proof "${WRITTEN_ID}" \
                 --url "${DASH_BASE}" --token "${ADMIN_KEY}" \
                 --output "${PROOF_HTML}" 2>/dev/null; then
                 pass "Browser-verifiable HTML written to ${PROOF_HTML}"
@@ -120,7 +120,7 @@ if [ -n "${WRITTEN_ID}" ] && [ -n "${ADMIN_KEY}" ]; then
                 fi
             fi
         else
-            warn "bubblefish CLI not on PATH — raw proof JSON at ${PROOF_JSON}"
+            warn "nexus CLI not on PATH — raw proof JSON at ${PROOF_JSON}"
         fi
     else
         warn "Proof fetch failed (check NEXUS_ADMIN_KEY)"

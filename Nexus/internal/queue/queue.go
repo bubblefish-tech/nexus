@@ -84,7 +84,7 @@ type Config struct {
 
 	// OnProcessed is an optional callback invoked after each entry is
 	// successfully written to the destination. Used to increment the
-	// bubblefish_queue_processing_rate metric. Must be safe to call
+	// nexus_queue_processing_rate metric. Must be safe to call
 	// concurrently. If nil, no callback is made.
 	OnProcessed func()
 
@@ -323,7 +323,7 @@ func (q *Queue) processEntry(entry wal.Entry) string {
 	for attempt := 1; attempt <= maxDeliveryAttempts; attempt++ {
 		writeErr := q.dest.Write(tp)
 		if writeErr == nil {
-			// Notify metrics observer (e.g. bubblefish_queue_processing_rate).
+			// Notify metrics observer (e.g. nexus_queue_processing_rate).
 			if q.onProcessed != nil {
 				q.onProcessed()
 			}

@@ -92,7 +92,7 @@ func (t *SettingsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if msg.String() == "e" {
-			t.editMsg = "To edit settings, modify ~/.bubblefish/nexus.toml and restart the daemon."
+			t.editMsg = "To edit settings, modify ~/.nexus/nexus.toml and restart the daemon."
 		}
 		return t, nil
 	}

@@ -13,7 +13,7 @@
 #  10. Dashboard pages confirm all records
 #
 # Prerequisites:
-#   - bubblefish.exe built and on PATH
+#   - nexus.exe built and on PATH
 #   - $env:NEXUS_ADMIN_KEY set to the daemon admin token
 #   - [control] enabled = true in daemon.toml
 #   - [substrate] enabled = true in daemon.toml (for step 9)
@@ -88,12 +88,12 @@ if (-not $TOKEN) {
 }
 Pass "NEXUS_ADMIN_KEY set"
 
-$ver = & bubblefish version 2>&1
+$ver = & nexus version 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Fail "bubblefish not found on PATH"
+    Fail "nexus not found on PATH"
     exit 1
 }
-Pass "bubblefish: $ver"
+Pass "nexus: $ver"
 
 # ---------------------------------------------------------------------------
 # Step 1: Install (simple mode)
@@ -102,7 +102,7 @@ Pass "bubblefish: $ver"
 Step "Step 1: Install — simple mode ($(Elapsed)s)"
 
 # In CI/dev, the daemon is already configured. Install is idempotent.
-& bubblefish install --mode simple 2>&1 | ForEach-Object { Write-Host "  $_" }
+& nexus install --mode simple 2>&1 | ForEach-Object { Write-Host "  $_" }
 if ($LASTEXITCODE -ne 0) {
     Warn "install returned non-zero (may already be installed — continuing)"
 } else {
@@ -116,7 +116,7 @@ if ($LASTEXITCODE -ne 0) {
 Step "Step 2: Start daemon ($(Elapsed)s)"
 
 # Attempt start; if already running the command exits non-zero — that's fine.
-& bubblefish start 2>&1 | ForEach-Object { Write-Host "  $_" }
+& nexus start 2>&1 | ForEach-Object { Write-Host "  $_" }
 if ($LASTEXITCODE -ne 0) {
     Warn "start returned non-zero (daemon may already be running — continuing)"
 }
@@ -164,7 +164,7 @@ if ($agent -and $agent.agent_id) {
 
 Step "Step 4: Grant nexus_write to $AGENT_ID ($(Elapsed)s)"
 
-& bubblefish grant create --agent $AGENT_ID --capability nexus_write `
+& nexus grant create --agent $AGENT_ID --capability nexus_write `
     --granted-by admin --expires 1h 2>&1 | ForEach-Object { Write-Host "  $_" }
 if ($LASTEXITCODE -eq 0) {
     Pass "grant created"
@@ -173,7 +173,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # Capture grant ID for lineage verification later.
-$grantsJson = & bubblefish grant list --agent $AGENT_ID --json 2>&1
+$grantsJson = & nexus grant list --agent $AGENT_ID --json 2>&1
 $grants = $grantsJson | ConvertFrom-Json -ErrorAction SilentlyContinue
 if ($grants -and $grants.Count -gt 0) {
     $GRANT_ID = $grants[0].grant_id
@@ -210,7 +210,7 @@ if ($approval -and $approval.request_id) {
 Step "Step 6: Admin approves nexus_delete ($(Elapsed)s)"
 
 if ($APPROVAL_ID) {
-    & bubblefish approval decide --id $APPROVAL_ID --decision approve `
+    & nexus approval decide --id $APPROVAL_ID --decision approve `
         --reason "Demo approval" 2>&1 | ForEach-Object { Write-Host "  $_" }
     if ($LASTEXITCODE -eq 0) {
         Pass "approval decided: approve"
@@ -279,7 +279,7 @@ if ($TASK_ID) {
 
 Step "Step 8: Action log for $AGENT_ID ($(Elapsed)s)"
 
-& bubblefish action log --agent $AGENT_ID 2>&1 | ForEach-Object { Write-Host "  $_" }
+& nexus action log --agent $AGENT_ID 2>&1 | ForEach-Object { Write-Host "  $_" }
 if ($LASTEXITCODE -eq 0) {
     Pass "action log retrieved"
 } else {
@@ -312,7 +312,7 @@ if ($MEM_ID) {
         $proof | ConvertTo-Json -Depth 20 | Set-Content -Path $proofFile -Encoding UTF8
         Pass "proof saved: $proofFile"
 
-        & bubblefish verify $proofFile 2>&1 | ForEach-Object { Write-Host "  $_" }
+        & nexus verify $proofFile 2>&1 | ForEach-Object { Write-Host "  $_" }
         if ($LASTEXITCODE -eq 0) {
             Pass "proof: VALID"
         } else {

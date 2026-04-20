@@ -186,7 +186,7 @@ func TestTaskJSONFieldNames(t *testing.T) {
 
 func TestTaskWithExtensions(t *testing.T) {
 	task := NewTask()
-	task.Extensions = json.RawMessage(`{"sh.bubblefish.nexus.governance/v1":{"decision":"allow"}}`)
+	task.Extensions = json.RawMessage(`{"sh.nexus.nexus.governance/v1":{"decision":"allow"}}`)
 	data, err := json.Marshal(task)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

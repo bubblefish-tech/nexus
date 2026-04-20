@@ -126,7 +126,7 @@ func (m Model) viewDaemonDown() string {
 	title := lipgloss.NewStyle().Foreground(styles.ColorRed).Bold(true).
 		Render("  DAEMON NOT RUNNING")
 	body := lipgloss.NewStyle().Foreground(styles.TextSecondary).
-		Render(fmt.Sprintf("\n  Start with: bubblefish start\n\n  Retry count: %d\n  Press 'r' to retry, 'q' to quit.", m.retryCount))
+		Render(fmt.Sprintf("\n  Start with: nexus start\n\n  Retry count: %d\n  Press 'r' to retry, 'q' to quit.", m.retryCount))
 	content := lipgloss.JoinVertical(lipgloss.Left, title, body)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }

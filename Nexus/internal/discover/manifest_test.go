@@ -46,7 +46,7 @@ func TestKnownTools_AllFieldsValid(t *testing.T) {
 		discover.ConnOpenAICompat:   true,
 		discover.ConnMCPStdio:       true,
 		discover.ConnMCPSSE:         true,
-		discover.ConnSentinelIngest: true,
+		discover.ConnIngest: true,
 		discover.ConnHTTPAPI:        true,
 	}
 	for i, tool := range discover.KnownTools {

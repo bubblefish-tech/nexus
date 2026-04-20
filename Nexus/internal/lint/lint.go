@@ -16,7 +16,7 @@
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
 // Package lint validates BubbleFish Nexus configuration and warns about
-// dangerous or suboptimal settings. It implements the `bubblefish lint` CLI
+// dangerous or suboptimal settings. It implements the `nexus lint` CLI
 // command and the /api/lint admin endpoint.
 //
 // Reference: Tech Spec Section 6.7.
@@ -312,7 +312,7 @@ func checkUnsignedConfigs(cfg *config.Config, configDir string, r *Result) {
 			r.Findings = append(r.Findings, Finding{
 				Severity: Warn,
 				Check:    "unsigned_config",
-				Message:  fmt.Sprintf("signing enabled but %q has no .sig file; run bubblefish sign-config", filepath.Base(f)),
+				Message:  fmt.Sprintf("signing enabled but %q has no .sig file; run nexus sign-config", filepath.Base(f)),
 			})
 		}
 	}

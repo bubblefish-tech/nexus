@@ -25,7 +25,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/policy"
 )
 
-// RunBuild implements the `bubblefish build` command.
+// RunBuild implements the `nexus build` command.
 //
 // It loads the full configuration from configDir (daemon.toml + sources/*.toml
 // + destinations/*.toml), validates every source's [source.policy] block

@@ -153,7 +153,7 @@ func (p *SummaryPage) ViewWithState(width, height int, state *WizardState) strin
 		b.WriteString(lipgloss.NewStyle().Foreground(styles.ColorGreen).Bold(true).
 			Render("✓  Installation complete!") + "\n\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(styles.TextSecondary).
-			Render("Run `bubblefish start` to start the daemon."))
+			Render("Run `nexus start` to start the daemon."))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
 

@@ -41,7 +41,7 @@ const (
 	ConnOpenAICompat   = "openai_compat"
 	ConnMCPStdio       = "mcp_stdio"
 	ConnMCPSSE         = "mcp_sse"
-	ConnSentinelIngest = "sentinel_ingest"
+	ConnIngest = "ingest"
 	ConnHTTPAPI        = "http_api"
 )
 

@@ -9,8 +9,8 @@
 #   6. Print summary
 #
 # Prerequisites:
-#   - bubblefish.exe built and on PATH  (or in current directory)
-#   - Nexus daemon running  (run `bubblefish start` first)
+#   - nexus.exe built and on PATH  (or in current directory)
+#   - Nexus daemon running  (run `nexus start` first)
 #   - $env:NEXUS_API_KEY   set to a data-plane API key
 #   - $env:NEXUS_ADMIN_KEY set to the admin token
 #
@@ -69,8 +69,8 @@ try {
         Fail "Unexpected status: $($h.status)"
     }
 } catch {
-    Fail "Daemon unreachable at $BASE — is `bubblefish start` running?"
-    Write-Host "  Hint: run 'bubblefish start' in another terminal, then retry." -ForegroundColor DarkYellow
+    Fail "Daemon unreachable at $BASE — is `nexus start` running?"
+    Write-Host "  Hint: run 'nexus start' in another terminal, then retry." -ForegroundColor DarkYellow
     exit 1
 }
 
@@ -127,7 +127,7 @@ if ($writtenID -and $ADMIN_KEY) {
         Pass "Proof bundle fetched for $writtenID — $(Elapsed)"
         # Generate HTML via CLI if available
         try {
-            & bubblefish verify --proof $writtenID --url $DASH_BASE --token $ADMIN_KEY --output $proofFile 2>$null
+            & nexus verify --proof $writtenID --url $DASH_BASE --token $ADMIN_KEY --output $proofFile 2>$null
             if (Test-Path $proofFile) {
                 Pass "Browser-verifiable HTML written to $proofFile"
             }

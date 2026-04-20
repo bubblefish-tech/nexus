@@ -151,7 +151,7 @@ func (t *ControlTab) View(width, height int) string {
 		components.StatCard{
 			Label:    "Version",
 			Value:    versionValue,
-			Subtitle: "bubblefish nexus",
+			Subtitle: "nexus nexus",
 			Color:    styles.ColorPurple,
 			Width:    cardWidth,
 		}.View(),

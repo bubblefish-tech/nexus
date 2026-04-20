@@ -116,13 +116,13 @@ func TestBuildConfig_ConnectionTypes(t *testing.T) {
 			wantPaths: nil,
 		},
 		{
-			name: "sentinel_ingest populates watch paths",
+			name: "ingest populates watch paths",
 			tool: DiscoveredTool{
 				Name:           "Codex CLI",
-				ConnectionType: ConnSentinelIngest,
+				ConnectionType: ConnIngest,
 				IngestCapable:  true,
 			},
-			wantConn:   ConnSentinelIngest,
+			wantConn:   ConnIngest,
 			wantPaths:  []string{"~/.codex"},
 			wantIngest: true,
 		},

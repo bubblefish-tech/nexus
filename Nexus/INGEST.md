@@ -20,7 +20,7 @@ enforcement apply.
 | Perplexity Comet | Detected, v0.1.5 | Browser profile cache |
 
 "Detected" means Ingest checks whether the application's data directory
-exists and reports it in `bubblefish ingest status`, but does not parse
+exists and reports it in `nexus ingest status`, but does not parse
 content yet.
 
 ## How It Works
@@ -85,23 +85,23 @@ your data to this format and point `generic_jsonl_paths` at it.
 ## CLI Commands
 
 ```
-bubblefish ingest status            List all watchers with state and ingest counts
-bubblefish ingest pause <watcher>   Pause a named watcher
-bubblefish ingest resume <watcher>  Resume a paused watcher
-bubblefish ingest reset <watcher>   Forget file state (re-parse from offset 0)
+nexus ingest status            List all watchers with state and ingest counts
+nexus ingest pause <watcher>   Pause a named watcher
+nexus ingest resume <watcher>  Resume a paused watcher
+nexus ingest reset <watcher>   Forget file state (re-parse from offset 0)
 ```
 
 ## Bulk Import
 
-For historical data, use `bubblefish import`:
+For historical data, use `nexus import`:
 
 ```
-bubblefish import ~/Downloads/claude-export.zip
-bubblefish import ~/Downloads/chatgpt-export.zip
-bubblefish import ~/.claude/projects/my-project/    --format claude-code-dir
-bubblefish import ~/.cursor/                         --format cursor-dir
-bubblefish import ~/conversations.jsonl              --format jsonl
-bubblefish import ~/data.zip --dry-run               # count without writing
+nexus import ~/Downloads/claude-export.zip
+nexus import ~/Downloads/chatgpt-export.zip
+nexus import ~/.claude/projects/my-project/    --format claude-code-dir
+nexus import ~/.cursor/                         --format cursor-dir
+nexus import ~/conversations.jsonl              --format jsonl
+nexus import ~/data.zip --dry-run               # count without writing
 ```
 
 Auto-detection works for most formats. Use `--format` to override.

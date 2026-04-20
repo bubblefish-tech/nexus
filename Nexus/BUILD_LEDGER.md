@@ -150,15 +150,15 @@
 
 ## MT.8: COMPLETE — 60-second control plane demo script
 - New file: scripts/demo_control_plane.ps1 — 10-step end-to-end PowerShell demo
-  - Step 1: bubblefish install --mode simple (idempotent)
-  - Step 2: bubblefish start + health poll (10s timeout)
+  - Step 1: nexus install --mode simple (idempotent)
+  - Step 2: nexus start + health poll (10s timeout)
   - Step 3: POST /api/a2a/agents → register demo-agent
-  - Step 4: bubblefish grant create --capability nexus_write
+  - Step 4: nexus grant create --capability nexus_write
   - Step 5: POST /api/control/approvals → request nexus_delete
-  - Step 6: bubblefish approval decide --decision approve
+  - Step 6: nexus approval decide --decision approve
   - Step 7: create task → write memory → delete memory → mark task complete
-  - Step 8: bubblefish action log --agent + GET /api/control/lineage/{task_id}
-  - Step 9: GET /api/substrate/proof/{id} → save JSON → bubblefish verify (substrate-optional)
+  - Step 8: nexus action log --agent + GET /api/control/lineage/{task_id}
+  - Step 9: GET /api/substrate/proof/{id} → save JSON → nexus verify (substrate-optional)
   - Step 10: HTTP 200 checks on all 5 dashboard pages (/agents /grants /approvals /tasks /actions)
 - Style: matches demo-a2a-claude-desktop.ps1 (Step/Pass/Fail/Warn helpers, Elapsed timestamps, failure counter, summary block)
 - Substrate steps are warn-not-fail when substrate is disabled (simple mode compatible)
@@ -234,7 +234,7 @@
   - HKDF sub-keys via ActiveProfile for 4 domains: nexus-config-key-v1, nexus-memory-key-v1, nexus-audit-key-v1, nexus-control-key-v1
   - SubKey(domain) returns [32]byte; IsEnabled() returns false when no password
 - New file: `internal/crypto/masterkey_test.go` — 13 tests (disabled path, env var override, same-password same-keys, wrong-password different-keys, salt persistence, salt permissions (Windows skip), non-zero sub-keys, distinct sub-keys, different salts → different keys, invalid salt, unknown domain zero, disabled zero)
-- New file: `cmd/bubblefish/config.go` — `bubblefish config set-password` subcommand
+- New file: `cmd/bubblefish/config.go` — `nexus config set-password` subcommand
   - Masked terminal password prompt via golang.org/x/term
   - Password confirmation with mismatch detection
   - Removes existing salt before re-derive (fresh salt on password change)
@@ -372,7 +372,7 @@
   - Without Force, refuses to overwrite existing files
   - Atomic write: temp file + rename
   - `ErrEncryptionDisabled` returned when MKM is nil or not enabled
-- CLI: `bubblefish backup export --output <path>`, `bubblefish backup import --input <path> [--dest <dir>] [--force]`
+- CLI: `nexus backup export --output <path>`, `nexus backup import --input <path> [--dest <dir>] [--force]`
 - New test file: `internal/backup/encrypt_test.go` — 11 tests
   - RoundTrip, FileHasMagic, WrongKeyFails, DisabledMKM, BadMagic, BadVersion, TruncatedFile, NoOverwrite, ForceOverwrite, FilePermissions (Windows-skip), EmptySourceDir, CorruptedCiphertext
 - Commit: 3d6feae
@@ -586,7 +586,7 @@
   - POST /api/quarantine/{id}/reject — mark reviewed_action="rejected"
   - Registered in buildRouter() and BuildAdminRouter()
 - Dashboard: `web/dashboard/quarantine.html` — dark theme, nav bar, table with Approve/Reject buttons; textContent-only DOM; gated on quarantineStore
-- CLI: `bubblefish quarantine list [--source <name>] [--include-reviewed] [--limit N] [--json]`; `bubblefish quarantine approve --id <id>`; `bubblefish quarantine reject --id <id>`
+- CLI: `nexus quarantine list [--source <name>] [--include-reviewed] [--limit N] [--json]`; `nexus quarantine approve --id <id>`; `nexus quarantine reject --id <id>`
 - Exit gate:
   - Build: OK
   - Vet: OK
@@ -1115,7 +1115,7 @@
 - `cmd/bubblefish/dev.go`: updated `buildLogger(cfg, configDir)` call
 - `cmd/bubblefish/doctor.go`: enhanced with 8 health checks + self-heal proposals
   - config_dir exists, daemon.toml exists, WAL writable, logs dir present
-  - daemon_alive (GET /health with 2s timeout) → "run 'bubblefish start'"
+  - daemon_alive (GET /health with 2s timeout) → "run 'nexus start'"
   - MCP port configured, OAuth validity checks
   - destination health via structured /health subsystems map
 - `cmd/bubblefish/logs.go`: `runLogs(args)` — reads `<configDir>/logs/nexus.log` JSONL
@@ -1131,7 +1131,7 @@
 ### WIRE.6: COMPLETE — Update Command
 - New package `internal/updater/`:
   - `FetchLatest(client)` — GitHub releases API; handles 404 (no releases yet) gracefully
-  - `PlatformAssetName()` — `bubblefish_<os>_<arch>[.exe]` for current platform
+  - `PlatformAssetName()` — `nexus_<os>_<arch>[.exe]` for current platform
   - `FindAssets(info)` — locates binary + `.sha256` sidecar in a release
   - `Download(client, url, dir)` — downloads to temp file in `dir`
   - `VerifyChecksum(binPath, sumPath)` — SHA-256 hex comparison
@@ -1182,7 +1182,7 @@
   - `--output <path>` — writes HTML (*.html) or JSON; creates parent dirs (0700)
   - `--url URL` — daemon URL (default http://localhost:8081)
   - `--token TOKEN` — admin token (or NEXUS_ADMIN_KEY env)
-  - Backward compat: `bubblefish verify <file.json>` still works unchanged
+  - Backward compat: `nexus verify <file.json>` still works unchanged
 
 ### SHOW.2: COMPLETE — Cross-Tool Memory Graph Dashboard (D3.js)
 - New file: `web/dashboard/memgraph.html`
@@ -1220,8 +1220,24 @@
 - Vet: OK
 - Tests: 90 packages — `internal/provenance` PASS (5 new htmlproof tests), `internal/daemon` PASS — zero failures
 
+## NAMING: COMPLETE — CLI binary bubblefish→nexus, sentinel→ingest/drift, naming convention cleanup
+- `cmd/bubblefish/` → `cmd/nexus/` (git mv)
+- Binary output: `bubblefish.exe` → `nexus.exe`
+- `cmd/nexus/sentinel.go` → `cmd/nexus/drift.go`; `runSentinel` → `runDrift`; CLI command `sentinel` → `drift`
+- `internal/sentinel/` → `internal/drift/`; `package sentinel` → `package drift`; `type Sentinel` → `type Drift`
+- Step 3 (sentinel→ingest package) was pre-completed: `internal/ingest/` was already built directly
+- All user-facing strings updated: `bubblefish <cmd>` → `nexus <cmd>` across all cmd/*.go files
+- All internal strings updated: package comments, error messages, Prometheus metrics (`nexus_*` prefix)
+- `ConnSentinelIngest` → `ConnIngest`, `EventSentinelIngest` → `EventIngest`
+- Non-Go files updated: CHANGELOG.md, README.md, CLAUDE.md, Docs/**, INGEST.md, scripts, bench
+- WAL binary integrity sentinels (byte markers) intentionally unchanged — different concept
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 92 packages PASS — zero failures (pre-existing flaky TestSoak_24h passed on this run)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: Phase 10 complete. Final exit gate / v0.1.3 tag prep is next.
+## Current subtask: NAMING complete. Final exit gate / v0.1.3 tag prep is next.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

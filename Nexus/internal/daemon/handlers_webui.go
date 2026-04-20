@@ -175,7 +175,7 @@ func intToStr(n int) string {
 // activity events from the Event Bus Lite.
 //
 // Events: memory_written, memory_queried, agent_connected,
-// agent_disconnected, quarantine_event, sentinel_ingest, discovery_event.
+// agent_disconnected, quarantine_event, ingest, discovery_event.
 //
 // Admin auth required (via wrapper handleEventsStreamWithQueryAuth).
 func (d *Daemon) handleEventsStream(w http.ResponseWriter, r *http.Request) {

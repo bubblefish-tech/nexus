@@ -386,13 +386,13 @@ func Analyse(results []struct {
 // Process management (managed mode)
 // ---------------------------------------------------------------------------
 
-// managedProcess wraps a child bubblefish daemon for SIGKILL simulation.
+// managedProcess wraps a child nexus daemon for SIGKILL simulation.
 type managedProcess struct {
 	cmd  *exec.Cmd
 	port int
 }
 
-// startDaemon starts a `bubblefish start` process and returns a handle.
+// startDaemon starts a `nexus start` process and returns a handle.
 // The caller is responsible for killing or stopping the process.
 func startDaemon(logger *slog.Logger) (*managedProcess, error) {
 	exe, err := os.Executable()

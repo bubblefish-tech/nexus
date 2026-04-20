@@ -49,7 +49,7 @@ const (
 
 // ConfigDir returns the canonical configuration directory for BubbleFish Nexus.
 // If the BUBBLEFISH_HOME environment variable is set and non-empty, its value is
-// used (resolved to an absolute path). Otherwise falls back to ~/.bubblefish/Nexus.
+// used (resolved to an absolute path). Otherwise falls back to ~/.nexus/Nexus.
 // Returns an error if path resolution fails; callers must treat this as fatal.
 func ConfigDir() (string, error) {
 	if env := os.Getenv("BUBBLEFISH_HOME"); env != "" {
@@ -59,7 +59,7 @@ func ConfigDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config: resolve home directory: %w", err)
 	}
-	return filepath.Join(home, ".bubblefish", "Nexus"), nil
+	return filepath.Join(home, ".nexus", "Nexus"), nil
 }
 
 // Load reads daemon.toml, sources/*.toml, and destinations/*.toml from

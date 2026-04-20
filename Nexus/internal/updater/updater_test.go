@@ -72,7 +72,7 @@ func TestFetchLatest_OK(t *testing.T) {
 	t.Helper()
 	info := ReleaseInfo{
 		TagName: "v0.1.4",
-		Assets:  []ReleaseAsset{{Name: "bubblefish_linux_amd64", BrowserDownloadURL: "https://example.com/bin"}},
+		Assets:  []ReleaseAsset{{Name: "nexus_linux_amd64", BrowserDownloadURL: "https://example.com/bin"}},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -197,13 +197,13 @@ func TestAtomicReplace(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create "current" binary.
-	destPath := filepath.Join(dir, "bubblefish")
+	destPath := filepath.Join(dir, "nexus")
 	if err := os.WriteFile(destPath, []byte("old"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create "new" binary.
-	srcPath := filepath.Join(dir, "bubblefish.new")
+	srcPath := filepath.Join(dir, "nexus.new")
 	if err := os.WriteFile(srcPath, []byte("new"), 0755); err != nil {
 		t.Fatal(err)
 	}

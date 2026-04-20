@@ -41,7 +41,7 @@ var allFeatures = []featureEntry{
 	{"a2a", "A2A Protocol", "Agent-to-agent communication and registry", false, false},
 	{"control", "Control Plane", "Grants, approvals, tasks, and policy engine", false, false},
 	{"substrate", "BF-Sketch Substrate", "Forward-secure sketch + cryptographic deletion proofs", false, false},
-	{"ingest", "Sentinel Ingest", "Auto-ingest conversations from Claude Code, Cursor, LM Studio", true, false},
+	{"ingest", "Nexus Ingest", "Auto-ingest conversations from Claude Code, Cursor, LM Studio", true, false},
 	{"audit", "Audit Chain", "Hash-chained, Ed25519-signed audit log", true, true},
 	{"dashboard", "Web Dashboard", "Read-only monitoring UI at port 8081", true, true},
 }

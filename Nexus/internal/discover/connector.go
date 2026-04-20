@@ -32,7 +32,7 @@ type ConnectionConfig struct {
 	// Command and Args configure the subprocess for mcp_stdio connections.
 	Command string
 	Args    []string
-	// WatchPaths lists directories to monitor for sentinel_ingest connections
+	// WatchPaths lists directories to monitor for ingest connections
 	// and for ingest-capable mcp_stdio tools.
 	WatchPaths     []string
 	Orchestratable bool
@@ -97,7 +97,7 @@ func buildConfig(dt DiscoveredTool) ConnectionConfig {
 		if dt.IngestCapable {
 			cfg.WatchPaths = knownIngestPaths(dt.Name)
 		}
-	case ConnSentinelIngest:
+	case ConnIngest:
 		cfg.WatchPaths = knownIngestPaths(dt.Name)
 	}
 	// openai_compat, mcp_sse, http_api: Endpoint already set from dt.Endpoint.

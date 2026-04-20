@@ -133,7 +133,7 @@ func (s *Sink) Start() {
 }
 
 // Emit sends an event to the sink channel. It NEVER blocks — if the channel
-// is full, the event is dropped and bubblefish_events_dropped_total is
+// is full, the event is dropped and nexus_events_dropped_total is
 // incremented.
 //
 // INVARIANT: This function is called on the write hot path. It must be

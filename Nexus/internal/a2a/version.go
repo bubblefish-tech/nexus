@@ -27,7 +27,7 @@ const (
 	ImplementationName = "nexus-a2a"
 
 	// GovernanceExtensionURI is the namespace for the Nexus governance extension.
-	GovernanceExtensionURI = "sh.bubblefish.nexus.governance/v1"
+	GovernanceExtensionURI = "sh.nexus.nexus.governance/v1"
 )
 
 // ImplementationVersion returns the Nexus release version, which is the

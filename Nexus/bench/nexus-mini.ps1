@@ -18,7 +18,7 @@ if (-not $ApiKey) {
 }
 
 $ErrorActionPreference = "Stop"
-$proc = Get-Process -Name "bubblefish" -ErrorAction SilentlyContinue | Select-Object -First 1
+$proc = Get-Process -Name "nexus" -ErrorAction SilentlyContinue | Select-Object -First 1
 
 function Get-Stats($samples) {
     if ($samples.Count -eq 0) { return $null }

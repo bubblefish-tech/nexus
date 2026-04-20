@@ -18,7 +18,7 @@
 // Package secrets manages the BubbleFish Nexus secrets directory.
 //
 // The secrets directory lives at $BUBBLEFISH_HOME/secrets/ (typically
-// ~/.bubblefish/Nexus/secrets/) and holds material that must NOT appear in
+// ~/.nexus/Nexus/secrets/) and holds material that must NOT appear in
 // TOML config files: LSH seeds, Ed25519 signing keys, and future HMAC keys.
 //
 // All files in the secrets directory are 0600. The directory itself is 0700.

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
-// Package bench implements the `bubblefish bench` command: throughput, latency,
+// Package bench implements the `nexus bench` command: throughput, latency,
 // and retrieval-evaluation benchmarks against a running Nexus daemon.
 //
 // All benchmarks are HTTP-client-based (not in-process) as required by

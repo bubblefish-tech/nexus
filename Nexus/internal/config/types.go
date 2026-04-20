@@ -16,7 +16,7 @@
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
 // Package config provides config loading, resolution, and validation for
-// BubbleFish Nexus. All structs model the TOML files in ~/.bubblefish/Nexus/.
+// BubbleFish Nexus. All structs model the TOML files in ~/.nexus/Nexus/.
 //
 // Config is loaded once at startup and treated as immutable. Hot-reload
 // (Phase 0D) replaces the pointer atomically; in-flight requests always
@@ -418,7 +418,7 @@ type IngestConfig struct {
 }
 
 // ---------------------------------------------------------------------------
-// Source TOML — ~/.bubblefish/Nexus/sources/*.toml
+// Source TOML — ~/.nexus/Nexus/sources/*.toml
 // ---------------------------------------------------------------------------
 
 // sourceFile is used exclusively for TOML decoding of a source file.
@@ -565,7 +565,7 @@ type PolicyDecayConfig struct {
 }
 
 // ---------------------------------------------------------------------------
-// Destination TOML — ~/.bubblefish/Nexus/destinations/*.toml
+// Destination TOML — ~/.nexus/Nexus/destinations/*.toml
 // ---------------------------------------------------------------------------
 
 // destinationFile is used exclusively for TOML decoding of a destination file.

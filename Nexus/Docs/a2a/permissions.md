@@ -76,7 +76,7 @@ When multiple grants match a request:
 
 ## Customizing Defaults
 
-Override default policies in `~/.bubblefish/Nexus/a2a/policy.toml`:
+Override default policies in `~/.nexus/Nexus/a2a/policy.toml`:
 
 ```toml
 [defaults]
@@ -88,7 +88,7 @@ Override default policies in `~/.bubblefish/Nexus/a2a/policy.toml`:
 Per-(source, target) overrides are configured via the web UI or CLI:
 
 ```bash
-bubblefish a2a grant add \
+nexus a2a grant add \
   --source client_claude_desktop \
   --target openclaw \
   --capability "messaging.send:*"
@@ -130,7 +130,7 @@ a one-click "Revoke Now" button.
 ### CLI ALL Grant
 
 ```bash
-bubblefish a2a grant elevate \
+nexus a2a grant elevate \
   --source client_claude_desktop \
   --target openclaw \
   --expires 24h
@@ -143,13 +143,13 @@ confirmation.
 
 ```bash
 # List all grants
-bubblefish a2a grant list
+nexus a2a grant list
 
 # List grants for a specific source
-bubblefish a2a grant list --source client_claude_desktop
+nexus a2a grant list --source client_claude_desktop
 
 # Revoke a grant
-bubblefish a2a grant revoke <grant_id>
+nexus a2a grant revoke <grant_id>
 ```
 
 Grants can also be managed via the web UI A2A Permissions page, which supports

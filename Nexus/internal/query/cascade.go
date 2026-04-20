@@ -162,7 +162,7 @@ type CascadeRunner struct {
 	embeddingClient  embedding.EmbeddingClient
 	embeddingLatency prometheus.Observer   // optional; nil is safe
 	retrieval        config.RetrievalConfig // Phase 6: over-sample factor + decay
-	decayCounter     prometheus.Counter    // Phase 6: bubblefish_temporal_decay_applied_total
+	decayCounter     prometheus.Counter    // Phase 6: nexus_temporal_decay_applied_total
 	destinations     map[string]*config.Destination // Phase R-7: per-dest/collection decay
 	debug            bool // when true, populate DebugInfo in CascadeResult
 	fw               *firewall.RetrievalFirewall  // Phase R-31: retrieval firewall
@@ -228,7 +228,7 @@ func (cr *CascadeRunner) WithRetrievalConfig(cfg config.RetrievalConfig) *Cascad
 // WithDecayCounter attaches a Prometheus counter that is incremented each time
 // temporal decay reranking is applied in Stage 5. Pass nil to disable.
 //
-// Reference: Tech Spec Section 11.3 — bubblefish_temporal_decay_applied_total.
+// Reference: Tech Spec Section 11.3 — nexus_temporal_decay_applied_total.
 func (cr *CascadeRunner) WithDecayCounter(c prometheus.Counter) *CascadeRunner {
 	cr.decayCounter = c
 	return cr

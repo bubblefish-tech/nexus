@@ -8,8 +8,8 @@
 #   5. Verify audit chain
 #
 # Prerequisites:
-#   - bubblefish.exe built and on PATH
-#   - Nexus daemon running (bubblefish start)
+#   - nexus.exe built and on PATH
+#   - Nexus daemon running (nexus start)
 #   - Admin key available in $env:NEXUS_ADMIN_KEY
 #
 # Run from D:\BubbleFish\Nexus:
@@ -51,12 +51,12 @@ if (-not $env:NEXUS_ADMIN_KEY) {
 }
 Pass "NEXUS_ADMIN_KEY set"
 
-$version = & bubblefish version 2>&1
+$version = & nexus version 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Fail "bubblefish not found on PATH"
+    Fail "nexus not found on PATH"
     exit 1
 }
-Pass "bubblefish version: $version"
+Pass "nexus version: $version"
 
 # --- Step 1: Verify A2A is enabled ---
 
@@ -64,7 +64,7 @@ Step "Step 1: Verify A2A enabled ($(Elapsed)s)"
 
 # The daemon must have [a2a] enabled = true.
 # We'll verify by listing agents — if A2A is disabled, this errors.
-$agents = & bubblefish a2a agent list 2>&1
+$agents = & nexus a2a agent list 2>&1
 if ($LASTEXITCODE -ne 0) {
     Fail "A2A not enabled. Add [a2a] enabled = true to daemon.toml and restart."
     exit 1
@@ -80,13 +80,13 @@ Step "Step 2: Register echo agent ($(Elapsed)s)"
 # TODO(shawn): Replace with real OpenClaw registration after fork is ready.
 
 # Check if already registered.
-$existing = & bubblefish a2a agent show echo-demo 2>&1
+$existing = & nexus a2a agent show echo-demo 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  echo-demo already registered, retiring and re-adding..."
-    & bubblefish a2a agent retire echo-demo 2>&1 | Out-Null
+    & nexus a2a agent retire echo-demo 2>&1 | Out-Null
 }
 
-& bubblefish a2a agent add echo-demo `
+& nexus a2a agent add echo-demo `
     --transport http `
     --url http://localhost:8082/a2a `
     --auth none 2>&1
@@ -101,7 +101,7 @@ Pass "echo-demo agent registered"
 
 Step "Step 3: Test agent connectivity ($(Elapsed)s)"
 
-$ping = & bubblefish a2a agent test echo-demo 2>&1
+$ping = & nexus a2a agent test echo-demo 2>&1
 if ($LASTEXITCODE -ne 0) {
     Fail "Agent ping failed: $ping"
     # Continue anyway — the demo can still show the grant/audit flow.
@@ -114,7 +114,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Step "Step 4: Grant test.echo capability ($(Elapsed)s)"
 
-& bubblefish a2a grant add `
+& nexus a2a grant add `
     --source client_claude_desktop `
     --target echo-demo `
     --capability "test.echo" 2>&1
@@ -126,14 +126,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Verify grant exists.
-$grants = & bubblefish a2a grant list 2>&1
+$grants = & nexus a2a grant list 2>&1
 Write-Host "  Grants: $grants"
 
 # --- Step 5: List agents ---
 
 Step "Step 5: List registered agents ($(Elapsed)s)"
 
-$agentList = & bubblefish a2a agent list 2>&1
+$agentList = & nexus a2a agent list 2>&1
 Write-Host "  $agentList"
 Pass "Agent list retrieved"
 
@@ -141,7 +141,7 @@ Pass "Agent list retrieved"
 
 Step "Step 6: Verify audit trail ($(Elapsed)s)"
 
-$audit = & bubblefish a2a audit tail --since 5m 2>&1
+$audit = & nexus a2a audit tail --since 5m 2>&1
 if ($LASTEXITCODE -ne 0) {
     Fail "Audit tail failed"
 } else {
@@ -153,7 +153,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Step "Step 7: Verify audit chain integrity ($(Elapsed)s)"
 
-$verify = & bubblefish a2a audit verify 2>&1
+$verify = & nexus a2a audit verify 2>&1
 if ($LASTEXITCODE -ne 0) {
     Fail "Audit chain verification failed: $verify"
 } else {
@@ -177,7 +177,7 @@ Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Open the dashboard: http://localhost:8081"
 Write-Host "  2. Navigate to A2A Permissions to see the grant"
 Write-Host "  3. In Claude Desktop, use a2a_send_to_agent to invoke echo-demo"
-Write-Host "  4. Check bubblefish a2a audit tail for the task record"
+Write-Host "  4. Check nexus a2a audit tail for the task record"
 Write-Host ""
 
 # TODO(shawn): Add timing numbers observed on your dev machine before tagging.

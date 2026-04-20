@@ -269,7 +269,7 @@ func toolList() []toolDef {
 // ---------------------------------------------------------------------------
 
 // TestPipeline is a no-op Pipeline implementation that returns canned
-// responses. Used by `bubblefish mcp test` and unit tests that need a
+// responses. Used by `nexus mcp test` and unit tests that need a
 // Pipeline without a running daemon.
 type TestPipeline struct{}
 

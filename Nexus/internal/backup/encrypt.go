@@ -43,7 +43,7 @@ const (
 
 // ErrEncryptionDisabled is returned when a password is not configured and an
 // encrypted backup/restore is attempted.
-var ErrEncryptionDisabled = errors.New("backup: encryption not configured (run 'bubblefish config set-password' first)")
+var ErrEncryptionDisabled = errors.New("backup: encryption not configured (run 'nexus config set-password' first)")
 
 // ExportEncryptedOptions configures an encrypted single-file backup export.
 type ExportEncryptedOptions struct {

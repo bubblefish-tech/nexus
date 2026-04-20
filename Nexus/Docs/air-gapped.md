@@ -22,14 +22,14 @@ Signed configs, MAC integrity, no embedding calls, no event sinks.
 ## Quick Start
 
 ```bash
-bubblefish install --dest sqlite --mode safe
+nexus install --dest sqlite --mode safe
 # Generate signing and encryption keys:
-bubblefish keygen --out ~/.bubblefish/Nexus/secrets/signing.key
-bubblefish keygen --out ~/.bubblefish/Nexus/secrets/wal.key
-bubblefish keygen --out ~/.bubblefish/Nexus/secrets/mac.key
+nexus keygen --out ~/.nexus/Nexus/secrets/signing.key
+nexus keygen --out ~/.nexus/Nexus/secrets/wal.key
+nexus keygen --out ~/.nexus/Nexus/secrets/mac.key
 # Sign the compiled config:
-bubblefish sign-config
-bubblefish start
+nexus sign-config
+nexus start
 ```
 
 ## Sample Config
@@ -38,7 +38,7 @@ bubblefish start
 [daemon]
 port       = 8000
 bind       = "127.0.0.1"
-admin_token = "file:~/.bubblefish/Nexus/secrets/admin.key"
+admin_token = "file:~/.nexus/Nexus/secrets/admin.key"
 log_level  = "info"
 log_format = "text"
 mode       = "safe"
@@ -52,11 +52,11 @@ max_segment_size_mb = 10
 
 [daemon.wal.integrity]
 mode         = "mac"
-mac_key_file = "file:~/.bubblefish/Nexus/secrets/mac.key"
+mac_key_file = "file:~/.nexus/Nexus/secrets/mac.key"
 
 [daemon.wal.encryption]
 enabled  = true
-key_file = "file:~/.bubblefish/Nexus/secrets/wal.key"
+key_file = "file:~/.nexus/Nexus/secrets/wal.key"
 
 [daemon.wal.watchdog]
 interval_seconds      = 30
@@ -68,7 +68,7 @@ global_requests_per_minute = 60
 
 [daemon.signing]
 enabled  = true
-key_file = "file:~/.bubblefish/Nexus/secrets/signing.key"
+key_file = "file:~/.nexus/Nexus/secrets/signing.key"
 
 [daemon.web]
 port         = 8081
@@ -77,7 +77,7 @@ require_auth = true
 
 ## Key Management
 
-All keys are stored in `~/.bubblefish/Nexus/secrets/` with mode 0600.
+All keys are stored in `~/.nexus/Nexus/secrets/` with mode 0600.
 The secrets directory itself is mode 0700.
 
 | Key File       | Purpose                          |
@@ -98,8 +98,8 @@ with a `config_signature_invalid` security event.
 
 ```bash
 # After any config change:
-bubblefish sign-config
-bubblefish start   # or send SIGHUP to trigger hot reload
+nexus sign-config
+nexus start   # or send SIGHUP to trigger hot reload
 ```
 
 ## When to Use

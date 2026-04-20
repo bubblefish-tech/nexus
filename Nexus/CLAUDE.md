@@ -39,7 +39,7 @@ github.com/bubblefish-tech/nexus
 ## Version
 Public version is v0.1.3 (pre-1.0). Internal development version was 2.2.
 Use the current version from internal/version/version.go in all code, docs, and CLI output.
-CLI --version output: "bubblefish nexus v{version} (pre-1.0, API subject to change)"
+CLI --version output: "nexus v{version} (pre-1.0, API subject to change)"
 
 ## Testing
 - Every package gets _test.go files.

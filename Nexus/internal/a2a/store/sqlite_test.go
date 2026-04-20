@@ -716,13 +716,13 @@ func TestListTasks_FilterBySourceAgent(t *testing.T) {
 
 	// Create a task with known source agent by using extensions.
 	task := makeTask(t)
-	task.Extensions = json.RawMessage(`{"sh.bubblefish.nexus.governance/v1":{"sourceAgentId":"agent-A","targetAgentId":"agent-B","decision":"allow"}}`)
+	task.Extensions = json.RawMessage(`{"sh.nexus.nexus.governance/v1":{"sourceAgentId":"agent-A","targetAgentId":"agent-B","decision":"allow"}}`)
 	if err := s.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
 	task2 := makeTask(t)
-	task2.Extensions = json.RawMessage(`{"sh.bubblefish.nexus.governance/v1":{"sourceAgentId":"agent-C","targetAgentId":"agent-D","decision":"allow"}}`)
+	task2.Extensions = json.RawMessage(`{"sh.nexus.nexus.governance/v1":{"sourceAgentId":"agent-C","targetAgentId":"agent-D","decision":"allow"}}`)
 	if err := s.CreateTask(ctx, task2); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -741,7 +741,7 @@ func TestListTasks_FilterByTargetAgent(t *testing.T) {
 	ctx := context.Background()
 
 	task := makeTask(t)
-	task.Extensions = json.RawMessage(`{"sh.bubblefish.nexus.governance/v1":{"sourceAgentId":"agent-A","targetAgentId":"agent-B","decision":"allow"}}`)
+	task.Extensions = json.RawMessage(`{"sh.nexus.nexus.governance/v1":{"sourceAgentId":"agent-A","targetAgentId":"agent-B","decision":"allow"}}`)
 	if err := s.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}

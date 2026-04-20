@@ -134,7 +134,7 @@ func TestBus_LossyWhenFull(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 100; i++ {
-			b.Publish(eventbus.Event{Type: eventbus.EventSentinelIngest})
+			b.Publish(eventbus.Event{Type: eventbus.EventIngest})
 		}
 		close(done)
 	}()
@@ -176,7 +176,7 @@ func TestEventTypeConstants(t *testing.T) {
 		eventbus.EventAgentConnected,
 		eventbus.EventAgentDisconnected,
 		eventbus.EventQuarantineEvent,
-		eventbus.EventSentinelIngest,
+		eventbus.EventIngest,
 		eventbus.EventDiscoveryEvent,
 	}
 	seen := make(map[eventbus.EventType]bool)

@@ -130,7 +130,7 @@ func TestGet_RoundtripsAllFields(t *testing.T) {
 		AgentID:    "agent-xyz",
 		Capability: "nexus_delete",
 		Scope:      scope,
-		GrantedBy:  "admin@bubblefish",
+		GrantedBy:  "admin@nexus",
 		ExpiresAt:  &expiry,
 	}
 	created, err := s.Create(ctx, in)

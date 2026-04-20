@@ -357,7 +357,7 @@ func extractGovFields(task *a2a.Task) (source, target, skill string) {
 		return "", "", ""
 	}
 	var ext struct {
-		Gov *a2a.GovernanceExtension `json:"sh.bubblefish.nexus.governance/v1"`
+		Gov *a2a.GovernanceExtension `json:"sh.nexus.nexus.governance/v1"`
 	}
 	if err := json.Unmarshal(task.Extensions, &ext); err != nil || ext.Gov == nil {
 		return "", "", ""

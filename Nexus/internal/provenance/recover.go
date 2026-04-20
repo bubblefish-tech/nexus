@@ -76,7 +76,7 @@ func InspectChainFromEntries(entries []json.RawMessage, logger *slog.Logger) *Fo
 			report.ValidEntries = i
 			report.CorruptionIndex = i
 			report.ChainStatus = fmt.Sprintf("broken_at_index_%d", i)
-			report.Recommendation = fmt.Sprintf("Entry at index %d cannot be parsed. Run 'bubblefish audit recover' to truncate corrupt entries.", i)
+			report.Recommendation = fmt.Sprintf("Entry at index %d cannot be parsed. Run 'nexus audit recover' to truncate corrupt entries.", i)
 
 			var pid auditPayloadID
 			_ = json.Unmarshal(entries[i], &pid)
@@ -92,7 +92,7 @@ func InspectChainFromEntries(entries []json.RawMessage, logger *slog.Logger) *Fo
 			report.ChainStatus = fmt.Sprintf("broken_at_index_%d", i)
 			report.Recommendation = fmt.Sprintf(
 				"Chain break at entry %d: prev_audit_hash=%q expected=%q. "+
-					"Run 'bubblefish audit recover' with --truncate to remove entries from index %d onward.",
+					"Run 'nexus audit recover' with --truncate to remove entries from index %d onward.",
 				i, cf.PrevAuditHash, prevHash, i)
 
 			var pid auditPayloadID

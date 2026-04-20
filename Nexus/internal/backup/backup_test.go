@@ -37,7 +37,7 @@ func TestCopyFileWithHash(t *testing.T) {
 	src := filepath.Join(dir, "src.txt")
 	dst := filepath.Join(dir, "dst.txt")
 
-	content := []byte("hello, bubblefish backup")
+	content := []byte("hello, nexus backup")
 	if err := os.WriteFile(src, content, 0600); err != nil {
 		t.Fatalf("write src: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestExpandPath(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "absolute", input: "/tmp/test"},
-		{name: "tilde", input: "~/.bubblefish/Nexus"},
+		{name: "tilde", input: "~/.nexus/Nexus"},
 		{name: "relative", input: "relative/path"},
 	}
 

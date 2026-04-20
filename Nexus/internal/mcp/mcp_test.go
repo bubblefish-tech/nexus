@@ -534,8 +534,8 @@ func TestMCPTools_Initialize_Handshake(t *testing.T) {
 
 	serverInfo, _ := result["serverInfo"].(map[string]interface{})
 	name, _ := serverInfo["name"].(string)
-	if name != "bubblefish-nexus" {
-		t.Fatalf("CHECK MCP-7 FAIL: serverInfo.name=%q want bubblefish-nexus", name)
+	if name != "nexus-nexus" {
+		t.Fatalf("CHECK MCP-7 FAIL: serverInfo.name=%q want nexus-nexus", name)
 	}
 
 	t.Logf("CHECK MCP-7 PASS: initialize → protocolVersion=%q serverInfo.name=%q", version, name)
@@ -597,7 +597,7 @@ func TestMCPServer_PortConflict_ReturnsError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CHECK MCP-10: Self-test — equivalent of `bubblefish mcp test`
+// CHECK MCP-10: Self-test — equivalent of `nexus mcp test`
 // ---------------------------------------------------------------------------
 
 func TestMCPSelfTest_NexusStatus_ExitsSuccessWithin5Seconds(t *testing.T) {
@@ -622,7 +622,7 @@ func TestMCPSelfTest_NexusStatus_ExitsSuccessWithin5Seconds(t *testing.T) {
 
 // runSelfTest starts a temporary MCP server with TestPipeline, calls
 // nexus_status, and returns nil on success. This mirrors the logic of
-// `bubblefish mcp test`.
+// `nexus mcp test`.
 func runSelfTest() error {
 	// Find a free port.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

@@ -41,7 +41,7 @@ func (s *Sink) deliverFluentd(sink *SinkConfig, e Event) {
 
 	tag := sink.Tag
 	if tag == "" {
-		tag = "bubblefish.events"
+		tag = "nexus.events"
 	}
 
 	timeout := time.Duration(sink.TimeoutSeconds) * time.Second

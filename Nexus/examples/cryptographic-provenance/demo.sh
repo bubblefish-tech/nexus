@@ -5,12 +5,12 @@
 #   1. Agent A writes a memory (Ed25519 signed)
 #   2. Agent B reads the memory
 #   3. Export proof bundle
-#   4. Verify with Go CLI (bubblefish verify)
+#   4. Verify with Go CLI (nexus verify)
 #   5. Verify with Python (independent implementation)
 #   6. Tamper with the proof → verification fails
 #
 # Prerequisites:
-#   - bubblefish daemon running with agent-a.toml and agent-b.toml sources
+#   - nexus daemon running with agent-a.toml and agent-b.toml sources
 #   - Python 3 with cryptography package installed
 #
 # Reference: v0.1.3 Build Plan Phase 4 Subtask 4.12.
@@ -52,7 +52,7 @@ echo "  Saved: /tmp/proof-bundle.json"
 
 # Step 4: Verify with Go CLI
 echo "[4/6] Verifying with Go CLI..."
-if bubblefish verify /tmp/proof-bundle.json 2>/dev/null; then
+if nexus verify /tmp/proof-bundle.json 2>/dev/null; then
   echo "  Go CLI: VALID"
 else
   echo "  Go CLI: verification result printed above"
@@ -82,7 +82,7 @@ with open('/tmp/proof-bundle-tampered.json', 'w') as f:
 echo "  Tampered: /tmp/proof-bundle-tampered.json"
 echo ""
 echo "  Verifying tampered bundle with Go CLI..."
-if bubblefish verify /tmp/proof-bundle-tampered.json 2>/dev/null; then
+if nexus verify /tmp/proof-bundle-tampered.json 2>/dev/null; then
   echo "  ERROR: tampered bundle should have failed!"
   exit 1
 else

@@ -174,7 +174,7 @@ func (d *Daemon) emitAuthFailure(r *http.Request, tokenClass string) {
 }
 
 // emitPolicyDenied emits a policy_denied security event and increments the
-// bubblefish_policy_denials_total metric.
+// nexus_policy_denials_total metric.
 // Reference: Tech Spec Section 11.3.
 func (d *Daemon) emitPolicyDenied(r *http.Request, source, subject, operation, dest, reason string) {
 	d.metrics.PolicyDenialsTotal.WithLabelValues(source, reason).Inc()

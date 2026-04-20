@@ -32,7 +32,7 @@ func ValidGovernanceDecision(d GovernanceDecision) bool {
 }
 
 // GovernanceExtension is the wire type for the
-// sh.bubblefish.nexus.governance/v1 extension payload.
+// sh.nexus.nexus.governance/v1 extension payload.
 type GovernanceExtension struct {
 	SourceAgentID        string             `json:"sourceAgentId"`
 	TargetAgentID        string             `json:"targetAgentId"`

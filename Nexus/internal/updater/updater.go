@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
-// Package updater implements self-update logic for the bubblefish binary.
+// Package updater implements self-update logic for the nexus binary.
 //
 // The update flow is:
 //  1. Fetch latest release metadata from the GitHub releases API.
@@ -99,9 +99,9 @@ func FetchLatest(client *http.Client) (*ReleaseInfo, error) {
 }
 
 // PlatformAssetName returns the expected binary asset name for the current OS/arch.
-// Convention: "bubblefish_<os>_<arch>[.exe]"
+// Convention: "nexus_<os>_<arch>[.exe]"
 func PlatformAssetName() string {
-	name := fmt.Sprintf("bubblefish_%s_%s", runtime.GOOS, runtime.GOARCH)
+	name := fmt.Sprintf("nexus_%s_%s", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}

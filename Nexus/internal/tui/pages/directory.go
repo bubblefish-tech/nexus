@@ -39,7 +39,7 @@ var _ Page = (*DirectoryPage)(nil)
 func NewDirectoryPage() *DirectoryPage {
 	ti := textinput.New()
 	ti.CharLimit = 512
-	ti.Placeholder = "~/.bubblefish/Nexus"
+	ti.Placeholder = "~/.nexus/Nexus"
 	return &DirectoryPage{input: ti}
 }
 
@@ -83,7 +83,7 @@ func (p *DirectoryPage) View(width, height int) string {
 func defaultInstallDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".bubblefish", "Nexus")
+		return filepath.Join(".", ".nexus", "Nexus")
 	}
-	return filepath.Join(home, ".bubblefish", "Nexus")
+	return filepath.Join(home, ".nexus", "Nexus")
 }

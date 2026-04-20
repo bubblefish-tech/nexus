@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
-// Package chaos implements the `bubblefish chaos` fault injection tool.
+// Package chaos implements the `nexus chaos` fault injection tool.
 // It sends a workload of writes to a running Nexus daemon, periodically
 // injects faults (process kill, network timeout simulation), then measures
 // data loss after recovery. The report is machine-readable JSON.

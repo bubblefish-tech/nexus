@@ -278,7 +278,7 @@ type Daemon struct {
 
 	// eventBus is the WebUI activity event bus (WEB.3). Always initialised in
 	// New(); never nil. Publishes memory_written, memory_queried,
-	// agent_connected, agent_disconnected, quarantine_event, sentinel_ingest,
+	// agent_connected, agent_disconnected, quarantine_event, ingest,
 	// and discovery_event to SSE clients at GET /api/events/stream.
 	eventBus *eventbus.Bus
 
@@ -485,7 +485,7 @@ func (d *Daemon) Start() error {
 	// queue workers, and WAL watchdog. On stall: logs fatal, dumps stacks,
 	// exits with code 3. Converts silent deadlock into visible crash.
 	home, _ := os.UserHomeDir()
-	logsDir := filepath.Join(home, ".bubblefish", "logs")
+	logsDir := filepath.Join(home, ".nexus", "logs")
 	d.supervisor = supervisor.New(supervisor.Config{
 		Timeout: 30 * time.Second,
 		LogsDir: logsDir,
@@ -698,7 +698,7 @@ func (d *Daemon) Start() error {
 	)
 
 	// Replay WAL: re-register idempotency keys and re-enqueue PENDING entries.
-	// Measure replay duration for the bubblefish_replay_duration_seconds gauge.
+	// Measure replay duration for the nexus_replay_duration_seconds gauge.
 	if err := d.replayWAL(); err != nil {
 		return fmt.Errorf("daemon: WAL replay: %w", err)
 	}
@@ -976,7 +976,7 @@ func (d *Daemon) Start() error {
 			// Canonical needs Init with secrets dir
 			home, homeErr := os.UserHomeDir()
 			if homeErr == nil {
-				basePath := filepath.Join(home, ".bubblefish", "Nexus")
+				basePath := filepath.Join(home, ".nexus", "Nexus")
 				sd, sdErr := secrets.Open(basePath)
 				if sdErr == nil {
 					if initErr := d.canonical.Init(sd, d.logger); initErr != nil {

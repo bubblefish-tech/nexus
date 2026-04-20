@@ -767,7 +767,7 @@ func (s *Server) handleInitialize(w http.ResponseWriter, r *http.Request, req rp
 			},
 		},
 		ServerInfo: serverInfo{
-			Name:    "bubblefish-nexus",
+			Name:    "nexus-nexus",
 			Version: version.Version,
 		},
 	})

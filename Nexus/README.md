@@ -8,10 +8,10 @@
 
 ```bash
 # Install with zero-friction defaults (SQLite, localhost, single API key)
-bubblefish install --mode simple
+nexus install --mode simple
 
 # Start the daemon
-bubblefish start
+nexus start
 ```
 
 That's it. Nexus is now listening on `127.0.0.1:8080` with MCP on `:8082` and the web dashboard on `:8081`.
@@ -134,7 +134,7 @@ Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per sou
 |---------|-------------|
 | Proactive Ingestion | Watches Claude Code, Cursor, and generic JSONL directories — auto-ingests conversations as memories |
 | Multi-Client Memory Pool | Claude Code, Cursor, ChatGPT, Claude Desktop, LM Studio, Open WebUI, Perplexity all share one memory |
-| Bulk Import | `bubblefish import` ingests Claude/ChatGPT export ZIPs, Claude Code dirs, Cursor dirs, generic JSONL |
+| Bulk Import | `nexus import` ingests Claude/ChatGPT export ZIPs, Claude Code dirs, Cursor dirs, generic JSONL |
 | Cryptographic Provenance | Per-source Ed25519 signing, hash-chained audit log, Merkle roots, query attestation |
 | Survives kill -9 | WAL with fsync, group commit, dual integrity sentinels, 24-hour chaos testing |
 | 6-Stage Retrieval Cascade | Policy, exact cache, semantic cache, structured, semantic, hybrid merge with temporal decay and projection |
@@ -144,21 +144,21 @@ Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per sou
 | WAL CRC32 Checksums | 4-byte CRC32 on every entry |
 | WAL HMAC Integrity | Optional HMAC-SHA256 for tamper detection |
 | WAL Encryption | Optional AES-256-GCM with per-entry nonce |
-| Config Signing | `bubblefish sign-config` for signed-mode deployments |
+| Config Signing | `nexus sign-config` for signed-mode deployments |
 | Zero-Dep LRU Cache | Go generics, `map` + `container/list`, no external dependencies |
 | Constant-Time Auth | `subtle.ConstantTimeCompare` for all token validation |
 | Admin vs Data Token Separation | Wrong token class returns 401 |
 | Provenance Fields | `actor_type` (user/agent/system) + `actor_id` on every write |
 | Non-Blocking Queue | `select`-based enqueue, `sync.Once` drain |
-| Simple Mode Install | `bubblefish install --mode simple` for zero-friction setup |
+| Simple Mode Install | `nexus install --mode simple` for zero-friction setup |
 | Install Profiles | Open WebUI, PostgreSQL, OpenBrain starter configs |
-| `bubblefish dev` | Daemon with debug logging and auto-reload |
-| Backup and Restore | `bubblefish backup create` / `bubblefish backup restore` |
-| Config Lint | `bubblefish lint` for dangerous config detection |
+| `nexus dev` | Daemon with debug logging and auto-reload |
+| Backup and Restore | `nexus backup create` / `nexus backup restore` |
+| Config Lint | `nexus lint` for dangerous config detection |
 | Consistency Assertions | Background WAL-to-destination consistency checks |
 | WAL Health Watchdog | Background disk/permissions/latency monitoring |
-| `bubblefish bench` | Throughput, latency, and retrieval evaluation benchmarks |
-| Reliability Demo | `bubblefish demo` — golden crash-recovery scenario |
+| `nexus bench` | Throughput, latency, and retrieval evaluation benchmarks |
+| Reliability Demo | `nexus demo` — golden crash-recovery scenario |
 | Structured Security Events | Dedicated security event log for SIEM integration |
 | Security Metrics | Auth failures, policy denials, rate limits, admin calls |
 | Blessed Integration Configs | Pre-built templates for Claude, Open WebUI, Perplexity |
@@ -175,24 +175,24 @@ Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per sou
 ## CLI Commands
 
 ```
-bubblefish install        Create config directory and initial configuration
-bubblefish start          Start daemon + MCP + dashboard + tray + ingest
-bubblefish stop           Stop the daemon gracefully
-bubblefish dev            Start daemon with debug logging and auto-reload
-bubblefish import <path>  Bulk import from Claude/ChatGPT ZIP, Claude Code dir, Cursor dir, JSONL
-bubblefish ingest status  Show all ingest watchers with state and counts
-bubblefish ingest pause   Pause a named ingest watcher
-bubblefish ingest resume  Resume a paused ingest watcher
-bubblefish ingest reset   Forget file state (re-parse from offset 0)
-bubblefish chaos          Fault injection durability test with A+B verification
-bubblefish verify         Cryptographic provenance verification
-bubblefish timeline       Forensic memory audit history
-bubblefish backup         Create or restore backups
-bubblefish bench          Throughput, latency, and retrieval benchmarks
-bubblefish demo           Reliability demo: crash-recovery with 50 memories
-bubblefish lint           Check configuration for dangerous settings
-bubblefish mcp test       Start MCP server and verify nexus_status responds
-bubblefish version        Print version string
+nexus install        Create config directory and initial configuration
+nexus start          Start daemon + MCP + dashboard + tray + ingest
+nexus stop           Stop the daemon gracefully
+nexus dev            Start daemon with debug logging and auto-reload
+nexus import <path>  Bulk import from Claude/ChatGPT ZIP, Claude Code dir, Cursor dir, JSONL
+nexus ingest status  Show all ingest watchers with state and counts
+nexus ingest pause   Pause a named ingest watcher
+nexus ingest resume  Resume a paused ingest watcher
+nexus ingest reset   Forget file state (re-parse from offset 0)
+nexus chaos          Fault injection durability test with A+B verification
+nexus verify         Cryptographic provenance verification
+nexus timeline       Forensic memory audit history
+nexus backup         Create or restore backups
+nexus bench          Throughput, latency, and retrieval benchmarks
+nexus demo           Reliability demo: crash-recovery with 50 memories
+nexus lint           Check configuration for dangerous settings
+nexus mcp test       Start MCP server and verify nexus_status responds
+nexus version        Print version string
 ```
 
 ## Crash-Recovery Demo
@@ -201,10 +201,10 @@ BubbleFish Nexus is built for durability. The crash demo proves it:
 
 ```bash
 # Start the daemon
-bubblefish start &
+nexus start &
 
 # Run the reliability demo — writes 50 memories, simulates crash, verifies recovery
-bubblefish demo --api-key $NEXUS_API_KEY --admin-key $NEXUS_ADMIN_KEY
+nexus demo --api-key $NEXUS_API_KEY --admin-key $NEXUS_ADMIN_KEY
 ```
 
 The demo writes 50 memories through the full pipeline, verifies WAL durability through a simulated crash, and confirms every memory survives recovery. Results are visible in both the CLI and the web dashboard.
@@ -222,15 +222,15 @@ See `examples/blessed/claude-desktop-mcp.toml` for a ready-to-use configuration.
 
 ## Configuration
 
-Config lives in `~/.bubblefish/Nexus/`. Key files:
+Config lives in `~/.nexus/Nexus/`. Key files:
 
 ```
-~/.bubblefish/Nexus/
+~/.nexus/Nexus/
   daemon.toml            # Main daemon config
   sources/*.toml         # Per-source auth and policy
   destinations/*.toml    # Database connection configs
-  compiled/*.json        # Compiled policies (bubblefish build)
-  compiled/*.sig         # Config signatures (bubblefish sign-config)
+  compiled/*.json        # Compiled policies (nexus build)
+  compiled/*.sig         # Config signatures (nexus sign-config)
 ```
 
 Secrets are never stored in plain text — use `env:VARIABLE_NAME` or `file:/path/to/secret` references.
