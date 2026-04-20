@@ -159,6 +159,9 @@ func doInstall(opts installOptions) error {
 		filepath.Join(configDir, "destinations"),
 		filepath.Join(configDir, "compiled"),
 		filepath.Join(configDir, "wal"),
+		filepath.Join(configDir, "logs"),
+		filepath.Join(configDir, "keys"),
+		filepath.Join(configDir, "discovery"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0700); err != nil {
@@ -595,8 +598,20 @@ func writeDefaultSource(configDir, mode, destType, apiKey string, force bool) er
 	switch destType {
 	case "postgres":
 		targetDest = "postgres"
-	case "openbrain":
+	case "openbrain", "supabase":
 		targetDest = "openbrain"
+	case "mysql", "mariadb":
+		targetDest = "mysql"
+	case "cockroachdb", "crdb":
+		targetDest = "cockroachdb"
+	case "mongodb", "mongo":
+		targetDest = "mongodb"
+	case "firestore":
+		targetDest = "firestore"
+	case "tidb":
+		targetDest = "tidb"
+	case "turso", "libsql":
+		targetDest = "turso"
 	}
 
 	switch mode {
