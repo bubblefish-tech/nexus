@@ -825,8 +825,46 @@
   - `internal/destination/firestore` PASS (6 unit tests pass; 11 integration tests skip cleanly)
   - Full suite: zero failures
 
+## DB.9: COMPLETE — TiDB Destination Adapter
+- New package: `internal/destination/tidb/`
+  - `tidb.go`: TiDBDestination implementing `destination.Destination`
+  - Driver: `github.com/go-sql-driver/mysql v1.9.3` (TiDB is MySQL-wire-compatible)
+  - DDL: same as MySQL + `embedding_tv TEXT` column for TiDB native vector (JSON float array)
+  - `hasVectorTV bool`: set when embedding_tv column created; enables `VEC_COSINE_DISTANCE()` path
+  - Write: 22-column INSERT IGNORE including embedding_tv (JSON float array) when hasVectorTV
+  - VectorSearch: tries `tidbVectorSearch()` (SQL `VEC_COSINE_DISTANCE`), falls back to app-level scan
+  - `marshalEmbeddingTV([]float32) string`: JSON marshal to `[1.0, 2.0, ...]` for TiDB vector column
+  - All standard helpers: encodeEmbedding, decodeEmbedding, cosineSimilarity, marshalMetadata
+  - `export_test.go`: white-box exports (encodeEmbedding, decodeEmbedding, cosineSimilarity,
+    marshalEmbeddingTV, marshalMetadata)
+  - `tidb_test.go`: 10 unit tests (pass without DB) + 10 integration tests (skip without TEST_TIDB_DSN)
+- No new dependencies (reuses go-sql-driver/mysql)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/destination/tidb` PASS (10 unit tests pass; 10 integration tests skip cleanly)
+  - Full suite: zero failures
+
+## DB.10: COMPLETE — Turso/libSQL Destination Adapter
+- New package: `internal/destination/turso/`
+  - `turso.go`: TursoDestination implementing `destination.Destination`
+  - Driver: `github.com/tursodatabase/libsql-client-go/libsql` (blank import registers "libsql" driver)
+  - SQLite-compatible DDL: TEXT/INTEGER/BLOB; INSERT OR IGNORE for idempotency
+  - Timestamps: stored as Unix milliseconds (INTEGER); read back via `time.UnixMilli(tsMS).UTC()`
+  - VectorSearch: application-level cosine similarity (same O(n) pattern as SQLite/MySQL)
+  - Connection string formats: `libsql://database.turso.io?authToken=TOKEN`, `file:./local.db`
+  - `export_test.go`: white-box exports (encodeEmbedding, decodeEmbedding, cosineSimilarity, marshalMetadata)
+  - `turso_test.go`: 8 unit tests (pass without DB) + 10 integration tests (skip without TEST_TURSO_URL)
+- New dependency: `github.com/tursodatabase/libsql-client-go v0.0.0-20251219100830-236aa1ff8acc`
+  - Transitive: `github.com/antlr4-go/antlr/v4 v4.13.0`, `github.com/coder/websocket v1.8.12`
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/destination/turso` PASS (8 unit tests pass; 10 integration tests skip cleanly)
+  - Full suite: zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.8 complete. Next: DB.9 (TiDB destination adapter).
+## Current subtask: DB.10 complete. Next: DB.11 (Database Selection in Setup).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
