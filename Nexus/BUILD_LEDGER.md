@@ -969,8 +969,24 @@
   - Vet: OK
   - `internal/tui/commands` PASS (8 tests)
 
+## TUI.6: COMPLETE — Online/Offline Status Dot Indicators with Pulse Animation
+- New file `internal/tui/components/statusdot.go`:
+  - `DotStatus` (DotOnline/DotDegraded/DotOffline)
+  - `StatusDot{Status, Frame}.View()` — renders "● " with color; Online/Degraded alternate bright/dim on even/odd frames
+  - `DotStatusFromString(s)` — converts "green"/"amber"/"red" to DotStatus
+- `internal/tui/model.go`: `dotFrame int` field; `dotTickMsg` type; `dotTickCmd()` (500ms)
+- `internal/tui/model.go` Init: adds `dotTickCmd()` to batch
+- `internal/tui/update.go`: `dotTickMsg` handler increments `m.dotFrame`, reschedules `dotTickCmd()`
+- `internal/tui/view.go` `buildSidebarSections()`: uses `StatusDot{dotStatus, m.dotFrame}.View()` for daemon status dot
+- `internal/tui/components/sidebar.go`: `default:` case in dot switch uses `item.Dot` as pre-rendered ANSI string (backward-compatible with "green"/"amber"/"red" string names)
+- `internal/tui/components/statusdot_test.go`: 7 tests (non-empty for each status, contains "●", pulse frames non-empty, offline no-pulse, DotStatusFromString mapping)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/tui/components` PASS (7 new statusdot tests)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: TUI.5 complete. Next: TUI.6 (status dot indicators).
+## Current subtask: TUI.6 complete. Next: TUI.7 (sidebar section customization).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

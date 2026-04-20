@@ -72,6 +72,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		statusCmd := fetchStatusCache(m.client)
 		return m, tea.Batch(tabCmd, statusCmd, tickCmd())
 
+	case dotTickMsg:
+		m.dotFrame++
+		return m, dotTickCmd()
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}

@@ -29,10 +29,12 @@ import (
 const SidebarWidth = 22
 
 // SidebarItem is a key-value pair in the sidebar.
+// Dot may be a legacy color name ("green", "amber", "red") for a static dot,
+// or a pre-rendered ANSI string (e.g. from StatusDot.View()) for animated dots.
 type SidebarItem struct {
 	Name  string
 	Value string
-	Dot   string // color name: "green", "amber", "red", ""
+	Dot   string
 }
 
 // SidebarSection is a group of items with a header.
@@ -65,6 +67,8 @@ func (s Sidebar) View() string {
 		sections = append(sections, header)
 
 		for _, item := range sec.Items {
+			// Dot: resolve legacy color strings to static dots; pre-rendered
+			// strings (e.g. from StatusDot.View()) are used as-is.
 			dot := ""
 			switch item.Dot {
 			case "green":
@@ -73,6 +77,8 @@ func (s Sidebar) View() string {
 				dot = lipgloss.NewStyle().Foreground(styles.ColorAmber).Render("● ")
 			case "red":
 				dot = lipgloss.NewStyle().Foreground(styles.ColorRed).Render("● ")
+			default:
+				dot = item.Dot // pre-rendered ANSI string or ""
 			}
 
 			name := lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(item.Name)

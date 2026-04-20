@@ -179,12 +179,13 @@ func (m Model) viewHelp() string {
 }
 
 func (m Model) buildSidebarSections() []components.SidebarSection {
-	statusDot := "green"
+	dotStatus := components.DotOnline
 	statusVal := "LIVE"
 	if !m.daemonUp {
-		statusDot = "red"
+		dotStatus = components.DotOffline
 		statusVal = "DOWN"
 	}
+	statusDot := components.StatusDot{Status: dotStatus, Frame: m.dotFrame}.View()
 
 	ver := "—"
 	queue := "0"
