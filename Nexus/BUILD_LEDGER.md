@@ -938,8 +938,23 @@
   - Vet: OK
   - `internal/install` PASS (16 tests), `internal/tui/components` PASS, `internal/tui/pages` PASS, `internal/tui` PASS
 
+## TUI.4: COMPLETE — Slash-Command System
+- `internal/tui/app.go`: slash command integration in running mode
+  - `slashCmd components.SlashCommandModel` field; `client *api.Client` field; `width int` tracked
+  - `/` key in modeRunning activates dropdown; all keys route through overlay while active
+  - `SlashCommandSelectedMsg` → `dispatchCommand(name)` → calls `commands.Command.Execute(client)`
+  - `View()`: overlays slash cmd dropdown at bottom of running view when active
+  - `commandRegistry` maps all 8 command names to their `Command` implementations
+  - `allSlashCommands()` builds the `[]components.SlashCommand` list from command registry
+- `internal/tui/components/slash_cmd_test.go`: 10 tests
+  - inactive by default, activate, Esc cancels, filter by prefix, empty shows all, select returns msg, navigate down, view inactive/active, backspace deletes, no match for gibberish
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/tui` PASS, `internal/tui/components` PASS (10 new slash cmd tests)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: TUI.3 complete. Next: TUI.4 (slash-command system).
+## Current subtask: TUI.4 complete. Next: TUI.5 (test runner with category selection).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
