@@ -140,10 +140,17 @@ type nexusMetadata struct {
 	Debug                      *query.DebugInfo `json:"debug,omitempty"`
 }
 
+// healthSubsystem is a single subsystem entry in the structured health response.
+type healthSubsystem struct {
+	Status  string `json:"status"`            // "ok", "degraded", "disabled", "enabled"
+	Details string `json:"details,omitempty"` // human-readable qualifier
+}
+
 // healthResponse is returned by /health and /ready.
 type healthResponse struct {
-	Status  string `json:"status"`
-	Version string `json:"version"`
+	Status     string                     `json:"status"`
+	Version    string                     `json:"version"`
+	Subsystems map[string]healthSubsystem `json:"subsystems,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1238,12 +1245,74 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 // handleHealth is the liveness probe. Always returns 200 while the process
-// is alive. No authentication required.
+// is alive. Returns structured JSON with all subsystem statuses.
+// No authentication required.
 // Reference: Tech Spec Section 11.4, Phase 0C Behavioral Contract item 13.
 func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
+	subs := make(map[string]healthSubsystem, 7)
+
+	// WAL — in-memory flag set by watchdog; no I/O.
+	if d.walHealthy.Load() == 1 {
+		subs["wal"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["wal"] = healthSubsystem{Status: "degraded", Details: "WAL unhealthy"}
+	}
+
+	// Database — presence check only (no ping here; that lives in /ready).
+	if d.dest != nil {
+		subs["database"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["database"] = healthSubsystem{Status: "degraded", Details: "no destination"}
+	}
+
+	// Audit WAL.
+	if d.auditWAL != nil {
+		subs["audit"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["audit"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// BF-Sketch substrate.
+	if d.substrate != nil && d.substrate.Enabled() {
+		subs["substrate"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["substrate"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// At-rest encryption.
+	if d.mkm != nil && d.mkm.IsEnabled() {
+		subs["encryption"] = healthSubsystem{Status: "enabled"}
+	} else {
+		subs["encryption"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// MCP server.
+	if d.mcpServer != nil {
+		subs["mcp"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["mcp"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// Event bus.
+	if d.eventBus != nil {
+		subs["eventbus"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["eventbus"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// Overall: degraded if any subsystem is degraded.
+	overall := "ok"
+	for _, s := range subs {
+		if s.Status == "degraded" {
+			overall = "degraded"
+			break
+		}
+	}
+
 	d.writeJSON(w, http.StatusOK, healthResponse{
-		Status:  "ok",
-		Version: version.Version,
+		Status:     overall,
+		Version:    version.Version,
+		Subsystems: subs,
 	})
 }
 
