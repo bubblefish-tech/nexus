@@ -717,8 +717,29 @@
   - Vet: OK
   - 65 packages PASS — zero failures
 
+## DB.4: COMPLETE — Supabase Adapter Interface Compliance
+- New file: `internal/destination/supabase_compliance.go`
+  - Compile-time check: `var _ Destination = (*SupabaseDestination)(nil)`
+  - `Name() string` → returns "supabase"
+  - `Read(ctx, id) (*Memory, error)` → GET /rest/v1/memories?payload_id=eq.{id}&limit=1; nil, nil for empty response
+  - `Search(ctx, *Query) ([]*Memory, error)` → wraps Query(), converts []TranslatedPayload to []*Memory
+  - `Delete(ctx, id) error` → DELETE /rest/v1/memories?payload_id=eq.{id}; idempotent (204 always)
+  - `VectorSearch(ctx, embedding, limit) ([]*Memory, error)` → wraps SemanticSearch; empty slice for nil embedding
+  - `Migrate(ctx, version) error` → no-op (schema managed externally in Supabase dashboard)
+  - `Health(ctx) (*HealthStatus, error)` → HEAD /rest/v1/memories with latency; HTTP 5xx = unhealthy, 2xx/4xx = healthy
+  - `Close() error` already existed (no-op for HTTP client)
+- New file: `internal/destination/supabase_compliance_test.go` — 14 tests
+  - Tests use httptest.Server (supabaseMock) — no real Supabase account required
+  - InterfaceCompliance, Name, Read_Found, Read_NotFound, Read_HTTPError, Search, Search_Empty,
+    Delete_Exists, Delete_NotExists, VectorSearch_EmptyEmbedding, VectorSearch, Migrate,
+    Health_OK, Health_ServerError
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 65 packages PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.3 complete. Next: DB.4 (Supabase adapter interface compliance).
+## Current subtask: DB.4 complete. Next: DB.5 (MySQL/MariaDB destination adapter).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
