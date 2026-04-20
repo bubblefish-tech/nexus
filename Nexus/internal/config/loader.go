@@ -331,13 +331,14 @@ func loadDestinationFile(path string, logger *slog.Logger) (*Destination, error)
 	}
 
 	dst := &Destination{
-		Name:   b.Name,
-		Type:   b.Type,
-		DBPath: b.DBPath,
-		DSN:    b.DSN,
-		URL:    b.URL,
-		APIKey: b.APIKey,
-		Decay:  b.Decay,
+		Name:             b.Name,
+		Type:             b.Type,
+		DBPath:           b.DBPath,
+		DSN:              b.DSN,
+		URL:              b.URL,
+		APIKey:           b.APIKey,
+		ConnectionString: b.ConnectionString,
+		Decay:            b.Decay,
 	}
 
 	if logger != nil {

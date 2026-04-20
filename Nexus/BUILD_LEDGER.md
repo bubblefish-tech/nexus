@@ -863,8 +863,42 @@
   - `internal/destination/turso` PASS (8 unit tests pass; 10 integration tests skip cleanly)
   - Full suite: zero failures
 
+## DB.11: COMPLETE — Database Selection in Setup
+- `internal/config/types.go`:
+  - `destinationBody.Type` comment updated to list all 8 backends
+  - New field `ConnectionString string` in `destinationBody` + `Destination` (mongodb URI, turso URL, firestore project ID)
+- `internal/config/loader.go`: copies `ConnectionString` when decoding destination TOML
+- `internal/config/decrypt.go`: `ConnectionString` included in per-destination decryption pass
+- `internal/destination/factory/factory.go`: `OpenByType(cfg, logger, configDir) (Destination, error)`
+  - Switches on `cfg.Type` for all 8 adapters
+  - sqlite: expands `~`, falls back to `<configDir>/memories.db`
+  - postgres: uses `cfg.DSN`; dimensions=0 (no pgvector required)
+  - supabase: uses `cfg.URL` + resolved `cfg.APIKey`
+  - mysql/mariadb: uses `cfg.DSN`
+  - cockroachdb/crdb: uses `cfg.DSN`
+  - mongodb/mongo: uses `cfg.ConnectionString` (or `cfg.DSN` as fallback)
+  - firestore: uses `cfg.ConnectionString` (project ID); optional `cfg.APIKey` for credentials file
+  - tidb: uses `cfg.DSN`
+  - turso/libsql: uses `cfg.ConnectionString` (or `cfg.URL` as fallback)
+- `internal/queue/queue.go`: `dest` field + `New()` parameter changed from `DestinationWriter` to `Destination`
+- `internal/daemon/daemon.go`:
+  - `d.dest` changed from `DestinationWriter` to `Destination`
+  - SQLite open block replaced with `destfactory.OpenByType(d.resolveDestinationConfig(), ...)`
+  - `resolveDestinationConfig()` added (returns first configured dest or SQLite fallback)
+  - `resolveSQLitePath()` retained for admin_list.go direct SQL access
+  - `sqliteDest.SetEncryption(mkm)` → type assertion `d.dest.(*destination.SQLiteDestination)`
+  - `d.querier` now set via `destination.Querier` type assertion on opened dest
+- `internal/daemon/handlers.go`: `d.dest.Ping()` → type assertion to `interface{ Ping() error }`
+- `internal/daemon/consistency.go`: `d.dest.Exists()` → type assertion to `interface{ Exists(string) (bool, error) }`
+- Test stubs updated: `queue_bench_test.go`, `queue_test.go`, `daemon/export_test.go`
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 70 packages PASS — zero failures
+  - `internal/integration` flaky timing test confirmed passing (pre-existing, passes in isolation)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.10 complete. Next: DB.11 (Database Selection in Setup).
+## Current subtask: DB.11 complete. Phase 5 — Database Adapters DONE. Next: Phase 6 (TUI).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

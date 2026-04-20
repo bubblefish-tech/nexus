@@ -572,23 +572,28 @@ type destinationFile struct {
 // destinationBody models the [destination] section in a destination TOML file.
 type destinationBody struct {
 	Name   string                    `toml:"name"`
-	Type   string                    `toml:"type"` // "sqlite", "postgres", "openbrain"
-	DBPath string                    `toml:"db_path"` // sqlite only; env:/file:/literal
-	DSN    string                    `toml:"dsn"`     // postgres only; env:/file:/literal
-	URL    string                    `toml:"url"`     // openbrain only; env:/file:/literal
-	APIKey string                    `toml:"api_key"` // openbrain only; env:/file:/literal
+	// Type selects the memory backend. One of:
+	//   "sqlite", "postgres", "supabase",
+	//   "mysql", "cockroachdb", "mongodb", "firestore", "tidb", "turso"
+	Type   string                    `toml:"type"`
+	DBPath           string          `toml:"db_path"`           // sqlite: env:/file:/literal path
+	DSN              string          `toml:"dsn"`               // postgres/mysql/cockroachdb/tidb: env:/file:/literal
+	URL              string          `toml:"url"`               // supabase base URL; env:/file:/literal
+	APIKey           string          `toml:"api_key"`           // supabase/firestore credentials; env:/file:/literal
+	ConnectionString string          `toml:"connection_string"` // mongodb URI, turso URL, firestore project ID; env:/file:/literal
 	Decay  DestinationDecayConfig    `toml:"decay"`
 }
 
 // Destination is the fully decoded, validated destination configuration.
 type Destination struct {
-	Name   string
-	Type   string
-	DBPath string
-	DSN    string
-	URL    string
-	APIKey string
-	Decay  DestinationDecayConfig
+	Name             string
+	Type             string
+	DBPath           string
+	DSN              string
+	URL              string
+	APIKey           string
+	ConnectionString string
+	Decay            DestinationDecayConfig
 }
 
 // DestinationDecayConfig models [destination.decay].

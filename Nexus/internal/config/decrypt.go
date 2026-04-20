@@ -100,7 +100,7 @@ func decryptAllConfigStrings(cfg *Config, key [32]byte) error {
 
 	// Per-destination sensitive fields.
 	for _, dst := range cfg.Destinations {
-		for _, fp := range []*string{&dst.DSN, &dst.APIKey, &dst.URL} {
+		for _, fp := range []*string{&dst.DSN, &dst.APIKey, &dst.URL, &dst.ConnectionString} {
 			dec, err := nexuscrypto.DecryptField(*fp, key)
 			if err != nil {
 				return fmt.Errorf("destination %q: %w", dst.Name, err)

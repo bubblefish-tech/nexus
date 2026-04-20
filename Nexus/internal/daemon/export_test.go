@@ -21,6 +21,7 @@
 package daemon
 
 import (
+	"context"
 	"log/slog"
 	"math"
 	"net/http"
@@ -37,15 +38,30 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
-// fakeDestination is a no-op DestinationWriter + Querier used in tests.
+// fakeDestination is a no-op Destination + Querier used in tests.
 // It satisfies both interfaces so the daemon can boot without real storage.
 type fakeDestination struct{}
 
-func (f *fakeDestination) Write(p destination.TranslatedPayload) error { return nil }
-func (f *fakeDestination) Ping() error                                  { return nil }
-func (f *fakeDestination) Exists(id string) (bool, error)              { return false, nil }
-func (f *fakeDestination) Close() error                                 { return nil }
-func (f *fakeDestination) Query(params destination.QueryParams) (destination.QueryResult, error) {
+func (f *fakeDestination) Name() string                                  { return "fake" }
+func (f *fakeDestination) Write(_ destination.TranslatedPayload) error   { return nil }
+func (f *fakeDestination) Ping() error                                   { return nil }
+func (f *fakeDestination) Exists(_ string) (bool, error)                 { return false, nil }
+func (f *fakeDestination) Close() error                                  { return nil }
+func (f *fakeDestination) Read(_ context.Context, _ string) (*destination.Memory, error) {
+	return nil, nil
+}
+func (f *fakeDestination) Search(_ context.Context, _ *destination.Query) ([]*destination.Memory, error) {
+	return nil, nil
+}
+func (f *fakeDestination) Delete(_ context.Context, _ string) error { return nil }
+func (f *fakeDestination) VectorSearch(_ context.Context, _ []float32, _ int) ([]*destination.Memory, error) {
+	return nil, nil
+}
+func (f *fakeDestination) Migrate(_ context.Context, _ int) error { return nil }
+func (f *fakeDestination) Health(_ context.Context) (*destination.HealthStatus, error) {
+	return &destination.HealthStatus{OK: true}, nil
+}
+func (f *fakeDestination) Query(_ destination.QueryParams) (destination.QueryResult, error) {
 	return destination.QueryResult{Records: []destination.TranslatedPayload{}}, nil
 }
 

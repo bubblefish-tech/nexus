@@ -18,6 +18,7 @@
 package queue
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -35,9 +36,24 @@ import (
 type benchDest struct{}
 
 func (d *benchDest) Write(_ destination.TranslatedPayload) error { return nil }
-func (d *benchDest) Ping() error                                { return nil }
-func (d *benchDest) Exists(_ string) (bool, error)              { return false, nil }
-func (d *benchDest) Close() error                               { return nil }
+func (d *benchDest) Ping() error                                 { return nil }
+func (d *benchDest) Exists(_ string) (bool, error)               { return false, nil }
+func (d *benchDest) Close() error                                { return nil }
+func (d *benchDest) Name() string { return "bench" }
+func (d *benchDest) Read(_ context.Context, _ string) (*destination.Memory, error) {
+	return nil, nil
+}
+func (d *benchDest) Search(_ context.Context, _ *destination.Query) ([]*destination.Memory, error) {
+	return nil, nil
+}
+func (d *benchDest) Delete(_ context.Context, _ string) error { return nil }
+func (d *benchDest) VectorSearch(_ context.Context, _ []float32, _ int) ([]*destination.Memory, error) {
+	return nil, nil
+}
+func (d *benchDest) Migrate(_ context.Context, _ int) error { return nil }
+func (d *benchDest) Health(_ context.Context) (*destination.HealthStatus, error) {
+	return &destination.HealthStatus{OK: true}, nil
+}
 
 type benchUpdater struct{}
 

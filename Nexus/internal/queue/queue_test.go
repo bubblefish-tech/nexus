@@ -36,8 +36,29 @@ import (
 
 // ── Test doubles ────────────────────────────────────────────────────────────
 
-// successDest is a DestinationWriter that always succeeds and counts writes.
+// noopDestination provides no-op implementations of the Destination interface
+// methods that test stubs do not need to override.
+type noopDestination struct{}
+
+func (noopDestination) Name() string { return "noop" }
+func (noopDestination) Read(_ context.Context, _ string) (*destination.Memory, error) {
+	return nil, nil
+}
+func (noopDestination) Search(_ context.Context, _ *destination.Query) ([]*destination.Memory, error) {
+	return nil, nil
+}
+func (noopDestination) Delete(_ context.Context, _ string) error { return nil }
+func (noopDestination) VectorSearch(_ context.Context, _ []float32, _ int) ([]*destination.Memory, error) {
+	return nil, nil
+}
+func (noopDestination) Migrate(_ context.Context, _ int) error { return nil }
+func (noopDestination) Health(_ context.Context) (*destination.HealthStatus, error) {
+	return &destination.HealthStatus{OK: true}, nil
+}
+
+// successDest is a Destination that always succeeds and counts writes.
 type successDest struct {
+	noopDestination
 	mu     sync.Mutex
 	writes []destination.TranslatedPayload
 }
@@ -57,8 +78,8 @@ func (d *successDest) count() int {
 	return len(d.writes)
 }
 
-// failDest is a DestinationWriter that always returns an error.
-type failDest struct{}
+// failDest is a Destination that always returns an error on Write.
+type failDest struct{ noopDestination }
 
 func (d *failDest) Write(_ destination.TranslatedPayload) error {
 	return errors.New("dest: always fails")
@@ -331,6 +352,7 @@ func TestQueue_MalformedPayloadPermanent(t *testing.T) {
 // blockingDest blocks on Write until its block channel is closed. Used to keep
 // a worker occupied so the queue channel can be filled.
 type blockingDest struct {
+	noopDestination
 	block chan struct{}
 }
 

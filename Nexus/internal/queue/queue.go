@@ -115,7 +115,7 @@ type Queue struct {
 	once        sync.Once
 	wg          sync.WaitGroup
 	logger      *slog.Logger
-	dest        destination.DestinationWriter
+	dest        destination.Destination
 	updater     wal.WALUpdater
 	onProcessed      func()                                    // optional; called after each successful write
 	onDelivered      func(dest string)                         // optional; called with destination name after successful write
@@ -128,7 +128,7 @@ type Queue struct {
 //
 // Callers MUST call Drain or DrainWithContext before process exit to allow
 // in-flight entries to be written to the destination.
-func New(cfg Config, logger *slog.Logger, dest destination.DestinationWriter, updater wal.WALUpdater) *Queue {
+func New(cfg Config, logger *slog.Logger, dest destination.Destination, updater wal.WALUpdater) *Queue {
 	if logger == nil {
 		panic("queue: logger must not be nil")
 	}

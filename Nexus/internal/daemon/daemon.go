@@ -60,6 +60,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/canonical"
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/destination"
+	destfactory "github.com/bubblefish-tech/nexus/internal/destination/factory"
 	"github.com/bubblefish-tech/nexus/internal/doctor"
 	"github.com/bubblefish-tech/nexus/internal/embedding"
 	"github.com/bubblefish-tech/nexus/internal/hotreload"
@@ -105,7 +106,7 @@ type Daemon struct {
 	wal             *wal.WAL
 	queue           *queue.Queue
 	idem            *idempotency.Store
-	dest            destination.DestinationWriter
+	dest            destination.Destination
 	querier         destination.Querier
 	embeddingClient embedding.EmbeddingClient // nil when embedding disabled
 	exactCache      *cache.ExactCache         // Stage 1 — Phase 4
@@ -514,23 +515,27 @@ func (d *Daemon) Start() error {
 	}
 	d.wal = w
 
-	// Open SQLite destination.
-	sqlitePath, err := d.resolveSQLitePath()
-	if err != nil {
-		return fmt.Errorf("daemon: resolve SQLite path: %w", err)
+	// Open destination adapter (factory selects backend from config type).
+	destCfg := d.resolveDestinationConfig()
+	configDir, configDirErr := config.ConfigDir()
+	if configDirErr != nil {
+		return fmt.Errorf("daemon: resolve config dir: %w", configDirErr)
 	}
 
-	d.logger.Info("daemon: opening SQLite destination",
+	d.logger.Info("daemon: opening destination",
 		"component", "daemon",
-		"path", sqlitePath,
+		"type", destCfg.Type,
+		"name", destCfg.Name,
 	)
 
-	sqliteDest, err := destination.OpenSQLite(sqlitePath, d.logger)
+	openedDest, err := destfactory.OpenByType(destCfg, d.logger, configDir)
 	if err != nil {
-		return fmt.Errorf("daemon: open SQLite destination: %w", err)
+		return fmt.Errorf("daemon: open destination: %w", err)
 	}
-	d.dest = sqliteDest
-	d.querier = sqliteDest
+	d.dest = openedDest
+	if q, ok := openedDest.(destination.Querier); ok {
+		d.querier = q
+	}
 
 	// CU.0.2: wire memory content encryption via MasterKeyManager.
 	// Password is resolved from NEXUS_PASSWORD env (set by `nexus config set-password`).
@@ -550,7 +555,9 @@ func (d *Daemon) Start() error {
 				return fmt.Errorf("daemon: encryption self-test failed — refusing to start: %w", selfErr)
 			}
 			d.mkm = mkm // shared with control-plane encryption (CU.0.4)
-			sqliteDest.SetEncryption(mkm)
+			if sqliteDst, ok := d.dest.(*destination.SQLiteDestination); ok {
+				sqliteDst.SetEncryption(mkm)
+			}
 			if mkm.IsEnabled() {
 				d.logger.Info("daemon: memory content encryption enabled (self-test passed)",
 					"component", "daemon")
@@ -1872,8 +1879,20 @@ func (d *Daemon) resolveWALPath() (string, error) {
 	return expandPath(d.getConfig().Daemon.WAL.Path)
 }
 
+// resolveDestinationConfig returns the first configured destination, falling
+// back to a synthetic SQLite config pointing at the default memories.db path.
+func (d *Daemon) resolveDestinationConfig() *config.Destination {
+	for _, dst := range d.getConfig().Destinations {
+		if dst.Name != "" && dst.Type != "" {
+			return dst
+		}
+	}
+	return &config.Destination{Name: "default", Type: "sqlite"}
+}
+
 // resolveSQLitePath returns the SQLite database path.
 // Checks configured destinations first, then falls back to the default.
+// Used by the admin list handler and path tests which require direct SQLite access.
 func (d *Daemon) resolveSQLitePath() (string, error) {
 	for _, dst := range d.getConfig().Destinations {
 		if dst.Type == "sqlite" && dst.DBPath != "" {

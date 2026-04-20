@@ -1257,14 +1257,16 @@ func (d *Daemon) handleReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.dest.Ping(); err != nil {
-		d.logger.Warn("daemon: readiness probe: destination unhealthy",
-			"component", "daemon",
-			"error", err,
-		)
-		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "destination_unavailable",
-			"destination is not reachable", 0)
-		return
+	if pinger, ok := d.dest.(interface{ Ping() error }); ok {
+		if err := pinger.Ping(); err != nil {
+			d.logger.Warn("daemon: readiness probe: destination unhealthy",
+				"component", "daemon",
+				"error", err,
+			)
+			d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "destination_unavailable",
+				"destination is not reachable", 0)
+			return
+		}
 	}
 	d.writeJSON(w, http.StatusOK, healthResponse{
 		Status:  "ready",
@@ -1338,9 +1340,11 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	destHealthy := true
 	var destLastError interface{} = nil
 	if d.dest != nil {
-		if err := d.dest.Ping(); err != nil {
-			destHealthy = false
-			destLastError = err.Error()
+		if pinger, ok := d.dest.(interface{ Ping() error }); ok {
+			if err := pinger.Ping(); err != nil {
+				destHealthy = false
+				destLastError = err.Error()
+			}
 		}
 	}
 

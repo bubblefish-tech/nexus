@@ -85,7 +85,13 @@ func (d *Daemon) runConsistencyCheck(sampleSize int) {
 
 	found := 0
 	for _, entry := range entries {
-		exists, err := d.dest.Exists(entry.PayloadID)
+		existsChecker, ok := d.dest.(interface{ Exists(string) (bool, error) })
+		if !ok {
+			d.logger.Debug("consistency: destination does not support Exists; skipping",
+				"component", "consistency")
+			return
+		}
+		exists, err := existsChecker.Exists(entry.PayloadID)
 		if err != nil {
 			d.logger.Warn("consistency: destination exists check failed",
 				"component", "consistency",
