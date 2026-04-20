@@ -592,8 +592,33 @@
   - Vet: OK
   - 66 packages PASS (internal/quarantine +1 new, all others pass); zero failures
 
+## DEF.3: COMPLETE — Query Anomaly Monitor
+- New file: `internal/immune/query_monitor.go`
+  - `MonitorConfig{WindowDuration, RateLimitPerMin, OverlapThreshold}` + `DefaultMonitorConfig()`
+  - `MonitorAlert{AgentID, AlertType, Details}` — AlertType: "RATE_LIMIT", "MEMBERSHIP_INFERENCE", "POST_DELETE_PROBE"
+  - `QueryMonitor`: per-agent sliding window, mutex-protected, injectable clock (`WithClock`) for tests
+  - `RecordQuery(agentID, query)`: three checks in severity order:
+    1. RATE_LIMIT — >RateLimitPerMin queries in last 60s (default 100/min)
+    2. POST_DELETE_PROBE — query text contains a recently deleted content ref (case-insensitive substring)
+    3. MEMBERSHIP_INFERENCE — >OverlapThreshold prior window queries share significant tokens (len≥4, non-stopword) with current query (default threshold 10)
+  - `NotifyDelete(agentID, contentRef)`: registers a deleted ref for the window duration
+  - Lazy eviction of records older than WindowDuration on every RecordQuery/NotifyDelete call
+  - Token extraction: lowercase, word-char split, min length 4, stopword filter (37 common English words)
+- New file: `internal/immune/query_monitor_test.go` — 19 tests
+  - Rate limit: fires, below threshold, alert details contain count, old queries ignored after 1-min boundary
+  - Membership inference: fires, at-threshold no-alert, details contain overlap count, empty query no-alert
+  - Post-delete probe: fires, case-insensitive, no-delete no-alert, ref expires after window
+  - Window eviction: old queries removed from overlap check after window elapses
+  - Agent isolation: two agents do not share state
+  - Default config: fields correct, zero config uses defaults
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/immune` PASS (47 tests — 19 new + 28 pre-existing)
+  - Full suite: 65 packages PASS; `internal/integration` 1 pre-existing flaky soak test (passes on retry)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DEF.2 complete. Next: DEF.3.
+## Current subtask: DEF.3 complete. Next: SN.1 (Sentinel Core Framework).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
