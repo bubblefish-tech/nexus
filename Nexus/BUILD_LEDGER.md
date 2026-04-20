@@ -617,8 +617,57 @@
   - `internal/immune` PASS (47 tests — 19 new + 28 pre-existing)
   - Full suite: 65 packages PASS; `internal/integration` 1 pre-existing flaky soak test (passes on retry)
 
+## SN.1: COMPLETE — Sentinel Core Framework (internal/ingest/)
+- NOTE: Built in a prior session as `internal/ingest/` (not `internal/sentinel/` as spec named it); existing `internal/sentinel/` is the WAL drift detector (unrelated)
+- `watcher.go`: Watcher interface (Name, SourceName, DefaultPaths, Detect, Parse, State, SetState) + IngestWriter interface
+- `ingest.go`: Manager — fsnotify-based watching, walkAndAdd recursive dir registration, debounced event loop, parse worker pool, truncation detection, path allowlist
+- `file_state.go`: FileStateStore — SQLite-backed offset + SHA-256 hash persistence per watcher+path
+- `debouncer.go`: 500ms configurable debounce; coalesces rapid events per path
+- `worker_pool.go`: bounded goroutine pool (default 4) for parse tasks
+- `config.go`: Config with per-watcher toggles, MaxFileSize (100MB), debounce, concurrency; DefaultConfig()
+- `types.go`, `errors.go`, `metrics.go`: Memory type, error sentinels, Prometheus counters
+
+## SN.2: COMPLETE — Claude Code Parser
+- `watcher_claude_code.go`: Parses `~/.claude/projects/**/*.jsonl`; handles string + array content formats; per-project-hash metadata; offset-based incremental reads; truncation-safe
+- `watcher_claude_code_test.go`: 8 tests (sample session, from-offset, empty, malformed lines, truncated, file-too-large, symlink-rejected, context-cancel)
+- Testdata: `testdata/claude_code/{sample_session,empty,malformed,truncated_session}.jsonl`
+
+## SN.3: COMPLETE — Cursor Parser
+- `watcher_cursor.go`: Parses `~/.cursor/chat-history/*.json`; whole-file hash deduplication (Cursor rewrites on save); user/assistant/system roles; cross-platform DefaultPaths
+- `watcher_cursor_test.go`: tests covering sample chat, empty, malformed, symlink-rejected, file-too-large
+- Testdata: `testdata/cursor/{sample_chat,empty_chat,malformed}.json`
+
+## SN.4: COMPLETE — LM Studio Parser
+- `watcher_lm_studio.go`: Real implementation replacing ErrNotImplemented stub
+  - DefaultPaths: `~/.lmstudio/conversations` (Windows/Linux), `~/.cache/lm-studio/conversations` (macOS/Linux), `%APPDATA%/LM Studio/conversations` (Windows alt)
+  - Parses whole-file JSON (same pattern as Cursor — LM Studio rewrites on save)
+  - Dual timestamp field: prefers `createdAt`, falls back to `timestamp`
+  - Populates model from conversation-level field; lms_chat_id + lms_chat_title metadata
+  - NewLMStudioWatcherWithConfig(cfg, logger) constructor added alongside parameterless NewLMStudioWatcher()
+- `watcher_lm_studio_test.go`: 13 tests (name/source, default paths, state transitions, sample parse, meta fields, timestamp from createdAt, alt timestamp field, empty messages, malformed, file-not-exist, symlink-rejected, file-too-large, hash populated, context cancelled, detect-no-dir)
+- Testdata: `testdata/lm_studio/{sample_chat,empty_chat,malformed,alt_timestamp_field}.json`
+- Removed TestLMStudioStub from watcher_stubs_test.go (no longer a stub)
+
+## SN.5: COMPLETE — Parser Stubs
+- `watcher_claude_desktop.go`: stub (ErrNotImplemented) — Claude Desktop SQLite IndexedDB; Windows/macOS/Linux paths
+- `watcher_chatgpt_desktop.go`: stub (ErrNotImplemented) — ChatGPT Desktop leveldb; Windows/macOS/Linux paths
+- `watcher_open_webui.go`: stub (ErrNotImplemented) — Open WebUI
+- `watcher_perplexity_comet.go`: stub (ErrNotImplemented) — Perplexity Comet
+- `watcher_stubs_test.go`: shared stubWatcherTest helper + 4 stub tests (chatgpt_desktop, claude_desktop, open_webui, perplexity_comet)
+
+## SN.6: COMPLETE — Import Command
+- `internal/ingest/importer/importer.go`: Run(Options) — auto-detect or explicit format; supports Claude export ZIP, ChatGPT export ZIP, Claude Code dir, Cursor dir, generic JSONL; dry-run mode
+- CLI wired: `case "import":` in cmd/bubblefish/main.go
+- `importer/importer_test.go`: tests for each format + auto-detection
+
+## Exit gate (SN.1–SN.6 combined):
+- Build: OK
+- Vet: OK
+- `internal/ingest` + `internal/ingest/importer`: PASS (all tests green)
+- Full suite: 0 failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DEF.3 complete. Next: SN.1 (Sentinel Core Framework).
+## Current subtask: SN.1–SN.6 complete. Next: DB.1 (Destination Interface Definition).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

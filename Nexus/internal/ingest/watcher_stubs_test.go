@@ -63,10 +63,6 @@ func TestClaudeDesktopStub(t *testing.T) {
 	stubWatcherTest(t, NewClaudeDesktopWatcher(), "claude_desktop", "ingest.claude_desktop")
 }
 
-func TestLMStudioStub(t *testing.T) {
-	stubWatcherTest(t, NewLMStudioWatcher(), "lm_studio", "ingest.lm_studio")
-}
-
 func TestOpenWebUIStub(t *testing.T) {
 	stubWatcherTest(t, NewOpenWebUIWatcher(), "open_webui", "ingest.open_webui")
 }
