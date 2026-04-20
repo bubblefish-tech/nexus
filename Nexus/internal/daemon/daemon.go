@@ -562,6 +562,12 @@ func (d *Daemon) Start() error {
 		d.querier = q
 	}
 
+	// WIRE.3: run schema migrations on startup (idempotent, records in nexus_migrations).
+	if migrateErr := openedDest.Migrate(context.Background(), 0); migrateErr != nil {
+		d.logger.Warn("daemon: schema migration failed (non-fatal)",
+			"component", "daemon", "error", migrateErr)
+	}
+
 	// CU.0.2: wire memory content encryption via MasterKeyManager.
 	// Password is resolved from NEXUS_PASSWORD env (set by `nexus config set-password`).
 	if home, homeErr := os.UserHomeDir(); homeErr != nil {

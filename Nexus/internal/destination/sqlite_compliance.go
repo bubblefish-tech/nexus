@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/bubblefish-tech/nexus/internal/migration"
 )
 
 // Compile-time proof that SQLiteDestination satisfies the Destination interface.
@@ -128,11 +130,19 @@ func (d *SQLiteDestination) VectorSearch(ctx context.Context, embedding []float3
 	return out, nil
 }
 
-// Migrate is a no-op for SQLite: all schema migrations are applied idempotently
-// at open time inside applyPragmasAndSchema. The version argument is reserved
-// for future use when explicit versioned migrations are required.
-func (d *SQLiteDestination) Migrate(_ context.Context, _ int) error {
-	return nil
+// sqliteMigrations is the versioned migration history for the SQLite memories schema.
+// v1 carries no SQL because applyPragmasAndSchema() already created the schema at
+// open time; recording v1 in nexus_migrations marks the baseline for future versions.
+var sqliteMigrations = []migration.Migration{
+	{Version: 1, Description: "initial memories schema"},
+}
+
+// Migrate creates the nexus_migrations tracking table (if needed) and applies
+// any pending versioned schema migrations. The version argument is unused
+// (all pending migrations are always applied).
+func (d *SQLiteDestination) Migrate(ctx context.Context, _ int) error {
+	mgr := migration.New(d.db)
+	return mgr.Apply(ctx, sqliteMigrations)
 }
 
 // Health performs a lightweight liveness probe by pinging the database and
