@@ -803,8 +803,30 @@
   - `internal/destination/mongodb` PASS (9 unit tests pass; 12 integration tests skip cleanly)
   - Full suite: zero failures
 
+## DB.8: COMPLETE — Firebase/Firestore Destination Adapter
+- New package: `internal/destination/firestore/`
+  - `firestore.go`: FirestoreDestination implementing `destination.Destination`
+  - Driver: `cloud.google.com/go/firestore v1.22.0`
+  - Authentication: Application Default Credentials or explicit service account JSON file
+  - Document model: payload_id as Firestore document ID; embedding as []float64 (Firestore native array);
+    metadata as native Firestore map[string]string; timestamps as time.Time (Firestore Date)
+  - Write: `Doc(payloadID).Set(ctx, doc)` — idempotent overwrite
+  - VectorSearch: returns `ErrVectorSearchUnsupported` (no Firestore native vector search)
+  - Query: Firestore structured where clauses; content filter (Q) applied client-side (no LIKE equivalent)
+  - Pagination: Offset+Limit (O(n) but correct; consistent with other adapters' cursor scheme)
+  - Migrate: no-op (Firestore is schemaless)
+  - Health: list 1 document from memories collection with latency measurement
+  - `export_test.go`: white-box exports (docFromPayload, payloadFromDoc, float conversion helpers)
+  - `firestore_test.go`: 6 unit tests (pass without credentials) + 11 integration tests (skip without TEST_FIRESTORE_PROJECT)
+- New dependency: `cloud.google.com/go/firestore v1.22.0`
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/destination/firestore` PASS (6 unit tests pass; 11 integration tests skip cleanly)
+  - Full suite: zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: DB.7 complete. Next: DB.8 (Firebase/Firestore destination adapter) or as directed.
+## Current subtask: DB.8 complete. Next: DB.9 (TiDB destination adapter).
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
