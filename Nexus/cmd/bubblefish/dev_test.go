@@ -66,7 +66,7 @@ func TestDevOverridesLogLevel(t *testing.T) {
 	// Simulate what runDev does: override to debug.
 	cfg.Daemon.LogLevel = "debug"
 
-	logger := buildLogger(cfg)
+	logger := buildLogger(cfg, "")
 
 	// Verify the logger accepts DEBUG-level messages.
 	var buf bytes.Buffer

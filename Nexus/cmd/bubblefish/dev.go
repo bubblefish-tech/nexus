@@ -63,7 +63,7 @@ func runDev() {
 	cfg.Daemon.LogLevel = "debug"
 
 	// Re-create logger with debug level.
-	logger = buildLogger(cfg)
+	logger = buildLogger(cfg, configDir)
 
 	logger.Info("bubblefish dev",
 		"component", "main",

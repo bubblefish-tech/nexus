@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -72,8 +73,8 @@ func runStart() {
 		os.Exit(1)
 	}
 
-	// Re-create logger with configured level and format.
-	logger = buildLogger(cfg)
+	// Re-create logger with configured level, format, and file output.
+	logger = buildLogger(cfg, configDir)
 
 	logger.Info("bubblefish start",
 		"component", "main",
@@ -201,8 +202,9 @@ func runStart() {
 }
 
 // buildLogger creates a slog.Logger from the daemon config's log_level and
-// log_format settings.
-func buildLogger(cfg *config.Config) *slog.Logger {
+// log_format settings. When configDir is non-empty it also opens
+// <configDir>/logs/nexus.log for structured JSON append logging.
+func buildLogger(cfg *config.Config, configDir string) *slog.Logger {
 	var level slog.Level
 	switch cfg.Daemon.LogLevel {
 	case "debug":
@@ -217,12 +219,58 @@ func buildLogger(cfg *config.Config) *slog.Logger {
 
 	opts := &slog.HandlerOptions{Level: level}
 
-	var handler slog.Handler
+	// Stderr handler — format follows config.
+	var stderrHandler slog.Handler
 	switch cfg.Daemon.LogFormat {
 	case "json":
-		handler = slog.NewJSONHandler(os.Stderr, opts)
+		stderrHandler = slog.NewJSONHandler(os.Stderr, opts)
 	default:
-		handler = slog.NewTextHandler(os.Stderr, opts)
+		stderrHandler = slog.NewTextHandler(os.Stderr, opts)
 	}
-	return slog.New(logging.NewSanitizingHandler(handler))
+
+	// File handler — always JSON, for nexus logs command to parse.
+	if configDir != "" {
+		logPath := filepath.Join(configDir, "logs", "nexus.log")
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
+			fileHandler := slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug})
+			return slog.New(logging.NewSanitizingHandler(newTeeHandler(stderrHandler, fileHandler)))
+		}
+	}
+
+	return slog.New(logging.NewSanitizingHandler(stderrHandler))
+}
+
+// teeHandler fans out a slog.Record to two handlers.
+// Errors from the secondary handler are silently ignored to avoid breaking
+// the primary (stderr) path if the log file becomes unavailable.
+type teeHandler struct {
+	primary   slog.Handler
+	secondary slog.Handler
+}
+
+func newTeeHandler(primary, secondary slog.Handler) *teeHandler {
+	return &teeHandler{primary: primary, secondary: secondary}
+}
+
+func (h *teeHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.primary.Enabled(ctx, level)
+}
+
+func (h *teeHandler) Handle(ctx context.Context, r slog.Record) error {
+	_ = h.secondary.Handle(ctx, r.Clone())
+	return h.primary.Handle(ctx, r)
+}
+
+func (h *teeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &teeHandler{
+		primary:   h.primary.WithAttrs(attrs),
+		secondary: h.secondary.WithAttrs(attrs),
+	}
+}
+
+func (h *teeHandler) WithGroup(name string) slog.Handler {
+	return &teeHandler{
+		primary:   h.primary.WithGroup(name),
+		secondary: h.secondary.WithGroup(name),
+	}
 }

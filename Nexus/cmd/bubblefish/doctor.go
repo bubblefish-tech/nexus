@@ -18,11 +18,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/doctor"
@@ -30,10 +33,10 @@ import (
 
 // runDoctor executes the `bubblefish doctor` command.
 //
-// It loads configuration and runs health checks, including OAuth-specific
-// checks when [daemon.oauth] is enabled.
+// Runs environment, config, and connectivity health checks. For each failed
+// check it emits a self-heal proposal so the user knows exactly what to run.
 //
-// Reference: Post-Build Add-On Update Technical Specification Section 6.4.
+// Reference: Tech Spec WIRE.5 / Section 6.4.
 func runDoctor() {
 	// Handle --fsync-test flag before loading config.
 	for _, arg := range os.Args[2:] {
@@ -56,63 +59,198 @@ func runDoctor() {
 	cfg, err := config.Load(configDir, logger)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bubblefish doctor: config load failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "  SELF-HEAL: run 'bubblefish install' to create a default configuration")
 		os.Exit(1)
 	}
 
 	hasErrors := false
+	var proposals []string
 
-	fmt.Println("bubblefish doctor: checking configuration...")
+	check := func(ok bool, tag, msg, heal string) {
+		if ok {
+			fmt.Printf("  [ok]    %s: %s\n", tag, msg)
+		} else {
+			fmt.Printf("  [ERROR] %s: %s\n", tag, msg)
+			if heal != "" {
+				proposals = append(proposals, heal)
+			}
+			hasErrors = true
+		}
+	}
+	warn := func(tag, msg string) {
+		fmt.Printf("  [WARN]  %s: %s\n", tag, msg)
+	}
 
-	// OAuth checks.
+	fmt.Println("bubblefish doctor: checking environment...")
+
+	// 1. Config directory exists.
+	_, statErr := os.Stat(configDir)
+	check(statErr == nil, "config_dir", configDir, "run 'bubblefish install' to create the config directory")
+
+	// 2. daemon.toml exists.
+	daemonTOML := filepath.Join(configDir, "daemon.toml")
+	_, tomlErr := os.Stat(daemonTOML)
+	check(tomlErr == nil, "daemon_toml", daemonTOML, "run 'bubblefish install' to generate daemon.toml")
+
+	// 3. WAL directory is writable.
+	walDir := filepath.Join(configDir, "wal")
+	walOK := checkWritable(walDir)
+	check(walOK, "wal_writable", walDir, fmt.Sprintf("run: mkdir -p %s && chmod 700 %s", walDir, walDir))
+
+	// 4. Logs directory exists.
+	logsDir := filepath.Join(configDir, "logs")
+	_, logsDirErr := os.Stat(logsDir)
+	if logsDirErr != nil {
+		warn("logs_dir", fmt.Sprintf("%s missing — daemon will create on next start", logsDir))
+	} else {
+		fmt.Printf("  [ok]    logs_dir: %s\n", logsDir)
+	}
+
+	// 5. Daemon alive check (non-fatal warn if down).
+	port := cfg.Daemon.Port
+	if port > 0 {
+		daemonAlive := checkDaemonAlive(port)
+		if daemonAlive {
+			fmt.Printf("  [ok]    daemon_alive: http://127.0.0.1:%d/health responded ok\n", port)
+		} else {
+			fmt.Printf("  [WARN]  daemon_alive: daemon not responding on port %d\n", port)
+			fmt.Printf("          SELF-HEAL: run 'bubblefish start' to start the daemon\n")
+		}
+	}
+
+	// 6. MCP enabled check.
+	if cfg.Daemon.MCP.Port == 0 {
+		warn("mcp", "mcp.port = 0 — MCP server disabled (set mcp.port in daemon.toml to enable)")
+	} else {
+		fmt.Printf("  [ok]    mcp: port %d configured\n", cfg.Daemon.MCP.Port)
+	}
+
+	// 7. OAuth checks.
+	fmt.Println()
+	fmt.Println("bubblefish doctor: checking auth configuration...")
 	if cfg.Daemon.OAuth.Enabled {
 		fmt.Println("  [oauth] enabled = true")
 
-		// issuer_url must not be empty.
 		if cfg.Daemon.OAuth.IssuerURL == "" {
-			fmt.Println("  [ERROR] oauth.issuer_url is empty")
-			hasErrors = true
+			check(false, "oauth.issuer_url", "empty", "set oauth.issuer_url in daemon.toml")
 		} else {
 			fmt.Printf("  [ok]    oauth.issuer_url = %s\n", cfg.Daemon.OAuth.IssuerURL)
 		}
 
-		// issuer_url should use HTTPS (except localhost).
 		if cfg.Daemon.OAuth.IssuerURL != "" &&
 			!strings.HasPrefix(cfg.Daemon.OAuth.IssuerURL, "https://") {
 			if !strings.Contains(cfg.Daemon.OAuth.IssuerURL, "localhost") &&
 				!strings.Contains(cfg.Daemon.OAuth.IssuerURL, "127.0.0.1") {
-				fmt.Println("  [WARN]  oauth.issuer_url should use HTTPS")
+				warn("oauth.issuer_url", "should use HTTPS in production")
 			}
 		}
 
-		// private_key_file must be resolvable.
 		pkf := cfg.Daemon.OAuth.PrivateKeyFile
 		if pkf == "" {
-			fmt.Println("  [WARN]  oauth.private_key_file is empty (will auto-generate on start)")
+			warn("oauth.private_key_file", "empty — will auto-generate on start")
 		} else if strings.HasPrefix(pkf, "file:") {
 			path := strings.TrimPrefix(pkf, "file:")
-			if _, statErr := os.Stat(path); statErr != nil {
-				fmt.Printf("  [ERROR] oauth.private_key_file not found: %s\n", path)
-				hasErrors = true
-			} else {
-				fmt.Printf("  [ok]    oauth.private_key_file exists: %s\n", path)
-			}
+			_, pkfErr := os.Stat(path)
+			check(pkfErr == nil, "oauth.private_key_file", path,
+				fmt.Sprintf("create or copy your private key to %s", path))
 		}
 
-		// clients check.
 		if len(cfg.Daemon.OAuth.Clients) == 0 {
-			fmt.Println("  [WARN]  oauth: no clients registered")
+			warn("oauth.clients", "no clients registered")
 		} else {
 			fmt.Printf("  [ok]    oauth: %d client(s) registered\n", len(cfg.Daemon.OAuth.Clients))
 		}
 	} else {
-		fmt.Println("  [ok]    oauth: disabled (no OAuth endpoints registered)")
+		fmt.Println("  [ok]    oauth: disabled")
 	}
 
+	// 8. Destination health check (if daemon is alive).
+	if port > 0 && checkDaemonAlive(port) {
+		fmt.Println()
+		fmt.Println("bubblefish doctor: checking destination health...")
+		checkDestinationHealth(port, cfg, &hasErrors, &proposals)
+	}
+
+	// Print self-heal summary.
+	if len(proposals) > 0 {
+		fmt.Println()
+		fmt.Println("bubblefish doctor: self-heal proposals:")
+		for _, p := range proposals {
+			fmt.Printf("  → %s\n", p)
+		}
+	}
+
+	fmt.Println()
 	if hasErrors {
-		fmt.Println("\nbubblefish doctor: issues found")
+		fmt.Println("bubblefish doctor: UNHEALTHY — issues found (see above)")
 		os.Exit(1)
 	}
-	fmt.Println("\nbubblefish doctor: ok")
+	fmt.Println("bubblefish doctor: HEALTHY")
+}
+
+// checkWritable returns true if path exists and a temp file can be created in it.
+func checkWritable(path string) bool {
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return false
+	}
+	f, err := os.CreateTemp(path, ".nexus-writable-*")
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(f.Name())
+	return true
+}
+
+// checkDaemonAlive pings GET /health and returns true if the response is 200.
+func checkDaemonAlive(port int) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// checkDestinationHealth calls GET /health and inspects the subsystems map.
+func checkDestinationHealth(port int, cfg *config.Config, hasErrors *bool, proposals *[]string) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+	if err != nil {
+		fmt.Printf("  [WARN]  health_endpoint: %v\n", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		Status     string                 `json:"status"`
+		Subsystems map[string]interface{} `json:"subsystems"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Printf("  [WARN]  health_endpoint: parse: %v\n", err)
+		return
+	}
+
+	for name, sub := range result.Subsystems {
+		subMap, _ := sub.(map[string]interface{})
+		status, _ := subMap["status"].(string)
+		details, _ := subMap["details"].(string)
+
+		if status == "ok" {
+			fmt.Printf("  [ok]    subsystem.%s\n", name)
+		} else if status == "degraded" {
+			fmt.Printf("  [WARN]  subsystem.%s: %s\n", name, details)
+		} else if status == "unavailable" {
+			fmt.Printf("  [WARN]  subsystem.%s: %s (feature disabled)\n", name, details)
+		}
+	}
+
+	if result.Status != "ok" {
+		fmt.Printf("  [ERROR] overall health: %s\n", result.Status)
+		*hasErrors = true
+		*proposals = append(*proposals, "check daemon logs: run 'bubblefish logs --level warn'")
+	}
 }
 
 // runFsyncTest executes `bubblefish doctor --fsync-test`.

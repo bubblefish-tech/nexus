@@ -1064,8 +1064,72 @@
   - Vet: OK
   - 87 packages PASS (internal/events +1 new with 7 tests) — zero failures
 
+## Phase 9 — Wire Up Remaining Mocks
+
+### WIRE.1: COMPLETE — Substrate Wiring (Stage 3.5 sketch prefilter)
+- `internal/query/stage_3_5_sketch_prefilter.go`: replaced no-op stub with real RaBitQ BBQ pipeline
+  - `cfg.Substrate.CurrentRatchetState()` → nil guard (fall through to stage 4)
+  - `substrate.ComputeQuerySketch()` + cuckoo filter coverage check (≥50% threshold)
+  - Score each candidate via `cfg.Substrate.LoadStoreSketch()` + `substrate.EstimateInnerProduct()`
+  - `rankAndTruncate()` returns top-K by score
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/query` PASS — zero failures
+
+### WIRE.2: COMPLETE — Structured Health Endpoint
+- `internal/daemon/handlers.go`: expanded `healthResponse` with `Subsystems map[string]healthSubsystem`
+  - 7 subsystem entries: wal, database, audit, substrate, encryption, mcp, eventbus
+  - Overall status degrades to "degraded" if any subsystem is not "ok"
+- `internal/daemon/handlers_test.go`: `TestHandleHealth_SubsystemStatus` — 7 keys present, WAL=ok, database=ok
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/daemon` PASS — zero failures
+
+### WIRE.3: COMPLETE — Migration Framework
+- New package `internal/migration/`: `Migration{Version, Description, SQL}`, `Manager`, `Dialect` (? vs $N)
+  - `nexus_migrations` tracking table; each migration in its own transaction; nil-safe
+  - `migration_test.go`: 10 tests (nil, no-ops, real SQL, idempotency, multi-step, bad SQL)
+- `internal/destination/sqlite_compliance.go`: `Migrate()` now calls `migration.New(d.db).Apply()`
+  - `sqliteMigrations` slice with v1 baseline marker
+- `internal/daemon/daemon.go`: calls `openedDest.Migrate(context.Background(), 0)` after destination open
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/migration` PASS (10 tests), full suite PASS — zero failures
+
+### WIRE.4: COMPLETE — Install Bug Fixes
+- `cmd/bubblefish/install.go`:
+  - Directory creation now includes `logs/`, `keys/`, `discovery/`
+  - `writeDefaultSource()` switch handles all 8+ destination types (mysql/mariadb, cockroachdb/crdb, mongodb/mongo, firestore, tidb, turso/libsql)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `cmd/bubblefish` PASS — zero failures
+
+### WIRE.5: COMPLETE — Doctor with Self-Heal + Structured Logs + nexus logs command
+- `cmd/bubblefish/start.go` `buildLogger(cfg, configDir)`:
+  - Opens `<configDir>/logs/nexus.log` for JSON append logging
+  - `teeHandler` fans slog records to stderr + JSON file simultaneously
+- `cmd/bubblefish/dev.go`: updated `buildLogger(cfg, configDir)` call
+- `cmd/bubblefish/doctor.go`: enhanced with 8 health checks + self-heal proposals
+  - config_dir exists, daemon.toml exists, WAL writable, logs dir present
+  - daemon_alive (GET /health with 2s timeout) → "run 'bubblefish start'"
+  - MCP port configured, OAuth validity checks
+  - destination health via structured /health subsystems map
+- `cmd/bubblefish/logs.go`: `runLogs(args)` — reads `<configDir>/logs/nexus.log` JSONL
+  - `--tail N` (default 50), `--level L` (debug/info/warn/error), `--since` (RFC3339 or duration), `--json`
+  - `parseSince`, `matchLevel`, `matchSince`, `formatLogLine` helpers
+- `cmd/bubblefish/main.go`: `logs` case added; help text updated
+- `cmd/bubblefish/dev_test.go`: fixed `buildLogger(cfg)` → `buildLogger(cfg, "")` call
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `cmd/bubblefish` PASS (9 tests), full suite PASS — zero failures
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: Phase 8 complete. Phase 9 is next.
+## Current subtask: WIRE.5 complete. WIRE.6 (update command) is next.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

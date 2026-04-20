@@ -75,6 +75,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  task         manage control-plane tasks")
 		fmt.Fprintln(os.Stderr, "  action       query the control-plane action log")
 		fmt.Fprintln(os.Stderr, "  quarantine   review Tier-0 immune-scanner interceptions")
+		fmt.Fprintln(os.Stderr, "  logs         tail and filter the structured daemon log")
 		fmt.Fprintln(os.Stderr, "  config       manage Nexus configuration (set-password)")
 		fmt.Fprintln(os.Stderr, "  version      print version string")
 		os.Exit(1)
@@ -164,6 +165,8 @@ func main() {
 		runAction(os.Args[2:])
 	case "quarantine":
 		runQuarantine(os.Args[2:])
+	case "logs":
+		runLogs(os.Args[2:])
 	case "config":
 		runConfig(os.Args[2:])
 	case "version", "--version":
