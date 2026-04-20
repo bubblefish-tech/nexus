@@ -1128,8 +1128,46 @@
   - Vet: OK
   - `cmd/bubblefish` PASS (9 tests), full suite PASS — zero failures
 
+### WIRE.6: COMPLETE — Update Command
+- New package `internal/updater/`:
+  - `FetchLatest(client)` — GitHub releases API; handles 404 (no releases yet) gracefully
+  - `PlatformAssetName()` — `bubblefish_<os>_<arch>[.exe]` for current platform
+  - `FindAssets(info)` — locates binary + `.sha256` sidecar in a release
+  - `Download(client, url, dir)` — downloads to temp file in `dir`
+  - `VerifyChecksum(binPath, sumPath)` — SHA-256 hex comparison
+  - `AtomicReplace(dest, src)` — rename-then-copy; restores backup on failure
+  - `CompareVersions(current, candidate)` — semver major.minor.patch comparison
+  - `CurrentExecutable()` — absolute path via os.Executable()
+  - `updater_test.go`: 10 tests (CompareVersions 7 cases, PlatformAssetName, FindAssets found/missing, VerifyChecksum ok/mismatch, AtomicReplace, Download ok/error)
+- `cmd/bubblefish/update.go`: `runUpdate(args)`
+  - `--check` — check only, no download
+  - `--yes` — skip confirmation prompts
+  - Pre-update daemon liveness check with warning and confirmation
+  - Full flow: fetch → compare → find assets → download → verify → atomic replace → summary
+- `cmd/bubblefish/main.go`: `update` case added
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/updater` PASS (10 tests), full suite PASS — zero failures
+
+### WIRE.7: COMPLETE — Tunnel Configuration
+- `internal/config/types.go`: added `Tunnels []TunnelConfig` to Config; new `TunnelConfig` struct
+  - Provider (cloudflare/ngrok/tailscale/bore/custom), LocalPort, Enabled
+  - Provider-specific: AuthToken (Cloudflare/ngrok), Hostname, Region, Domain, Address, Command
+- `cmd/bubblefish/tunnel.go`: `runTunnel(args)` with 3 subcommands:
+  - `tunnel setup` — interactive TOML generation wizard (prints config snippet to stdout)
+  - `tunnel doctor` — validates each [[tunnels]] entry; checks provider, required fields
+  - `tunnel status` — table of configured tunnels with local /health reachability probe
+- `cmd/bubblefish/main.go`: `tunnel` case added; help text updated
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - Full suite PASS — zero failures
+
+## Phase 9 — Wire Up Remaining Mocks: COMPLETE (WIRE.1–WIRE.7 all done)
+
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: WIRE.5 complete. WIRE.6 (update command) is next.
+## Current subtask: Phase 9 complete. Phase 10 (SHOW-OFF FEATURES) is next.
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main

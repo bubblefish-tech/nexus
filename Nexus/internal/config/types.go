@@ -47,6 +47,10 @@ type Config struct {
 	// Reference: v0.1.3 Moat-Takeover Build Plan, MT.3.
 	Control ControlConfig `toml:"control"`
 
+	// Tunnels holds [[tunnels]] sections for external tunnel providers.
+	// Reference: Tech Spec WIRE.7.
+	Tunnels []TunnelConfig `toml:"tunnels"`
+
 	// Sources and Destinations are populated by scanning the sources/ and
 	// destinations/ sub-directories. Not decoded from daemon.toml itself.
 	Sources      []*Source
@@ -681,4 +685,34 @@ type ControlCapabilitiesConfig struct {
 	// RequireApproval is a list of capability names that require an approved
 	// approval request before the policy engine will allow the action.
 	RequireApproval []string `toml:"require_approval"`
+}
+
+// TunnelConfig models one [[tunnels]] TOML entry.
+//
+// All providers share Provider, LocalPort, and Enabled. Additional fields are
+// provider-specific (AuthToken for Cloudflare/ngrok, Hostname for Cloudflare,
+// Domain for Tailscale, Address for Bore, Command for custom).
+//
+// Reference: Tech Spec WIRE.7.
+type TunnelConfig struct {
+	Provider  string `toml:"provider"`  // cloudflare, ngrok, tailscale, bore, custom
+	LocalPort int    `toml:"local_port"` // local daemon port to tunnel
+	Enabled   bool   `toml:"enabled"`
+
+	// Cloudflare Tunnel fields.
+	AuthToken string `toml:"auth_token"` // env:VAR or ENC:v1:... or plaintext (NEVER log)
+	Hostname  string `toml:"hostname"`   // e.g. nexus.example.com
+
+	// ngrok fields (reuse AuthToken; add Region).
+	Region string `toml:"region"` // e.g. "us", "eu"
+
+	// Tailscale Funnel fields.
+	Domain string `toml:"domain"` // Tailscale domain for HTTPS Funnel
+
+	// Bore fields.
+	Address string `toml:"address"` // bore server address, e.g. bore.pub:7835
+
+	// Custom tunnel — arbitrary shell command.
+	// Placeholders: {port} is replaced with LocalPort.
+	Command string `toml:"command"`
 }
