@@ -942,12 +942,15 @@ func TestHealthCheckerOptions(t *testing.T) {
 	}
 }
 
+// TestHealthCheckPingError verifies that a JSON-RPC error response (-32601, -32603, etc.)
+// is treated as "agent reachable" — only transport-level failures mark an agent offline.
+// This allows agents that don't implement agent/ping to still be considered healthy.
 func TestHealthCheckPingError(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Server that returns a JSON-RPC error.
+	// Server that returns a JSON-RPC error (simulates agent that doesn't support agent/ping).
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -957,8 +960,8 @@ func TestHealthCheckPingError(t *testing.T) {
 			var req jsonrpc.Request
 			json.NewDecoder(r.Body).Decode(&req)
 			resp := jsonrpc.NewErrorResponse(req.ID, &jsonrpc.ErrorObject{
-				Code:    -32603,
-				Message: "internal error",
+				Code:    -32601,
+				Message: "unknown method: agent/ping",
 			})
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
@@ -976,13 +979,43 @@ func TestHealthCheckPingError(t *testing.T) {
 	s.Register(ctx, agent)
 
 	hc := NewHealthChecker(s, WithHealthTimeout(5*time.Second))
-	err = hc.Check(ctx, agent)
-	if err == nil {
-		t.Fatal("expected error for ping that returns error")
+	// Any JSON-RPC response (including errors) proves the agent is reachable.
+	if err = hc.Check(ctx, agent); err != nil {
+		t.Fatalf("Check should succeed when agent responds with JSON-RPC error: %v", err)
+	}
+
+	got, _ := s.Get(ctx, "agent-1")
+	if got.LastSeenAt == nil {
+		t.Error("LastSeenAt should be set when agent responds")
+	}
+	if got.LastError != "" {
+		t.Errorf("LastError should be empty for reachable agent, got: %q", got.LastError)
+	}
+}
+
+// TestHealthCheckTransportFailure verifies that a connection-level failure (refused, timeout)
+// marks the agent as failed and sets LastError.
+func TestHealthCheckTransportFailure(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	s := newTestStore(t)
+	agent := testAgent("agent-1", "alpha")
+	// Port 1 will be refused — pure transport failure.
+	agent.TransportConfig = transport.TransportConfig{
+		Kind: "http",
+		URL:  "http://127.0.0.1:1",
+	}
+	s.Register(ctx, agent)
+
+	hc := NewHealthChecker(s, WithHealthTimeout(2*time.Second))
+	if err := hc.Check(ctx, agent); err == nil {
+		t.Fatal("expected error when agent is unreachable")
 	}
 
 	got, _ := s.Get(ctx, "agent-1")
 	if got.LastError == "" {
-		t.Error("LastError should be set")
+		t.Error("LastError should be set for unreachable agent")
 	}
 }

@@ -125,13 +125,12 @@ func (hc *HealthChecker) ping(ctx context.Context, agent RegisteredAgent) error 
 		return fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := conn.Send(ctx, req)
+	// Any response from the agent — even a JSON-RPC error like -32601
+	// (method not found) — proves the agent is reachable. Only a transport-
+	// level failure (no connection, timeout, HTTP error) means offline.
+	_, err = conn.Send(ctx, req)
 	if err != nil {
 		return fmt.Errorf("send ping: %w", err)
-	}
-
-	if resp.Error != nil {
-		return fmt.Errorf("ping error: %s", resp.Error.Message)
 	}
 	return nil
 }

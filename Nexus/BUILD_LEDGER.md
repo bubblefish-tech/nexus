@@ -1504,3 +1504,18 @@
   - Build: OK
   - Vet: OK
   - Full test suite: PASS (zero failures)
+
+## WIRE.9: COMPLETE — Health checker: any JSON-RPC response = agent alive
+- Problem: `health.go` ping() checked `resp.Error != nil` and treated any JSON-RPC error (including
+  -32601 method-not-found) as "agent offline". OpenClaw doesn't implement `agent/ping` and returns
+  -32601, so its `last_seen_at` was never updated despite the agent being reachable.
+- Fix: removed `resp.Error != nil` guard in `ping()`; only transport-level errors (connection refused,
+  timeout, HTTP error) mark an agent as offline. Any JSON-RPC response proves reachability.
+- Semantic: HTTP 2xx + valid JSON-RPC response (success or error) = agent alive.
+- Test updates: `TestHealthCheckPingError` → now asserts JSON-RPC error response = alive (LastSeenAt set,
+  LastError empty); new `TestHealthCheckTransportFailure` test asserts connection-refused = error + LastError set.
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - `internal/a2a/registry` PASS (all tests including new TestHealthCheckTransportFailure)
+  - Full suite (a2a/..., daemon/..., config/...): PASS — zero failures
