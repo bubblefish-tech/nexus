@@ -1237,7 +1237,18 @@
   - 92 packages PASS — zero failures (pre-existing flaky TestSoak_24h passed on this run)
 
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: A2A bridge bugs fixed. Final exit gate / v0.1.3 tag prep is next.
+## Current subtask: A2A self-registration complete. Final exit gate / v0.1.3 tag prep is next.
+
+## A2A Self-Registration: COMPLETE
+- New JSON-RPC method: agent/register on POST /a2a/jsonrpc
+- Token-gated (env:NEXUS_A2A_REG_TOKEN in [a2a] config); disabled = -32601 (hides endpoint)
+- Constant-time token compare; ping-back before registration; zero grants on register
+- Re-registration: upserts if same/no pinned key; -32013 ALREADY_EXISTS if key differs
+- New error code CodeAlreadyExists = -32013 + errorName entry; errors_test range updated
+- New PrefixAgent = "agt_" + NewAgentID(); fixes ad-hoc ID generation in a2a_bridge + api_a2a
+- new files: internal/a2a/server/methods_register.go, handlers_a2a_jsonrpc.go
+- 13 tests in methods_register_test.go; all pass -race -count=1
+- Commit: e51d6c2
 
 ## A2A Bridge Bug Fixes: COMPLETE
 - Bug 1 (loadA2AAgents skip → upsert): Added Store.UpdateTransportAndCard to
