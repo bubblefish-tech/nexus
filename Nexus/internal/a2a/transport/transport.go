@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
@@ -72,14 +73,36 @@ type Transport interface {
 
 // TransportConfig holds the configuration for dialing or listening.
 type TransportConfig struct {
-	Kind           string   `json:"kind" toml:"kind"`           // "http", "stdio", "tunnel", "wsl"
-	URL            string   `json:"url,omitempty" toml:"url"`   // for HTTP/tunnel/WSL
-	AuthType       string   `json:"authType,omitempty" toml:"auth_type"` // "bearer", "mtls", "none"
+	Kind           string   `json:"kind" toml:"kind"`                              // "http", "stdio", "tunnel", "wsl"
+	URL            string   `json:"url,omitempty" toml:"url"`                      // for HTTP/tunnel/WSL
+	JSONRPCPath    string   `json:"jsonrpcPath,omitempty" toml:"jsonrpc_path"`     // overrides default /a2a/jsonrpc
+	StreamPath     string   `json:"streamPath,omitempty" toml:"stream_path"`       // overrides default /a2a/stream
+	AuthType       string   `json:"authType,omitempty" toml:"auth_type"`           // "bearer", "mtls", "none"
 	AuthToken      string   `json:"authToken,omitempty" toml:"auth_token"`
 	BearerTokenEnv string   `json:"bearerTokenEnv,omitempty" toml:"bearer_token_env"` // env var name for bearer token
-	Command        string   `json:"command,omitempty" toml:"command"` // for stdio: executable path
-	Args           []string `json:"args,omitempty" toml:"args"`      // for stdio: command args
+	Command        string   `json:"command,omitempty" toml:"command"`               // for stdio: executable path
+	Args           []string `json:"args,omitempty" toml:"args"`                    // for stdio: command args
 	TimeoutMs      int64    `json:"timeoutMs,omitempty" toml:"timeout_ms"`
+}
+
+// JSONRPCEndpoint returns the full JSON-RPC endpoint URL, using JSONRPCPath
+// if set, or the NA2A default /a2a/jsonrpc otherwise.
+func (c *TransportConfig) JSONRPCEndpoint() string {
+	path := c.JSONRPCPath
+	if path == "" {
+		path = "/a2a/jsonrpc"
+	}
+	return strings.TrimSuffix(c.URL, "/") + path
+}
+
+// StreamEndpoint returns the full streaming endpoint URL, using StreamPath
+// if set, or the NA2A default /a2a/stream otherwise.
+func (c *TransportConfig) StreamEndpoint() string {
+	path := c.StreamPath
+	if path == "" {
+		path = "/a2a/stream"
+	}
+	return strings.TrimSuffix(c.URL, "/") + path
 }
 
 // ResolveBearerToken resolves the bearer token from either AuthToken or

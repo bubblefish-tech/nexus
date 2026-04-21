@@ -109,6 +109,7 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 	// Client pool.
 	factory := client.NewFactory(d.logger)
 	pool := client.NewPool(factory, d.logger)
+	d.a2aPool = pool
 
 	// Audit sink adapter — use a fake for now; the bridge just needs a
 	// non-nil AuditSink to log events.
@@ -172,6 +173,8 @@ type agentTOML struct {
 		Kind string `toml:"kind"`
 		HTTP struct {
 			URL            string `toml:"url"`
+			JSONRPCPath    string `toml:"jsonrpc_path"`
+			StreamPath     string `toml:"stream_path"`
 			Auth           string `toml:"auth"`
 			BearerTokenEnv string `toml:"bearer_token_env"`
 		} `toml:"http"`
@@ -229,6 +232,8 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 		tc := transport.TransportConfig{
 			Kind:           raw.Transport.Kind,
 			URL:            raw.Transport.HTTP.URL,
+			JSONRPCPath:    raw.Transport.HTTP.JSONRPCPath,
+			StreamPath:     raw.Transport.HTTP.StreamPath,
 			AuthType:       raw.Transport.HTTP.Auth,
 			BearerTokenEnv: raw.Transport.HTTP.BearerTokenEnv,
 		}

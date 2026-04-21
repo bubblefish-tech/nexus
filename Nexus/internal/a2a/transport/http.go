@@ -56,9 +56,10 @@ func (t *HTTPTransport) Dial(ctx context.Context, config TransportConfig) (Conn,
 		timeout = time.Duration(config.TimeoutMs) * time.Millisecond
 	}
 	return &httpClientConn{
-		url:       strings.TrimSuffix(config.URL, "/"),
-		authType:  config.AuthType,
-		authToken: token,
+		jsonrpcEndpoint: config.JSONRPCEndpoint(),
+		streamEndpoint:  config.StreamEndpoint(),
+		authType:        config.AuthType,
+		authToken:       token,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -75,12 +76,13 @@ func (t *HTTPTransport) Listen(ctx context.Context, config TransportConfig) (Lis
 
 // httpClientConn is an HTTP-based client connection.
 type httpClientConn struct {
-	url       string
-	authType  string
-	authToken string
-	client    *http.Client
-	closeOnce sync.Once
-	closed    atomic.Bool
+	jsonrpcEndpoint string
+	streamEndpoint  string
+	authType        string
+	authToken       string
+	client          *http.Client
+	closeOnce       sync.Once
+	closed          atomic.Bool
 }
 
 // Send posts a JSON-RPC request over HTTP.
@@ -94,7 +96,7 @@ func (c *httpClientConn) Send(ctx context.Context, req *jsonrpc.Request) (*jsonr
 		return nil, fmt.Errorf("transport: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/a2a/jsonrpc", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.jsonrpcEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("transport: create request: %w", err)
 	}
@@ -130,7 +132,7 @@ func (c *httpClientConn) Stream(ctx context.Context, req *jsonrpc.Request) (<-ch
 		return nil, fmt.Errorf("transport: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/a2a/stream", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.streamEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("transport: create request: %w", err)
 	}

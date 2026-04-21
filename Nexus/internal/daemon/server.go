@@ -140,8 +140,10 @@ func (d *Daemon) buildRouter() http.Handler {
 		}
 
 		// Agent list — MT.5, gated on registryStore.
+		// Admin agent registration — POST /a2a/admin/register-agent.
 		if d.registryStore != nil {
 			r.Get("/api/control/agents", d.handleControlAgentList)
+			r.Post("/a2a/admin/register-agent", d.handleA2AAdminRegisterAgent)
 		}
 
 		// Quarantine API (DEF.2) — immune-scanner interceptions. Gated on
@@ -275,8 +277,10 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		}
 
 		// Agent list — MT.5, gated on registryStore.
+		// Admin agent registration — POST /a2a/admin/register-agent.
 		if d.registryStore != nil {
 			r.Get("/api/control/agents", d.handleControlAgentList)
+			r.Post("/a2a/admin/register-agent", d.handleA2AAdminRegisterAgent)
 		}
 
 		// Quarantine API (DEF.2) — BuildAdminRouter mirror.

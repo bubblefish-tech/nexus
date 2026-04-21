@@ -49,6 +49,7 @@ import (
 
 	"database/sql"
 
+	a2aclient "github.com/bubblefish-tech/nexus/internal/a2a/client"
 	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
 	a2aserver "github.com/bubblefish-tech/nexus/internal/a2a/server"
 	"github.com/bubblefish-tech/nexus/internal/actions"
@@ -190,6 +191,11 @@ type Daemon struct {
 	// Nil until setupA2ABridge succeeds. Provides agent/register when a
 	// registration token is configured.
 	a2aServer *a2aserver.Server
+
+	// a2aPool is the shared client connection pool for outbound A2A calls.
+	// Nil until setupA2ABridge succeeds. Used by the admin register endpoint
+	// to evict stale connections when a URL changes.
+	a2aPool *a2aclient.Pool
 
 	// registryStore holds the A2A agent registry (configDir/a2a/registry.db).
 	// Opened unconditionally early in Start(); owns the shared *sql.DB used
