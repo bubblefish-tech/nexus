@@ -1562,4 +1562,27 @@
 - Commit: 582a525
 - Files NOT touched (confirmed required): examples/blessed/openclaw/*, connect-openclaw-to-nexus*.ps1, web/dashboard/openclaw.html
 - Branch tip: 582a525 (feat/supernexusclaw)
-- Next: re-execute Linux SuperNexusClaw build plan from WSL2 ~/.openclaw/
+
+## SNC RE-EXECUTION (2026-04-21): SuperNexusClaw features re-built on Windows
+- All 4 features re-implemented on D:\bubblefish\nexus (feat/supernexusclaw)
+- SNC.1 — Markdown Diary Importer:
+  - SNC.1.1: markdown diary parser (internal/ingest/importer/markdown_diary.go + tests)
+  - SNC.1.2+1.3: wired into import command + summary with type breakdown
+- SNC.2 — nexus_subscribe:
+  - SNC.2.1: subscription store (internal/subscribe/store.go + tests)
+  - SNC.2.2: subscription matcher with cached filter embeddings (internal/subscribe/matcher.go + tests)
+  - SNC.2.3: write path integration (async goroutine, non-blocking)
+  - SNC.2.4: search boost for subscribed content
+  - SNC.2.5: MCP tools nexus_subscribe, nexus_unsubscribe, nexus_subscriptions
+  - SNC.2.6: audit chain integration
+- SNC.3 — Memory Health Metrics:
+  - SNC.3.1: memory health calculator (internal/health/memory_health.go + tests)
+  - SNC.3.2: nexus doctor --memory-health CLI
+  - SNC.3.3: GET /api/health/memory endpoint + dashboard panel
+- SNC.4 — Content Operations Preset:
+  - SNC.4.1: examples/presets/content-operations/ (README, daemon.toml snippet, cron, agent template)
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 92 packages PASS, 0 failures
+- Branch tip: 5aec276
