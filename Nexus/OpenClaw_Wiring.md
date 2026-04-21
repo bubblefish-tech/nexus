@@ -129,6 +129,24 @@ Then verify:
 2. On Windows: `curl -H "Authorization: Bearer <admin_token>" http://localhost:8081/api/a2a/agents` — OpenClaw should appear
 3. In OpenClaw, use `nexus_invoke` tool to test routing to another agent
 
+## 4. `extensions/bubblefish-nexus/A2A.md` — NEW boot context file
+
+Teaches OpenClaw's LLM how to use A2A tools. Explains when to use each tool,
+the flow of agent-to-agent communication, and how shared memory works.
+
+## 5. `workspace/TOOLS.md` — Updated BubbleFish Nexus section
+
+Replaced curl-based instructions with tool-based instructions. Added full A2A
+tool list with usage examples. Removed outdated curl commands.
+
+## 6. Auth fix: hardcoded ADMIN_KEY with fallback chain
+
+`pluginConfig.adminKey` → `process.env.NEXUS_ADMIN_KEY` → hardcoded fallback.
+OpenClaw's `openclaw.json` env section may not inject values as real `process.env`
+entries, so the plugin now has the admin key built in as last resort.
+
+---
+
 ## Known Startup Behaviors
 
 - **Repeated `register()` calls**: OpenClaw's plugin loader calls `register(api)` many
