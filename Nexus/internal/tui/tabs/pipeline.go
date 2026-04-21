@@ -143,6 +143,42 @@ func (t *PipelineTab) View(width, height int) string {
 		sections = append(sections, styles.MutedStyle.Render("Press 'b' for black-box mode"))
 	}
 
+	// Live stats.
+	sections = append(sections, "")
+	sections = append(sections, components.SectionTitle("Live Stats", width))
+	sections = append(sections, "")
+
+	if t.status != nil {
+		statLine := lipgloss.NewStyle().Foreground(styles.TextPrimary)
+		memMB := float64(t.status.MemoryResidentBytes) / (1024 * 1024)
+		uptimeH := t.status.UptimeSeconds / 3600
+		uptimeM := (t.status.UptimeSeconds % 3600) / 60
+
+		sections = append(sections, statLine.Render(fmt.Sprintf(
+			"  Memories: %d    Sources: %d    Queue: %d    WAL pending: %d",
+			t.status.MemoriesTotal, t.status.SourcesTotal,
+			t.status.QueueDepth, t.status.WAL.PendingEntries)))
+		sections = append(sections, statLine.Render(fmt.Sprintf(
+			"  Uptime: %dh%02dm    Goroutines: %d    RSS: %.1f MB    PID: %d",
+			uptimeH, uptimeM, t.status.Goroutines, memMB, t.status.PID)))
+
+		destStatus := "—"
+		for _, d := range t.status.Destinations {
+			health := "healthy"
+			if !d.Healthy {
+				health = "UNHEALTHY"
+			}
+			destStatus = fmt.Sprintf("%s (%s)", d.Name, health)
+		}
+		sections = append(sections, statLine.Render(fmt.Sprintf(
+			"  Destination: %s    WAL: %s    Integrity: %s",
+			destStatus,
+			walHealthLabel(t.status.WAL.Healthy),
+			t.status.WAL.IntegrityMode)))
+	} else {
+		sections = append(sections, styles.MutedStyle.Render("  Waiting for status data..."))
+	}
+
 	// Throughput gauges.
 	sections = append(sections, "")
 	sections = append(sections, components.SectionTitle("Throughput", width))
@@ -155,13 +191,17 @@ func (t *PipelineTab) View(width, height int) string {
 
 	queuePct := 0.0
 	consistency := 0.0
+	cacheRate := 0.0
 	if t.status != nil {
-		// Queue depth normalised to 0-1 (100 is full).
 		queuePct = float64(t.status.QueueDepth) / 100.0
 		if queuePct > 1.0 {
 			queuePct = 1.0
 		}
 		consistency = t.status.ConsistencyScore
+		if consistency < 0 {
+			consistency = 0
+		}
+		cacheRate = t.status.Cache.HitRate
 	}
 
 	sections = append(sections, components.InlineBar{
@@ -178,19 +218,21 @@ func (t *PipelineTab) View(width, height int) string {
 		Color: styles.ColorGreen,
 	}.View())
 
-	cacheRate := 0.0
-	cacheLabel := "Cache hit rate"
-	if t.status == nil {
-		cacheLabel = "Cache hit rate (no data)"
-	}
 	sections = append(sections, components.InlineBar{
-		Label: cacheLabel,
+		Label: "Cache hit rate",
 		Value: cacheRate,
 		Width: barWidth,
 		Color: styles.ColorTeal,
 	}.View())
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func walHealthLabel(healthy bool) string {
+	if healthy {
+		return "healthy"
+	}
+	return "UNHEALTHY"
 }
 
 // Compile-time interface check.

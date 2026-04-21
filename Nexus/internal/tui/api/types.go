@@ -22,10 +22,41 @@ import "time"
 
 // StatusResponse is the shape of GET /api/status.
 type StatusResponse struct {
-	Status           string  `json:"status"`
-	Version          string  `json:"version"`
-	QueueDepth       int     `json:"queue_depth"`
-	ConsistencyScore float64 `json:"consistency_score"`
+	Status             string             `json:"status"`
+	Version            string             `json:"version"`
+	QueueDepth         int                `json:"queue_depth"`
+	ConsistencyScore   float64            `json:"consistency_score"`
+	MemoriesTotal      int                `json:"memories_total"`
+	SourcesTotal       int                `json:"sources_total"`
+	UptimeSeconds      int                `json:"uptime_seconds"`
+	Goroutines         int                `json:"goroutines"`
+	MemoryResidentBytes int64             `json:"memory_resident_bytes"`
+	PID                int                `json:"pid"`
+	Bind               string             `json:"bind"`
+	WebPort            int                `json:"web_port"`
+	Cache              StatusCache        `json:"cache"`
+	WAL                StatusWAL          `json:"wal"`
+	Destinations       []StatusDest       `json:"destinations"`
+}
+
+type StatusCache struct {
+	HitRate      float64 `json:"hit_rate"`
+	ExactRate    float64 `json:"exact_rate"`
+	SemanticRate float64 `json:"semantic_rate"`
+}
+
+type StatusWAL struct {
+	Healthy              bool   `json:"healthy"`
+	CurrentSegment       string `json:"current_segment"`
+	IntegrityMode        string `json:"integrity_mode"`
+	PendingEntries       int    `json:"pending_entries"`
+	LastCheckpointSecsAgo int   `json:"last_checkpoint_seconds_ago"`
+}
+
+type StatusDest struct {
+	Name      string  `json:"name"`
+	Healthy   bool    `json:"healthy"`
+	LastError *string `json:"last_error"`
 }
 
 // HealthResponse is the shape of GET /health.
