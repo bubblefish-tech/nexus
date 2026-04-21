@@ -1586,3 +1586,32 @@
   - Vet: OK
   - 92 packages PASS, 0 failures
 - Branch tip: 5aec276
+
+## v0.1.3 FINAL EXIT GATE (2026-04-21)
+
+### Automated (CC verified):
+1.  [PASS] go test ./... -race -count=1 — 92 packages, 0 failures
+2.  [PASS] nexus install --dest sqlite --mode balanced --force — clean install, exit 0
+3.  [PASS] nexus doctor — HEALTHY (config, WAL, MCP all ok)
+4.  [PASS] nexus doctor --memory-health — continuity 100%, works standalone
+5.  [PASS] nexus backup create + verify — 4 files, all checksums valid
+6.  [PASS] go build ./cmd/nexus — binary builds clean
+7.  [PASS] /api/status returns version=0.1.3, queue_depth=0, destinations healthy
+8.  [PASS] /api/health/memory returns continuity=1.0
+9.  [PASS] MCP tools/list — 18 tools including nexus_subscribe/unsubscribe/subscriptions
+10. [PASS] Write → query round-trip — writes accepted, 200 records persisted in SQLite
+11. [PASS] Kill-9 → restart → zero data loss (200 records before = 200 after, WAL replay 0 pending)
+12. [PASS] Subscribe via MCP — subscription created with ULID, listed in nexus_subscriptions
+
+### Notes:
+- Semantic search unavailable (Ollama not running) — structured retrieval Stage 3 worked
+- Quarantine immune scanner did not trigger on test injection (may need tuned rules or specific payload patterns)
+- Text search returned 0 results due to no embeddings — empty-query retrieval confirmed 200+ records exist
+
+### Manual (Shawn's checklist):
+- [ ] TUI interactive test (nexus tui / nexus setup)
+- [ ] Orchestration with 2+ real agents
+- [ ] Discovery finds 3+ tools (nexus maintain status)
+- [ ] Encryption round-trip (NEXUS_PASSWORD)
+- [ ] Merge feat/supernexusclaw → main
+- [ ] Tag v0.1.3 + push
