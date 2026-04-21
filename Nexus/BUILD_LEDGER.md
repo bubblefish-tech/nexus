@@ -1304,3 +1304,23 @@
   - Build: OK
   - `internal/maintain` PASS (19/19 W3+W4 combined, -race -count=1)
   - `internal/maintain/configio` PASS (19/19)
+
+### W1: COMPLETE — Digital Twin Environment Model
+- New files: `internal/maintain/twin.go`, `twin_test.go`
+  - `ToolState`: Name, Status (running/stopped/unknown), DetectionMethod, Port, ProcessPID, ConfigPaths, ConfigState, Version, Health, DesiredState, Drift, LastUpdated
+  - `DriftEntry{Field, Actual, Desired}` — one deviation between actual and desired config
+  - `HealthState{Reachable, LatencyMs, LastCheck, ErrorCount}` — per-tool API liveness
+  - `NetworkTopology` — forward-reference placeholder; W7 fills in the real implementation
+  - `EnvironmentTwin`: RWMutex-protected map of ToolState; platform string; NexusMCPPort/NexusAPIPort for desired-state parameterisation
+  - `NewTwin()` — empty twin for current runtime.GOOS
+  - `Refresh(ctx, []discover.DiscoveredTool)`: upserts tools from discovery output; probes health via 2s HTTP GET; marks absent tools "unknown" (not deleted)
+  - `GetToolState(name)` — nil-safe lookup
+  - `AllTools()` — snapshot slice (safe for iteration outside lock)
+  - `DriftReport()` — aggregates drift across all tools
+  - `ComputeDesiredState(tool, desired)` — sets DesiredState and recomputes Drift via reflect.DeepEqual comparison
+  - `computeDrift(actual, desired)` — keys in desired missing or different in actual → DriftEntry; extra actual keys are ignored
+  - `SetTopology`/`Topology()` — topology slot for W7 wiring
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (32/32 W1+W3+W4 combined, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19)
