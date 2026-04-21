@@ -1530,6 +1530,12 @@
   on Nexus with source identity, satisfying governance auth check
 - `openclaw.toml`: added `stream_path = "/a2a"` to match `jsonrpc_path`
 - Exit gate: Build OK | Vet OK | daemon + a2a/* PASS (no race flag per user instruction)
-- Next: for OpenClaw→Nexus routing to work, OpenClaw must POST to
-  `http://127.0.0.1:8081/a2a/jsonrpc` with `X-Agent-ID: agt_01KP7MN6P9VXPH5GB1BBZ6Q4WF`
-  (its registered agent ID); no Nexus-side admin token required for `agent/invoke`
+- `poolAdapter` (e653a4f): wraps client.Pool + registry.Store → server.ClientPool interface;
+  wired via `WithClientPool` so `agent/invoke` dispatches to registered agents via the pool
+  (previously returned -32601 "no client pool configured")
+- OpenClaw-side fixes (WSL2 files, not in this repo):
+  - `openclaw.json`: added `NEXUS_ADMIN_KEY` (bfn_admin token) + `OPENCLAW_AGENT_ID`
+  - `a2a-receiver/index.js`: self-registration now uses `NEXUS_ADMIN_KEY` instead of
+    `A2A_SHARED_SECRET` for admin auth (fixes 401 — tokens were different)
+  - `bubblefish-nexus/index.js`: added `nexus_invoke` tool — routes tasks to other agents
+    through Nexus's `agent/invoke` JSON-RPC endpoint with `X-Agent-ID` header
