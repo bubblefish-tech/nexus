@@ -1237,6 +1237,10 @@ func (d *Daemon) Start() error {
 		)
 	}
 
+	if d.subscribeStore != nil && d.mcpServer != nil {
+		d.mcpServer.SetSubscribeStore(&subscribeStoreAdapter{store: d.subscribeStore})
+	}
+
 	// Wire the A2A bridge if enabled. Uses the already-opened registryStore.
 	if cfg.A2A.Enabled {
 		d.setupA2ABridge(cfg)

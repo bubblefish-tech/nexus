@@ -261,6 +261,36 @@ func toolList() []toolDef {
 				Required: []string{"agent_id"},
 			},
 		},
+		{
+			Name:        "nexus_subscribe",
+			Description: "Subscribe to memories matching a semantic filter. When new memories are written that match your filter, they will be boosted to the top of your search results.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]propDef{
+					"filter": {Type: "string", Description: "Natural language description of what to watch for (e.g. 'competitive intelligence', 'bug reports')."},
+				},
+				Required: []string{"filter"},
+			},
+		},
+		{
+			Name:        "nexus_unsubscribe",
+			Description: "Remove a subscription by ID.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]propDef{
+					"subscription_id": {Type: "string", Description: "Subscription ID to remove."},
+				},
+				Required: []string{"subscription_id"},
+			},
+		},
+		{
+			Name:        "nexus_subscriptions",
+			Description: "List your active subscriptions with match counts.",
+			InputSchema: inputSchema{
+				Type:       "object",
+				Properties: map[string]propDef{},
+			},
+		},
 	}
 }
 

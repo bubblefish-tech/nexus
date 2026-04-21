@@ -224,6 +224,8 @@ type Server struct {
 
 	tlsConfig *tls.Config // nil when TLS is disabled (default)
 
+	subscribeStore SubscribeStore
+
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
@@ -849,6 +851,12 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 		s.callNexusBroadcast(w, r, req, params.Arguments)
 	case "nexus_collect":
 		s.callNexusCollect(w, r, req, params.Arguments)
+	case "nexus_subscribe":
+		s.callNexusSubscribe(w, r, req, params.Arguments)
+	case "nexus_unsubscribe":
+		s.callNexusUnsubscribe(w, r, req, params.Arguments)
+	case "nexus_subscriptions":
+		s.callNexusSubscriptions(w, r, req)
 	default:
 		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
 	}
