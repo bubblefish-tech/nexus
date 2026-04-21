@@ -1605,7 +1605,11 @@
 
 ### Re-run with Ollama (nomic-embed-text):
 - [PASS] Semantic search: stage=semantic, 5 results via embedding similarity (was structured/0 without Ollama)
-- [SOFT] Quarantine: immune scanner did not trigger on test injection — rules may need tuning
+- [PASS] Quarantine: injection quarantined by T0-001 after rule tuning (commit 600a9c6)
+  - T0-001 expanded: handles 4-5 word injection phrases, added bypass/override verbs
+  - T0-013 added: jailbreak persona invocation (DAN, STAN, unrestricted AI)
+  - T0-014 added: system prompt exfiltration + command execution patterns
+  - Initial "soft fail" was due to wrong payload format (flat vs nested per source field mapping)
 - [PASS] Subscribe created via MCP, listed in nexus_subscriptions — match_count 0 (threshold 0.65 not met for test pair, plumbing works)
 
 ### Manual (Shawn's checklist):
