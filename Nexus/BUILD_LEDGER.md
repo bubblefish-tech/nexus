@@ -1603,10 +1603,10 @@
 11. [PASS] Kill-9 → restart → zero data loss (200 records before = 200 after, WAL replay 0 pending)
 12. [PASS] Subscribe via MCP — subscription created with ULID, listed in nexus_subscriptions
 
-### Notes:
-- Semantic search unavailable (Ollama not running) — structured retrieval Stage 3 worked
-- Quarantine immune scanner did not trigger on test injection (may need tuned rules or specific payload patterns)
-- Text search returned 0 results due to no embeddings — empty-query retrieval confirmed 200+ records exist
+### Re-run with Ollama (nomic-embed-text):
+- [PASS] Semantic search: stage=semantic, 5 results via embedding similarity (was structured/0 without Ollama)
+- [SOFT] Quarantine: immune scanner did not trigger on test injection — rules may need tuning
+- [PASS] Subscribe created via MCP, listed in nexus_subscriptions — match_count 0 (threshold 0.65 not met for test pair, plumbing works)
 
 ### Manual (Shawn's checklist):
 - [ ] TUI interactive test (nexus tui / nexus setup)
