@@ -41,7 +41,7 @@ import (
 //	                         [--api-key <key>]
 func runImport(args []string) {
 	fs := flag.NewFlagSet("nexus import", flag.ExitOnError)
-	format := fs.String("format", "auto", "export format: auto, claude-zip, chatgpt-zip, claude-code-dir, cursor-dir, jsonl")
+	format := fs.String("format", "auto", "export format: auto, claude-zip, chatgpt-zip, claude-code-dir, cursor-dir, jsonl, markdown-diary")
 	sourceName := fs.String("source-name", "", "custom source name (default: auto-detected)")
 	dryRun := fs.Bool("dry-run", false, "count memories without writing")
 	url := fs.String("url", "http://127.0.0.1:8080", "daemon base URL")
@@ -61,6 +61,7 @@ func runImport(args []string) {
 		fmt.Fprintln(os.Stderr, "  claude-code-dir  Claude Code project directory (*.jsonl)")
 		fmt.Fprintln(os.Stderr, "  cursor-dir       Cursor editor directory (chat-history/*.json)")
 		fmt.Fprintln(os.Stderr, "  jsonl            Generic JSONL file ({role, content, timestamp} per line)")
+		fmt.Fprintln(os.Stderr, "  markdown-diary   Directory of dated markdown files (YYYY-MM-DD.md)")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "coming in v0.1.4: Slack exports, Codex CLI, LM Studio, Open WebUI")
 		os.Exit(1)

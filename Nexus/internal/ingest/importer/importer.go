@@ -41,6 +41,7 @@ const (
 	FormatClaudeCodeDir Format = "claude-code-dir"
 	FormatCursorDir     Format = "cursor-dir"
 	FormatJSONL         Format = "jsonl"
+	FormatMarkdownDiary Format = "markdown-diary"
 )
 
 // Memory is a single memory extracted during import.
@@ -108,6 +109,8 @@ func Run(opts Options) (*Result, error) {
 		memories, err = parseCursorDir(opts.Path)
 	case FormatJSONL:
 		memories, err = parseGenericJSONL(opts.Path)
+	case FormatMarkdownDiary:
+		memories, err = parseMarkdownDiary(opts.Path, sourceName)
 	default:
 		return nil, fmt.Errorf("import: unsupported format %q", format)
 	}
@@ -153,6 +156,10 @@ func detectFormat(path string) (Format, error) {
 		if _, err := os.Stat(filepath.Join(path, "chat-history")); err == nil {
 			return FormatCursorDir, nil
 		}
+		// Check for dated markdown files (YYYY-MM-DD.md).
+		if dirContainsDatedMarkdown(path) {
+			return FormatMarkdownDiary, nil
+		}
 		// Check for Claude Code JSONL files.
 		matches, _ := filepath.Glob(filepath.Join(path, "**", "*.jsonl"))
 		if len(matches) == 0 {
@@ -161,7 +168,7 @@ func detectFormat(path string) (Format, error) {
 		if len(matches) > 0 {
 			return FormatClaudeCodeDir, nil
 		}
-		return "", fmt.Errorf("import: directory %s does not match any known format (no chat-history/ or *.jsonl found)", path)
+		return "", fmt.Errorf("import: directory %s does not match any known format (no chat-history/, dated .md, or *.jsonl found)", path)
 	}
 
 	ext := strings.ToLower(filepath.Ext(path))
@@ -216,6 +223,8 @@ func defaultSourceName(format Format) string {
 		return "import.cursor"
 	case FormatJSONL:
 		return "import.generic_jsonl"
+	case FormatMarkdownDiary:
+		return "import.markdown_diary"
 	default:
 		return "import.unknown"
 	}
@@ -528,6 +537,21 @@ func extractContent(v interface{}) string {
 		return strings.Join(parts, "\n")
 	}
 	return ""
+}
+
+func parseMarkdownDiary(path, sourceName string) ([]Memory, error) {
+	memories, _, err := parseMarkdownDiaryDir(path)
+	if err != nil {
+		return nil, err
+	}
+	for i := range memories {
+		if memories[i].Meta == nil {
+			memories[i].Meta = make(map[string]string)
+		}
+		memories[i].Meta["source"] = sourceName
+		memories[i].Source = sourceName
+	}
+	return memories, nil
 }
 
 // parseTS parses an ISO 8601 timestamp to Unix milliseconds.
