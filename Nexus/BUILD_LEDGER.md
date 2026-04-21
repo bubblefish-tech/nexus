@@ -1407,3 +1407,32 @@
   - `internal/maintain/configio` PASS (19/19, -race -count=1)
   - `internal/maintain/registry` PASS (19/19, -race -count=1)
   - `internal/maintain/topology` PASS (11/11, -race -count=1)
+
+### W11: COMPLETE — Coordinator + CLI + Daemon Hooks
+- New file: `internal/maintain/maintain.go` — `Maintainer` coordinator struct wiring all W1–W10 subsystems
+  - `Config{ConfigDir, ReconcileInterval, ScanInterval, LearnedStorePath}` — defaults: 60s reconcile, 30s scan, ~/.nexus/maintain/learned/fixes.json
+  - `Maintainer{cfg, twin, reg, reconciler, topRes, prober, learnStore, scanner, logger, mu, cancel, stopped, lastScan}`
+  - `New(cfg, logger)` — loads embedded registry, opens learned store, wires twin/reconciler/topology/prober/scanner
+  - `Start(ctx)` — runs initial scan synchronously, launches scanLoop + reconcileLoop goroutines; idempotent
+  - `Stop()` — cancels background loops
+  - `Scan(ctx)` — one-shot discovery + twin refresh + topology resolve
+  - `Reconcile(ctx)` — one convergence pass; records outcomes to learned store
+  - `FixTool(ctx, toolName)` — targeted single-tool convergence with learned-weighted issue selection
+  - `Status()` — point-in-time MaintainStatus snapshot for CLI display
+  - `Twin()`, `Registry()` — read-only accessors
+  - scanLoop, reconcileLoop — ticker-driven background goroutines
+- New file: `internal/maintain/maintain_test.go` — 10 tests
+  - TestNew_Defaults, TestNew_Twin, TestNew_Registry, TestStatus_EmptyAfterNew, TestScan_UpdatesLastScan, TestStart_Stop, TestStart_InitialScan, TestReconcile_ReturnsResults, TestFixTool_UnknownTool, TestStatus_Fields, TestStatus_LearnedCountReflectsReconcile
+- New file: `cmd/nexus/maintain.go` — CLI subcommand dispatcher
+  - `nexus maintain status` — scan + tabwriter tool table (NAME, STATUS, DRIFT, HEALTH, PROTOCOL)
+  - `nexus maintain fix <tool>` — targeted convergence attempt
+  - `nexus maintain watch` — live monitoring loop (Ctrl-C to stop); status summary every 10s
+  - `nexus maintain registry` — list all connectors + Merkle hash
+- `cmd/nexus/main.go` updated: added "maintain" to help text + switch case
+- `internal/daemon/daemon.go` updated: added `maintain.InitAllowedPaths()` + `maintain.RecoverIncomplete(ctx)` calls after discovery scanner init; added maintain import
+- Deadlock fix: `Start()` releases m.mu before calling `scan()` (scan acquires m.mu to update lastScan)
+- Exit gate:
+  - Build: OK (`go build ./...` clean)
+  - `internal/maintain` PASS (all tests, -race -count=1)
+  - All maintain sub-packages PASS
+  - `cmd/nexus` PASS
