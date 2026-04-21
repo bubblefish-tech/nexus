@@ -1384,6 +1384,16 @@
   - `internal/maintain/fingerprint` PASS (12/12, -race -count=1)
   - All other maintain packages PASS (total 118/118)
 
+### W10: COMPLETE — Adaptive Fix Learning (Immune Memory)
+- New package: `internal/maintain/learned/`
+  - `fixes.go`: `FixOutcome int` (OutcomeSuccess=0, OutcomeFailure=1); `FixMemory{ToolName, IssueID, Successes, Failures, LastSeen, LastResult}` — JSON-serialisable learned record; `FixMemory.Weight(now time.Time) float64` — decay-adjusted success rate: `(successes/total) × exp(−k × daysSinceLastSeen)` with k=ln(2)/7 (half-life 7 days), returns neutralWeight=0.5 for zero-observation records; `Store{mu sync.RWMutex, records map[string]*FixMemory, path string}` — thread-safe on-disk store; `NewStore(path)` — creates dirs, loads existing JSON (missing file = empty store); `Record(tool, issue, outcome)` — increments counter, updates LastSeen/LastResult, persists to disk after every call; `Weight(tool, issue)` — returns current decay-adjusted weight; `BestIssue(tool, candidates)` — returns candidate issue ID with highest weight (first candidate as tie-breaker when all weights equal); `All()` — snapshot sorted by tool then issue; `Save()` — explicit persist (checks write error); `Len()`; `persist()` — `json.MarshalIndent` + `os.WriteFile(0600)`; `load()` — on startup, reads and unmarshals JSON
+  - `fixes_test.go`: 15 tests — Record increases successes, Record increases failures, Record accumulates across calls, Weight no-history returns 0.5, Weight all-successes ≥ 0.9, Weight all-failures ≤ 0.1, FixMemory decay halves at 7 days (±5%), BestIssue prefers successful candidate, BestIssue no-history returns first, BestIssue empty returns "", Save+Load round-trip, PersistsAfterRecord (file exists on disk), All sorted (tool then issue), ConcurrentAccess (-race), Len
+- Decay invariants: neutralWeight=0.5 places unknown fixes between known-bad and known-good; half-life=7 days so knowledge 14 days stale has weight 25% of fresh; negative elapsed time clamped to 0
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/learned` PASS (15/15, -race -count=1)
+  - All maintain packages PASS (total 133/133, -race -count=1)
+
 ### W8: COMPLETE — Transparent AI API Proxy
 - New package: `internal/maintain/proxy/`
   - `whitelist.go`: `AllowList{mu sync.RWMutex, allowed map[string]struct{}}` — SSRF-safe allowlist; `NewAllowList(urls)`, `Add(rawURL)`, `IsAllowed(rawURL)`, `Snapshot()`; `normaliseKey()` extracts scheme+host and enforces loopback-only invariant (non-loopback URLs silently dropped — prevents use as SSRF vector); "localhost" hostname allowed alongside 127.x.x.x and ::1
