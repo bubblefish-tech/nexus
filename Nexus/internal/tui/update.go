@@ -66,11 +66,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(healthCheckCmd(m.client), tickCmd())
 		}
 		if m.paused {
-			return m, tickCmd()
+			return m, tea.Batch(healthCheckCmd(m.client), tickCmd())
 		}
 		tabCmd := m.tabs[m.activeTab].FireRefresh(m.client)
 		statusCmd := fetchStatusCache(m.client)
-		return m, tea.Batch(tabCmd, statusCmd, tickCmd())
+		return m, tea.Batch(tabCmd, statusCmd, healthCheckCmd(m.client), tickCmd())
 
 	case dotTickMsg:
 		m.dotFrame++
