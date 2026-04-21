@@ -95,19 +95,15 @@ func (t *PipelineTab) View(width, height int) string {
 		queueOK = "MISS"
 	}
 
+	const stageAreaH = 8
+	var stageContent string
 	if t.blackBox {
-		// Black-box mode: single summary panel.
-		sections = append(sections, "")
-		sections = append(sections, styles.MutedStyle.Render("[black-box mode]  6 stages collapsed"))
-		sections = append(sections, "")
-
 		status := "idle"
 		version := "-"
 		if t.status != nil {
 			status = t.status.Status
 			version = t.status.Version
 		}
-
 		card := components.StatCard{
 			Label:    "Pipeline Summary",
 			Value:    components.PillStatus(status),
@@ -115,11 +111,12 @@ func (t *PipelineTab) View(width, height int) string {
 			Color:    styles.ColorTeal,
 			Width:    width / 2,
 		}
-		sections = append(sections, card.View())
-		sections = append(sections, "")
-		sections = append(sections, styles.MutedStyle.Render("Press 'b' to expand stages"))
+		stageContent = lipgloss.JoinVertical(lipgloss.Left,
+			styles.MutedStyle.Render("[black-box mode]  6 stages collapsed"),
+			card.View(),
+			styles.MutedStyle.Render("Press 'b' to expand stages"),
+		)
 	} else {
-		// Full 6-stage cascade. Status derived from live daemon state.
 		stageStatus := "SKIP"
 		if t.status != nil {
 			stageStatus = "OK"
@@ -132,16 +129,15 @@ func (t *PipelineTab) View(width, height int) string {
 			{Number: 5, Name: "embedding", Status: queueOK, Latency: "—"},
 			{Number: 6, Name: "projection", Status: stageStatus, Latency: "—"},
 		}
-
-		flow := components.StageFlow{
-			Stages: stageList,
-			Width:  width,
-		}
-		sections = append(sections, "")
-		sections = append(sections, flow.View())
-		sections = append(sections, "")
-		sections = append(sections, styles.MutedStyle.Render("Press 'b' for black-box mode"))
+		flow := components.StageFlow{Stages: stageList, Width: width}
+		stageContent = lipgloss.JoinVertical(lipgloss.Left,
+			flow.View(),
+			styles.MutedStyle.Render("Press 'b' for black-box mode"),
+		)
 	}
+	sections = append(sections, "")
+	sections = append(sections, lipgloss.NewStyle().Height(stageAreaH).Width(width).Render(stageContent))
+	sections = append(sections, "")
 
 	// Live stats.
 	sections = append(sections, "")

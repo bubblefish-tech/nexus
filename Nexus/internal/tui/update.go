@@ -145,6 +145,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "shift+tab":
 			prev := (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
 			return m.switchTab(prev)
+		case "right":
+			next := (m.activeTab + 1) % len(m.tabs)
+			return m.switchTab(next)
+		case "left":
+			prev := (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
+			return m.switchTab(prev)
 		}
 	}
 

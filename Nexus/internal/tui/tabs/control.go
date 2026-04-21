@@ -114,12 +114,16 @@ func (t *ControlTab) View(width, height int) string {
 		daemonSubtitle = t.healthErr.Error()
 	}
 
+	memoriesValue := "—"
 	queueValue := "—"
-	consistencyValue := "—"
+	uptimeValue := "—"
 	versionValue := "—"
 	if t.status != nil {
+		memoriesValue = fmt.Sprintf("%d", t.status.MemoriesTotal)
 		queueValue = fmt.Sprintf("%d", t.status.QueueDepth)
-		consistencyValue = fmt.Sprintf("%.2f", t.status.ConsistencyScore)
+		h := t.status.UptimeSeconds / 3600
+		m := (t.status.UptimeSeconds % 3600) / 60
+		uptimeValue = fmt.Sprintf("%dh%02dm", h, m)
 		versionValue = t.status.Version
 	}
 
@@ -133,25 +137,25 @@ func (t *ControlTab) View(width, height int) string {
 		}.View(),
 		" ",
 		components.StatCard{
-			Label:    "Queue Depth",
-			Value:    queueValue,
-			Subtitle: "pending writes",
+			Label:    "Memories",
+			Value:    memoriesValue,
+			Subtitle: "total stored",
 			Color:    styles.ColorTeal,
 			Width:    cardWidth,
 		}.View(),
 		" ",
 		components.StatCard{
-			Label:    "Consistency",
-			Value:    consistencyValue,
-			Subtitle: "score",
+			Label:    "Queue",
+			Value:    queueValue,
+			Subtitle: "pending writes",
 			Color:    styles.ColorBlue,
 			Width:    cardWidth,
 		}.View(),
 		" ",
 		components.StatCard{
-			Label:    "Version",
-			Value:    versionValue,
-			Subtitle: "nexus nexus",
+			Label:    "Uptime",
+			Value:    uptimeValue,
+			Subtitle: versionValue,
 			Color:    styles.ColorPurple,
 			Width:    cardWidth,
 		}.View(),
