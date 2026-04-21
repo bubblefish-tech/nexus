@@ -1324,3 +1324,17 @@
   - Build: OK
   - `internal/maintain` PASS (32/32 W1+W3+W4 combined, -race -count=1)
   - `internal/maintain/configio` PASS (19/19)
+
+### W5: COMPLETE — Connector Registry with Merkle Sync
+- New package: `internal/maintain/registry/`
+  - `registry.go`: `RawStep{Action, Params}` (no import of parent maintain — avoids import cycle); `Connector`, `DetectionConfig`, `MCPConfigTemplate`, `RuntimeAPIConfig`, `HealthCheckConfig`, `KnownIssue` structs; `Registry` (sync.RWMutex-protected name→*Connector map + Merkle hash); `NewRegistry([]byte)`, `ConnectorFor`, `AllConnectors` (sorted), `RecipeFor(tool, issueID)`, `MCPDesiredState(tool)` (builds nested map from dot-path template), `Merge(other, expectedMerkle)` (Merkle-verified), `Len`, `recomputeMerkle` (SHA-256 over sorted names); `buildNestedMap` helper
+  - `embedded.go`: `//go:embed connectors.json` → `LoadEmbedded()`, `MustLoadEmbedded()` (panic variant for init)
+  - `verify.go`: `VerifyPayload(data, sig, expectedHash)` — Ed25519 verify then SHA-256 check; `VerifyHash(data, expectedHash)` — constant-time comparison via crypto/subtle; `ContentHash(data)` — hex SHA-256; `SetRegistryPublicKey(pub)` — allows test injection of keypair
+  - `sync.go`: `TrySyncRemote(ctx, SyncOptions)` — fetches manifest JSON (sha256 field), downloads connectors payload, verifies hash, parses registry; non-fatal on any failure (logs Warn, returns error); `LoadWithFallback(ctx, opts)` — tries remote, falls back to embedded on any error; 4 MiB body cap; 10s timeout
+  - `connectors.json` (30 connectors): Claude Desktop, Cursor, Windsurf, Cline, VS Code+Continue, ChatGPT Desktop, Codex CLI, Claude Code CLI, Aider, Continue (JetBrains), Zed, Goose, Amp, OpenCode; Ollama, LM Studio, LocalAI, Jan, GPT4All; vLLM, text-generation-inference, koboldcpp, Tabby; Open WebUI, AnythingLLM, LibreChat; Docker variants: ollama-docker, localai-docker, open-webui-docker, vllm-docker, tgi-docker
+- Import cycle resolution: `registry` defines its own `RawStep{Action string, Params map[string]any}` — zero imports of parent `maintain` package; convergence (W6) will do thin slice conversion `[]registry.RawStep → []maintain.Step` at call site
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
+  - `internal/maintain` PASS (32/32, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
