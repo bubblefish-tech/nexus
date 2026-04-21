@@ -1612,6 +1612,11 @@
   - Initial "soft fail" was due to wrong payload format (flat vs nested per source field mapping)
 - [PASS] Subscribe created via MCP, listed in nexus_subscriptions — match_count 0 (threshold 0.65 not met for test pair, plumbing works)
 
+### Additional automated checks:
+13. [PASS] Audit chain verify: signature_valid=true, chain_valid=true (daemon_known=false expected — key rotated since genesis)
+14. [PASS] Backup create (5 files + SQLite DB snapshot), verify (all checksums valid), restore (safety check works)
+15. [NOTE] internal/discover TestScanner_FullScan_Empty — pre-existing env-dependent failure (finds 1 tool on this machine where test expects 0). NOT a regression.
+
 ### Manual (Shawn's checklist):
 - [ ] TUI interactive test (nexus tui / nexus setup)
 - [ ] Orchestration with 2+ real agents
