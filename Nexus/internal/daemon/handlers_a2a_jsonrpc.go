@@ -18,11 +18,13 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 
 	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
+	a2aserver "github.com/bubblefish-tech/nexus/internal/a2a/server"
 )
 
 const a2aJSONRPCMaxBodyBytes = 1 << 20 // 1 MiB
@@ -65,7 +67,14 @@ func (d *Daemon) handleA2AJSONRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := d.a2aServer.Dispatch(r.Context(), &req)
+	// Inject X-Agent-ID header into context so agent/invoke and other methods
+	// that require a source identity can identify the calling agent.
+	ctx := r.Context()
+	if agentID := r.Header.Get("X-Agent-ID"); agentID != "" {
+		ctx = context.WithValue(ctx, a2aserver.CtxKeySourceAgent, agentID)
+	}
+
+	resp := d.a2aServer.Dispatch(ctx, &req)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)

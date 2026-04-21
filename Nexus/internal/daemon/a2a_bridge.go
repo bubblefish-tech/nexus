@@ -20,6 +20,8 @@ package daemon
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,6 +29,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/a2a"
 	"github.com/bubblefish-tech/nexus/internal/a2a/client"
 	"github.com/bubblefish-tech/nexus/internal/a2a/governance"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
 	"github.com/bubblefish-tech/nexus/internal/a2a/server"
 	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
@@ -181,6 +184,75 @@ type agentTOML struct {
 	} `toml:"transport"`
 }
 
+// tryAgentHandshake dials the agent, fetches its agent/card, and updates the
+// registry with the authoritative card data. This runs asynchronously after
+// each TOML load so startup is not blocked by slow or offline agents.
+// Any failure is logged and silently discarded — the TOML-configured data
+// remains the fallback.
+func (d *Daemon) tryAgentHandshake(agentID string, tc transport.TransportConfig, regStore *registry.Store) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	t, err := transport.Get(tc.Kind)
+	if err != nil {
+		d.logger.Warn("a2a handshake: unknown transport kind",
+			"agent_id", agentID, "kind", tc.Kind)
+		return
+	}
+
+	conn, err := t.Dial(ctx, tc)
+	if err != nil {
+		d.logger.Warn("a2a handshake: dial failed",
+			"agent_id", agentID, "error", err)
+		return
+	}
+	defer conn.Close()
+
+	req, err := jsonrpc.NewRequest(jsonrpc.StringID(fmt.Sprintf("card-%s", agentID)), "agent/card", nil)
+	if err != nil {
+		return
+	}
+
+	resp, err := conn.Send(ctx, req)
+	if err != nil {
+		d.logger.Warn("a2a handshake: agent/card failed",
+			"agent_id", agentID, "error", err)
+		return
+	}
+	if resp.Error != nil {
+		d.logger.Warn("a2a handshake: agent/card returned error",
+			"agent_id", agentID, "code", resp.Error.Code, "msg", resp.Error.Message)
+		return
+	}
+
+	var card a2a.AgentCard
+	if err := json.Unmarshal(resp.Result, &card); err != nil {
+		d.logger.Warn("a2a handshake: failed to decode agent card",
+			"agent_id", agentID, "error", err)
+		return
+	}
+
+	// Merge: use the name already in registry, update everything else.
+	existing, _ := regStore.Get(ctx, agentID)
+	displayName := card.Name
+	if existing != nil && existing.Name != "" {
+		displayName = existing.Name
+	}
+
+	if err := regStore.UpdateTransportAndCard(ctx, agentID, card, displayName, tc); err != nil {
+		d.logger.Warn("a2a handshake: registry update failed",
+			"agent_id", agentID, "error", err)
+		return
+	}
+
+	d.logger.Info("a2a handshake: agent card synced",
+		"agent_id", agentID,
+		"agent_name", card.Name,
+		"protocol_version", card.ProtocolVersion,
+		"methods", card.Methods,
+	)
+}
+
 // loadA2AAgents reads agent TOML files from <configDir>/a2a/agents/ and
 // upserts them into the registry. Errors for individual files are logged
 // and skipped — one bad TOML must not prevent other agents from loading.
@@ -256,6 +328,8 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 					"agent_id", existing.AgentID,
 					"url", tc.URL,
 				)
+				// Async handshake: fetch real card and update registry.
+				go d.tryAgentHandshake(existing.AgentID, tc, regStore)
 			}
 			continue
 		}
@@ -289,5 +363,7 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 			"agent_id", agentID,
 			"url", tc.URL,
 		)
+		// Async handshake: fetch real card and update registry.
+		go d.tryAgentHandshake(agentID, tc, regStore)
 	}
 }
