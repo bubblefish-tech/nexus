@@ -1374,6 +1374,16 @@
   - `internal/maintain/registry` PASS (19/19, -race -count=1)
   - `internal/maintain/topology` PASS (11/11, -race -count=1)
 
+### W9: COMPLETE — Behavioral Protocol Fingerprinting
+- New package: `internal/maintain/fingerprint/`
+  - `fingerprint.go`: `Protocol` type with 6 constants (openai_compat, ollama_native, tgi, koboldcpp, tabby, unknown); `Evidence{ProbeName, Path, StatusCode, LatencyMs, Matched}`; `Fingerprint{Endpoint, Protocol, Confirmed, Evidence}`; `Probe{Name, Path, Proto, Match func(status int, body []byte) bool}`; `Prober{client *http.Client, probes []Probe}`; `NewProber()` — default probes; `NewProberWithProbes(probes)` — custom probes for testing; `Fingerprint(ctx, baseURL)` — runs probes in priority order, first match wins, stops on ctx cancellation; `runProbe` — GET + 64 KiB body cap + latency measurement; `probeTimeout = 3s`, `maxBodyBytes = 64 KiB`
+  - `probes.go`: `defaultProbes()` — 6 probes in priority order (tool-specific before generic): ollama-tags (`/api/tags` → hasField("models")), tgi-info (`/info` → hasField("model_id") && hasField("max_total_tokens")), koboldcpp-info (`/api/v1/info` → result=="KoboldCpp"), tabby-health (`/v1/health` → hasField("device")), openai-models (`/v1/models` → hasField("data")), openai-completions-probe (`/v1/completions` 400 → hasField("error")/"detail" fallback); `hasField(body, field)` — JSON object field presence check via `map[string]json.RawMessage`
+  - `fingerprint_test.go`: 12 tests — OllamaNative, OpenAICompat, TGI, KoboldCpp, Tabby, Unknown (all-404 server), Evidence recorded, Ollama not misidentified as OpenAI (serves both endpoints, Ollama wins by probe ordering), CustomProbes, ContextCancelled (50ms ctx vs 300ms server sleep), String non-empty, OpenAICompat fallback probe (/v1/completions 400)
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/fingerprint` PASS (12/12, -race -count=1)
+  - All other maintain packages PASS (total 118/118)
+
 ### W8: COMPLETE — Transparent AI API Proxy
 - New package: `internal/maintain/proxy/`
   - `whitelist.go`: `AllowList{mu sync.RWMutex, allowed map[string]struct{}}` — SSRF-safe allowlist; `NewAllowList(urls)`, `Add(rawURL)`, `IsAllowed(rawURL)`, `Snapshot()`; `normaliseKey()` extracts scheme+host and enforces loopback-only invariant (non-loopback URLs silently dropped — prevents use as SSRF vector); "localhost" hostname allowed alongside 127.x.x.x and ::1
