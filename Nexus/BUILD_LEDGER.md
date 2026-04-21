@@ -1485,3 +1485,22 @@
 - `go vet ./...` — PASS
 - `go test ./internal/maintain/... -race -count=1` — ALL PASS (7 packages)
 - W1–W12 all committed on feat/maintain-module branch
+
+## WIRE.8: COMPLETE — POST /a2a/admin/register-agent + configurable transport path (0c26a39)
+- New file: `internal/daemon/handlers_a2a_admin.go`
+  - `handleA2AAdminRegisterAgent`: upserts agent into registry via admin bearer token
+  - Accepts `{name, url, card_url, methods, protocol_version, bearer_token_env}`
+  - New: evicts stale pool connection via `d.a2aPool.Close(agentID)` when URL changes
+  - 201 Created on new; 200 OK + `upserted:true` on re-register
+- Daemon struct: added `a2aPool *a2aclient.Pool` field; set in `setupA2ABridge`
+- Routes: `POST /a2a/admin/register-agent` in both `buildRouter()` and `BuildAdminRouter()`, inside `requireAdminToken` group, gated on `registryStore != nil`
+- Transport: added `JSONRPCPath`/`StreamPath` fields to `TransportConfig` with helper methods
+  `JSONRPCEndpoint()` / `StreamEndpoint()`; defaults to `/a2a/jsonrpc` / `/a2a/stream` when empty
+  (needed for OpenClaw which serves at `/a2a` not `/a2a/jsonrpc`)
+- `openclaw.toml` updated: `jsonrpc_path = "/a2a"` under `[transport.http]`
+- New file: `internal/daemon/handlers_a2a_admin_test.go` — 8 tests (success, upsert, no-token, bad-token,
+  missing-name, missing-url, id-prefix, no-registry) — all PASS with -race
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - Full test suite: PASS (zero failures)
