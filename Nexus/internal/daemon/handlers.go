@@ -845,6 +845,13 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 						"filter":          sub.Filter,
 						"memory_id":       payloadID,
 					})
+					d.emitAuditRecord(audit.InteractionRecord{
+						RecordID:      audit.NewRecordID(),
+						Timestamp:     time.Now(),
+						Source:        sub.AgentID,
+						OperationType: "subscription.matched",
+						PolicyDecision: "allowed",
+					})
 				}
 			}
 		}()
