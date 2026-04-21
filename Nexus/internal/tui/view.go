@@ -50,9 +50,6 @@ func (m Model) View() string {
 	sbStatus := "—"
 	sbVersion := "—"
 	sbQueue := 0
-	if !m.daemonUp {
-		sbStatus = "down"
-	}
 	if m.statusCache != nil {
 		sbStatus = m.statusCache.Status
 		sbVersion = m.statusCache.Version

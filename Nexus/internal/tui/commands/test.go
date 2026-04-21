@@ -19,6 +19,7 @@ package commands
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	tea "github.com/charmbracelet/bubbletea"
@@ -221,17 +222,26 @@ func runCategory(client *api.Client, categoryName string) tea.Cmd {
 }
 
 func executeCategory(client *api.Client, cat testCategory) TestResultMsg {
-	results := make([]TestCaseResult, 0, len(cat.tests))
+	results := make([]TestCaseResult, len(cat.tests))
+	var wg sync.WaitGroup
+	wg.Add(len(cat.tests))
+	for i, tc := range cat.tests {
+		go func(idx int, t testCase) {
+			defer wg.Done()
+			ok, errMsg := t.run(client)
+			results[idx] = TestCaseResult{
+				Name:   t.name,
+				Desc:   t.desc,
+				Passed: ok,
+				ErrMsg: errMsg,
+			}
+		}(i, tc)
+	}
+	wg.Wait()
+
 	passed, failed := 0, 0
-	for _, tc := range cat.tests {
-		ok, errMsg := tc.run(client)
-		results = append(results, TestCaseResult{
-			Name:   tc.name,
-			Desc:   tc.desc,
-			Passed: ok,
-			ErrMsg: errMsg,
-		})
-		if ok {
+	for _, r := range results {
+		if r.Passed {
 			passed++
 		} else {
 			failed++
