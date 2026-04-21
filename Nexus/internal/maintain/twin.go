@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/discover"
+	"github.com/bubblefish-tech/nexus/internal/maintain/topology"
 )
 
 // ToolState is the twin's complete model of one AI tool: identity, runtime
@@ -61,8 +62,9 @@ type HealthState struct {
 	ErrorCount int
 }
 
-// NetworkTopology is a forward-reference placeholder; W7 fills in the real type.
-type NetworkTopology struct{}
+// NetworkTopology is an alias for the real type defined in the topology sub-package.
+// Re-exported here so callers of the maintain package do not need to import topology directly.
+type NetworkTopology = topology.NetworkTopology
 
 // EnvironmentTwin is a continuously-synchronised in-memory model of every
 // discovered AI tool's state, health, and configuration drift.

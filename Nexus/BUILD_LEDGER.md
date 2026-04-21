@@ -1357,3 +1357,19 @@
   - `internal/maintain` PASS (42/42 W1+W3+W4+W6 combined, -race -count=1, 2.8s)
   - `internal/maintain/configio` PASS (19/19, -race -count=1)
   - `internal/maintain/registry` PASS (19/19, -race -count=1)
+
+### W7: COMPLETE — Network Topology Resolver
+- New package: `internal/maintain/topology/`
+  - `topology.go`: `NetworkTopology{Docker, WSL2, Proxy, Ports, ResolvedAt}` — point-in-time snapshot; `DockerTopology{Available, Networks}`, `DockerNetwork{Name, Driver, Subnet}`, `WSL2Topology{Available, BridgeIP, DistroNames}`, `ProxyConfig{HTTPProxy, HTTPSProxy, NoProxy}`, `PortState{Port, Reachable, LatencyMs}`; `Resolver{ProbePorts []int}`; `NewResolver()` — default probe-port list (10 AI tool ports); `Resolve(ctx)` — orchestrates all sub-probes; `String()` — one-line summary
+  - `docker.go`: `detectDocker(ctx)` — `exec.LookPath("docker")` → `docker network ls --format {{.Name}}\t{{.Driver}}`; returns `Available=false` on missing/unresponsive daemon (non-fatal)
+  - `wsl2.go`: `detectWSL2()` — `runtime.GOOS != "windows"` → false immediately; otherwise scans `net.Interfaces()` for WSL/vEthernet adapter, extracts IPv4 bridge IP; `listWSLDistros()` runs `wsl --list --quiet`, strips null bytes from UTF-16LE output
+  - `proxy.go`: `detectProxy()` — reads `HTTP_PROXY`/`http_proxy`, `HTTPS_PROXY`/`https_proxy`, `NO_PROXY`/`no_proxy`; upper-case wins when both set
+  - `firewall.go`: `probePort(ctx, port)` — 500ms TCP dial to `127.0.0.1:port`; records latency; cancelled ctx → Reachable=false
+  - `topology_test.go`: 11 tests — resolve returns non-nil, ResolvedAt recent, sub-components non-nil, port map populated, open/closed port detection, proxy env vars, proxy empty when unset, docker unavailability, String non-empty, context cancellation
+- `internal/maintain/twin.go` updated: removed placeholder `type NetworkTopology struct{}`; added `type NetworkTopology = topology.NetworkTopology` (type alias re-export — callers of the maintain package need not import topology directly); added `maintain/topology` import
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (42/42, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
+  - `internal/maintain/topology` PASS (11/11, -race -count=1)
