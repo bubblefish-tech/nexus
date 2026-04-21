@@ -1539,3 +1539,17 @@
     `A2A_SHARED_SECRET` for admin auth (fixes 401 — tokens were different)
   - `bubblefish-nexus/index.js`: added `nexus_invoke` tool — routes tasks to other agents
     through Nexus's `agent/invoke` JSON-RPC endpoint with `X-Agent-ID` header
+
+## WIRE.11: COMPLETE — Protocol-aware poolAdapter for agent/invoke (35cbec8)
+- Problem: `agent/invoke` (HTTP/Cloudflare path) was broken for OpenClaw because
+  `poolAdapter.SendMessage()` used `message/send` which OpenClaw doesn't support.
+  OpenClaw only speaks `tasks/send` + `tasks/get` polling. The MCP bridge path worked
+  because it had its own `sendViaTasksSend()` — but agent/invoke didn't.
+- Fix: `poolAdapter` now checks `agentUsesTasksSend(agent)` before dispatch:
+  - tasks/send agents: extracts text from message parts, calls tasks/send, polls
+    tasks/get at 1.5s intervals until completion or 120s timeout
+  - message/send agents: standard `c.SendMessage()` (unchanged)
+- This completes bidirectional A2A on BOTH paths:
+  - MCP path: Claude Desktop → MCP bridge → `sendViaTasksSend` (already worked)
+  - HTTP/Cloudflare path: `agent/invoke` → `poolAdapter.sendViaTasksSend` (now works)
+- Exit gate: Build OK | Vet OK | daemon PASS
