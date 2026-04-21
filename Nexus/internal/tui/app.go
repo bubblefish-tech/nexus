@@ -148,15 +148,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		// Slash command overlay consumes all keys.
+		// Slash command overlay consumes keys only.
 		if a.slashCmd.Active() {
 			if sel, ok := msg.(components.SlashCommandSelectedMsg); ok {
 				a.slashCmd, _ = a.slashCmd.Update(msg)
 				return a, a.dispatchCommand(sel.Name)
 			}
-			updated, cmd := a.slashCmd.Update(msg)
-			a.slashCmd = updated
-			return a, cmd
+			if _, ok := msg.(tea.KeyMsg); ok {
+				updated, cmd := a.slashCmd.Update(msg)
+				a.slashCmd = updated
+				return a, cmd
+			}
+			// Non-key messages (ticks, health checks) fall through to running model.
 		}
 
 		// Handle slash command result messages.
