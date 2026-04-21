@@ -1436,3 +1436,24 @@
   - `internal/maintain` PASS (all tests, -race -count=1)
   - All maintain sub-packages PASS
   - `cmd/nexus` PASS
+
+### W12: COMPLETE — Integration & Platform Tests
+- New file: `internal/maintain/integration_test.go` — 8 integration tests
+  - TestIntegration_EndToEnd_DetectDrift_ApplyFix: full flow (discover → drift → reconcile → fix → verify)
+  - TestIntegration_Rollback_ReadOnlyConfig: transaction failure → rollback restores original
+  - TestIntegration_LearnedFix_PrefersSuccessful: learned store influences BestIssue ordering
+  - TestIntegration_PathTraversal_Rejected: symlink/traversal outside allowlist → blocked
+  - TestIntegration_JSONC_CommentsPreserved: VS Code JSONC with comments → parse + modify + save valid JSON
+  - TestIntegration_ConcurrentReconcile: two tools with independent configs both fixed correctly
+  - TestIntegration_RegistryMerkleIntegrity: embedded registry loads deterministically
+  - TestIntegration_FixTool_EndToEnd: Maintainer.FixTool targeted convergence (no panic, exercises full path)
+- Exit gate:
+  - Build: OK (`go build ./...`)
+  - All 7 maintain packages PASS (-race -count=1)
+  - Total maintain test count: ~150+ (unit + integration across all sub-packages)
+
+### Module FINAL EXIT GATE
+- `go build ./...` — PASS
+- `go vet ./...` — PASS
+- `go test ./internal/maintain/... -race -count=1` — ALL PASS (7 packages)
+- W1–W12 all committed on feat/maintain-module branch
