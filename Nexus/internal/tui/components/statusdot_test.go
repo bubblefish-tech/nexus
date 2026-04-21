@@ -92,9 +92,10 @@ func TestDotStatusFromString(t *testing.T) {
 		{"unknown", DotOffline},
 	}
 	for _, tt := range tests {
-		got := DotStatusFromString(tt.input)
+		got := dotStatusFromString(tt.input)
 		if got != tt.want {
-			t.Errorf("DotStatusFromString(%q) = %d, want %d", tt.input, got, tt.want)
+			t.Errorf("dotStatusFromString(%q) = %d, want %d",
+				tt.input, got, tt.want)
 		}
 	}
 }

@@ -18,6 +18,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -28,22 +29,32 @@ import (
 
 // Client is an HTTP client for the Nexus admin API.
 type Client struct {
-	base  string
-	token string
-	http  *http.Client
+	base   string
+	token  string
+	http   *http.Client
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewClient creates a new admin API client.
 func NewClient(base, token string) *Client {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		base:  base,
-		token: token,
-		http:  &http.Client{Timeout: 5 * time.Second},
+		base:   base,
+		token:  token,
+		http:   &http.Client{Timeout: 5 * time.Second},
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
+// Close cancels all in-flight requests.
+func (c *Client) Close() {
+	c.cancel()
+}
+
 func (c *Client) get(path string, out any) error {
-	req, err := http.NewRequest(http.MethodGet, c.base+path, nil)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.base+path, nil)
 	if err != nil {
 		return err
 	}

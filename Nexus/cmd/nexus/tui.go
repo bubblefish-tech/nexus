@@ -44,7 +44,12 @@ func runTUI() {
 	}
 
 	addr := fmt.Sprintf("http://%s:%d", cfg.Daemon.Bind, cfg.Daemon.Port)
+	if cfg.Daemon.Bind != "127.0.0.1" && cfg.Daemon.Bind != "localhost" && !cfg.Daemon.TLS.Enabled {
+		slog.Warn("admin key will be sent over plain HTTP (TLS not enabled, bind is not loopback)",
+			"bind", cfg.Daemon.Bind)
+	}
 	client := api.NewClient(addr, string(cfg.ResolvedAdminKey))
+	defer client.Close()
 
 	tabList := []tabs.Tab{
 		tabs.NewControlTab(),

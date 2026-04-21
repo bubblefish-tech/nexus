@@ -68,7 +68,7 @@ func fakeTestServer(t *testing.T) *httptest.Server {
 
 func TestCategories_NotEmpty(t *testing.T) {
 	t.Helper()
-	cats := Categories()
+	cats := categories()
 	if len(cats) == 0 {
 		t.Fatal("expected at least one category")
 	}
@@ -76,7 +76,7 @@ func TestCategories_NotEmpty(t *testing.T) {
 
 func TestCategories_ContainsQuickHealth(t *testing.T) {
 	t.Helper()
-	for _, c := range Categories() {
+	for _, c := range categories() {
 		if c == "Quick Health" {
 			return
 		}
@@ -86,7 +86,7 @@ func TestCategories_ContainsQuickHealth(t *testing.T) {
 
 func TestCategories_ContainsFullSuite(t *testing.T) {
 	t.Helper()
-	for _, c := range Categories() {
+	for _, c := range categories() {
 		if c == "Full Suite" {
 			return
 		}
@@ -107,7 +107,7 @@ func TestRunCategory_QuickHealth_AllPass(t *testing.T) {
 	srv := fakeTestServer(t)
 	defer srv.Close()
 	client := api.NewClient(srv.URL, "token")
-	cmd := RunCategory(client, "Quick Health")
+	cmd := runCategory(client, "Quick Health")
 	msg := cmd()
 	result, ok := msg.(TestResultMsg)
 	if !ok {
@@ -129,7 +129,7 @@ func TestRunCategory_UnknownCategory(t *testing.T) {
 	srv := fakeTestServer(t)
 	defer srv.Close()
 	client := api.NewClient(srv.URL, "token")
-	cmd := RunCategory(client, "Nonexistent")
+	cmd := runCategory(client, "Nonexistent")
 	msg := cmd()
 	result, ok := msg.(TestResultMsg)
 	if !ok {
@@ -145,7 +145,7 @@ func TestRunCategory_Core_AllPass(t *testing.T) {
 	srv := fakeTestServer(t)
 	defer srv.Close()
 	client := api.NewClient(srv.URL, "token")
-	cmd := RunCategory(client, "Core")
+	cmd := runCategory(client, "Core")
 	msg := cmd()
 	result := msg.(TestResultMsg)
 	if result.Failed != 0 {
@@ -158,7 +158,7 @@ func TestRunCategory_FullSuite_HasTests(t *testing.T) {
 	srv := fakeTestServer(t)
 	defer srv.Close()
 	client := api.NewClient(srv.URL, "token")
-	cmd := RunCategory(client, "Full Suite")
+	cmd := runCategory(client, "Full Suite")
 	msg := cmd()
 	result := msg.(TestResultMsg)
 	if len(result.Results) == 0 {
@@ -171,7 +171,7 @@ func TestRunCategory_ResultFields(t *testing.T) {
 	srv := fakeTestServer(t)
 	defer srv.Close()
 	client := api.NewClient(srv.URL, "token")
-	cmd := RunCategory(client, "Quick Health")
+	cmd := runCategory(client, "Quick Health")
 	msg := cmd()
 	result := msg.(TestResultMsg)
 	for _, r := range result.Results {

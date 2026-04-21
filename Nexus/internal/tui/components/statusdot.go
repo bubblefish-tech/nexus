@@ -62,9 +62,7 @@ func (d StatusDot) View() string {
 	}
 }
 
-// DotStatusFromString converts the legacy string dot names ("green", "amber",
-// "red") to a DotStatus for use with StatusDot.
-func DotStatusFromString(s string) DotStatus {
+func dotStatusFromString(s string) DotStatus {
 	switch s {
 	case "green":
 		return DotOnline
@@ -74,3 +72,4 @@ func DotStatusFromString(s string) DotStatus {
 		return DotOffline
 	}
 }
+

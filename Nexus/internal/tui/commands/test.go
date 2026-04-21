@@ -179,8 +179,7 @@ func init() {
 	}
 }
 
-// Categories returns the list of available test category names.
-func Categories() []string {
+func categories() []string {
 	out := make([]string, len(testCategories))
 	for i, c := range testCategories {
 		out[i] = c.name
@@ -200,11 +199,6 @@ func (TestCommand) Description() string { return "Run test suite (select categor
 // selection is handled by the running view in TUI.5.
 func (TestCommand) Execute(client *api.Client) tea.Cmd {
 	return runCategory(client, "Quick Health")
-}
-
-// RunCategory executes all tests in the named category and returns a tea.Cmd.
-func RunCategory(client *api.Client, categoryName string) tea.Cmd {
-	return runCategory(client, categoryName)
 }
 
 func runCategory(client *api.Client, categoryName string) tea.Cmd {
