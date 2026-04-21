@@ -18,6 +18,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
@@ -70,12 +71,14 @@ var commandRegistry = map[string]commands.Command{
 // App is the top-level Bubble Tea model. It routes between the setup wizard
 // (modeSetup) and the running dashboard (modeRunning).
 type App struct {
-	mode     appMode
-	wizard   WizardModel
-	running  Model
-	slashCmd components.SlashCommandModel
-	client   *api.Client
-	width    int
+	mode       appMode
+	wizard     WizardModel
+	running    Model
+	slashCmd   components.SlashCommandModel
+	client     *api.Client
+	width      int
+	cmdResult  string // last slash-command result text
+	cmdResultT int    // frames remaining to show result
 }
 
 // NewSetupApp creates an App in modeSetup with all nine wizard pages.
@@ -100,10 +103,16 @@ func NewSetupApp(configDir string) App {
 }
 
 // NewRunningApp creates an App in modeRunning backed by the existing Model.
-func NewRunningApp(client *api.Client, tabList []tabs.Tab) App {
+func NewRunningApp(client *api.Client, tabList []tabs.Tab, prefs *TUIPrefs) App {
+	// Wire client into tabs that need it for manual queries.
+	for _, t := range tabList {
+		if tt, ok := t.(*tabs.TimeTravelTab); ok {
+			tt.SetClient(client)
+		}
+	}
 	return App{
 		mode:     modeRunning,
-		running:  NewModel(client, tabList, nil),
+		running:  NewModel(client, tabList, prefs),
 		slashCmd: components.NewSlashCommandModel(allSlashCommands()),
 		client:   client,
 	}
@@ -126,6 +135,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 	}
 
+	// Decrement command result display counter on ticks.
+	if _, ok := msg.(dotTickMsg); ok && a.cmdResultT > 0 {
+		a.cmdResultT--
+	}
+
 	// In running mode: route to slash command overlay when active.
 	if a.mode == modeRunning {
 		// Handle slash activation.
@@ -145,8 +159,59 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
-		// Handle slash command result messages to surface them — for now just
-		// forward to the running model which will ignore unknown messages.
+		// Handle slash command result messages.
+		switch m := msg.(type) {
+		case commands.DoctorResultMsg:
+			if m.Err != nil {
+				a.cmdResult = "doctor: " + m.Err.Error()
+			} else if m.Healthy {
+				a.cmdResult = "doctor: all checks HEALTHY"
+			} else {
+				a.cmdResult = "doctor: UNHEALTHY — run `nexus doctor` for details"
+			}
+			a.cmdResultT = 10
+			return a, nil
+		case commands.ConnectResultMsg:
+			if m.Err != nil {
+				a.cmdResult = "connect: " + m.Err.Error()
+			} else {
+				a.cmdResult = fmt.Sprintf("connect: %d agent(s) active", len(m.Agents))
+			}
+			a.cmdResultT = 10
+			return a, nil
+		case commands.LogsResultMsg:
+			if m.Err != nil {
+				a.cmdResult = "logs: " + m.Err.Error()
+			} else {
+				a.cmdResult = fmt.Sprintf("logs: %d recent records", len(m.Records))
+			}
+			a.cmdResultT = 10
+			return a, nil
+		case commands.TestResultMsg:
+			if m.Err != nil {
+				a.cmdResult = "test: " + m.Err.Error()
+			} else {
+				a.cmdResult = fmt.Sprintf("test [%s]: %d passed, %d failed", m.Category, m.Passed, m.Failed)
+			}
+			a.cmdResultT = 10
+			return a, nil
+		case commands.FeatureResultMsg:
+			if m.Err != nil {
+				a.cmdResult = "feature: " + m.Err.Error()
+			} else {
+				a.cmdResult = "feature: configuration updated"
+			}
+			a.cmdResultT = 10
+			return a, nil
+		case commands.UpdateResultMsg:
+			if m.Message != "" {
+				a.cmdResult = "update: " + m.Message
+			} else {
+				a.cmdResult = fmt.Sprintf("update: current version %s", m.CurrentVersion)
+			}
+			a.cmdResultT = 10
+			return a, nil
+		}
 	}
 
 	switch a.mode {
@@ -189,6 +254,11 @@ func (a App) View() string {
 		return a.wizard.View()
 	default:
 		base := a.running.View()
+		if a.cmdResult != "" && a.cmdResultT > 0 && !a.slashCmd.Active() {
+			base += "\n" + lipgloss.NewStyle().
+				Foreground(lipgloss.Color("10")).
+				Render("  "+a.cmdResult)
+		}
 		if !a.slashCmd.Active() {
 			return base
 		}

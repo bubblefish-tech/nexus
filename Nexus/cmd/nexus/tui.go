@@ -61,9 +61,9 @@ func runTUI() {
 		slog.Warn("failed to load tui prefs, using defaults", "err", err)
 	}
 
-	model := tui.NewModel(client, tabList, prefs)
+	app := tui.NewRunningApp(client, tabList, prefs)
 
-	p := tea.NewProgram(model,
+	p := tea.NewProgram(app,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
