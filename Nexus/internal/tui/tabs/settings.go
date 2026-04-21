@@ -77,16 +77,12 @@ func (t *SettingsTab) FireRefresh(client *api.Client) tea.Cmd {
 func (t *SettingsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
 	case settingsStatusMsg:
-		if msg.err != nil {
-			t.err = msg.err
-		}
+		t.err = msg.err
 		t.status = msg.data
 		return t, nil
 
 	case settingsConfigMsg:
-		if msg.err != nil {
-			t.err = msg.err
-		}
+		t.err = msg.err
 		t.config = msg.data
 		return t, nil
 

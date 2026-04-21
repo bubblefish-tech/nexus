@@ -69,7 +69,7 @@ func (t *ControlTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch m := msg.(type) {
 	case controlStatusMsg:
 		t.statusErr = m.err
-		if m.data != nil {
+		if m.err == nil && m.data != nil {
 			t.status = m.data
 		}
 	case controlHealthMsg:

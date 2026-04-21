@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/discover"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
@@ -59,12 +60,14 @@ func (p *ScanPage) Init(state *WizardState) tea.Cmd {
 	}
 	p.started = true
 	configDir := state.ConfigDir
-	return func() tea.Msg {
+	scanCmd := func() tea.Msg {
 		logger := slog.Default()
 		scanner := discover.NewScanner(configDir, logger)
 		tools, err := scanner.FullScan(context.Background())
 		return scanCompleteMsg{tools: tools, err: err}
 	}
+	tickCmd := tea.Tick(100*time.Millisecond, func(_ time.Time) tea.Msg { return scanTickMsg{} })
+	return tea.Batch(scanCmd, tickCmd)
 }
 
 func (p *ScanPage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
@@ -77,7 +80,7 @@ func (p *ScanPage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
 	case scanTickMsg:
 		p.frame = (p.frame + 1) % len(spinnerFrames)
 		if !state.ScanComplete {
-			return p, func() tea.Msg { return scanTickMsg{} }
+			return p, tea.Tick(100*time.Millisecond, func(_ time.Time) tea.Msg { return scanTickMsg{} })
 		}
 		return p, nil
 	}
