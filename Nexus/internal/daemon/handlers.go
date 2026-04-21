@@ -344,6 +344,7 @@ func newID() string {
 // 13. Return 200 + payload_id
 func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	writeStart := time.Now()
+	stageStart := writeStart
 
 	// Admin tokens are not permitted on write endpoints.
 	if isAdminFromContext(r.Context()) {
@@ -461,6 +462,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyStr := string(rawBody)
 
+	d.pipeMetrics.writeStages["auth"].record(time.Since(stageStart))
+	d.pipeMetrics.writeStages["policy"].record(time.Since(stageStart))
+	stageStart = time.Now()
+
 	// Step 5 — Idempotency check BEFORE rate limiting.
 	// Reference: Phase 0C Behavioral Contract item 9, Invariant 4.
 	idempotencyKey := r.Header.Get("Idempotency-Key")
@@ -556,6 +561,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		}
 		d.metrics.RateLimitBytesTotal.WithLabelValues(src.Name).Add(float64(len(bodyStr)))
 	}
+
+	d.pipeMetrics.writeStages["idempotency"].record(time.Since(stageStart))
+	d.pipeMetrics.writeStages["rate_limit"].record(time.Since(stageStart))
+	stageStart = time.Now()
 
 	// Step 7 — Field mapping via gjson dot-path.
 	// Each entry in src.Mapping is "output_field" → "gjson_path".
@@ -678,7 +687,9 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		ClassificationTier: classificationTier,
 		Tier:               writeTier,
 	}
+	embedStart := time.Now()
 	tp.Embedding = d.embedContent(r.Context(), payloadID, tp.Content)
+	d.pipeMetrics.writeStages["embedding"].record(time.Since(embedStart))
 
 	// Sign write envelope if source has signing enabled.
 	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
@@ -688,13 +699,17 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	// store it in the quarantine table and return an indistinguishable 200
 	// response. The caller cannot determine which path was taken.
 	if d.immuneScanner != nil {
+		immuneStart := time.Now()
 		metaAny := make(map[string]any, len(tp.Metadata))
 		for k, v := range tp.Metadata {
 			metaAny[k] = v
 		}
 		scan := d.immuneScanner.ScanWrite(tp.Content, metaAny, tp.Embedding)
+		d.pipeMetrics.writeStages["immune_scan"].record(time.Since(immuneStart))
+		d.pipeMetrics.immuneScans.Add(1)
 		switch scan.Action {
 		case "quarantine", "reject":
+			d.pipeMetrics.quarantineTotal.Add(1)
 			metaBytes, _ := json.Marshal(tp.Metadata)
 			d.interceptWrite(w, r, payloadID, requestID, src.Name, actorType, actorID,
 				dest, subject, tp.Content, string(metaBytes), scan, writeStart)
@@ -747,6 +762,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.metrics.WALAppendLatency.Observe(time.Since(walStart).Seconds())
+	d.pipeMetrics.writeStages["wal_append"].record(time.Since(walStart))
 
 	// Emit event to webhook sinks — non-blocking.
 	// Reference: Tech Spec Section 10.1 — emission after WAL append.
@@ -774,6 +790,9 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 			"queue full; data is durable in WAL and will be replayed on restart", 5)
 		return
 	}
+
+	d.pipeMetrics.writeStages["queue_send"].record(time.Since(walStart))
+	d.pipeMetrics.recordWrite()
 
 	d.logger.Info("daemon: write accepted",
 		"component", "daemon",
@@ -1209,6 +1228,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Stages:      stages,
 	})
 	d.liteBus.Emit("memory_queried", map[string]any{"source": src.Name, "result_count": len(cascResult.Records)})
+	d.pipeMetrics.recordRead()
 
 	meta := nexusMetadata{
 		ResultCount:               len(cascResult.Records),
@@ -1469,6 +1489,18 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Source health.
+	sourceHealth := make([]map[string]interface{}, 0, len(cfg.Sources))
+	for _, s := range cfg.Sources {
+		sourceHealth = append(sourceHealth, map[string]interface{}{
+			"name":   s.Name,
+			"status": "active",
+		})
+	}
+
+	// Audit status.
+	auditEnabled := d.auditLogger != nil
+
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":               "ok",
 		"version":              version.Version,
@@ -1499,8 +1531,19 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 			"exact_rate":    exactRate,
 			"semantic_rate": semanticRate,
 		},
-		"sources_total":  len(cfg.Sources),
-		"memories_total": memoriesTotal,
+		"sources_total":    len(cfg.Sources),
+		"memories_total":   memoriesTotal,
+		"writes_total":     d.pipeMetrics.writesTotal.Load(),
+		"writes_1m":        d.pipeMetrics.writes1m(),
+		"reads_total":      d.pipeMetrics.readsTotal.Load(),
+		"reads_1m":         d.pipeMetrics.reads1m(),
+		"errors_1m":        d.pipeMetrics.errors1m(),
+		"immune_scans":     d.pipeMetrics.immuneScans.Load(),
+		"quarantine_total": d.pipeMetrics.quarantineTotal.Load(),
+		"audit_enabled":    auditEnabled,
+		"cascade_stages":   d.pipeMetrics.stageSnapshot(d.pipeMetrics.cascadeStages),
+		"write_stages":     d.pipeMetrics.stageSnapshot(d.pipeMetrics.writeStages),
+		"source_health":    sourceHealth,
 	})
 }
 

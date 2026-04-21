@@ -306,6 +306,9 @@ type Daemon struct {
 	subscribeStore   *subscribe.Store
 	subscribeMatcher *subscribe.Matcher
 
+	// pipeMetrics tracks per-stage latency and throughput for the TUI dashboard.
+	pipeMetrics *pipelineMetrics
+
 	// discoveryScanner runs the 5-tier AI-tool discovery scan on demand for
 	// GET /api/discover/results. Nil until Start() resolves configDir.
 	discoveryScanner *discover.Scanner
@@ -333,14 +336,15 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	}
 	m := metrics.New()
 	d := &Daemon{
-		cfg:      cfg,
-		logger:   logger,
-		metrics:  m,
-		rl:       newRateLimiter(),
-		bytesRL:  newBytesRateLimiter(),
-		vizPipe:  vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
-		eventBus: eventbus.New(256),
-		liteBus:  events.NewLiteBus(512),
+		cfg:         cfg,
+		logger:      logger,
+		metrics:     m,
+		rl:          newRateLimiter(),
+		bytesRL:     newBytesRateLimiter(),
+		vizPipe:     vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
+		eventBus:    eventbus.New(256),
+		liteBus:     events.NewLiteBus(512),
+		pipeMetrics: newPipelineMetrics(),
 		stopped:     make(chan struct{}),
 		shutdownReq: make(chan struct{}),
 	}
