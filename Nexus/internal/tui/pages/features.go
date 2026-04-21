@@ -91,7 +91,7 @@ func (p *FeaturesPage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
 			if p.cursor < len(allFeatures)-1 {
 				p.cursor++
 			}
-		case " ":
+		case " ", "enter":
 			key := allFeatures[p.cursor].key
 			state.Features[key] = !state.Features[key]
 		}

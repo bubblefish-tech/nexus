@@ -137,7 +137,7 @@ func (w WizardModel) View() string {
 	content := lipgloss.NewStyle().Width(w.width).Height(contentH).
 		Render(pageContent)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	inner := lipgloss.JoinVertical(lipgloss.Center,
 		logo,
 		progressLine,
 		sep,
@@ -145,6 +145,8 @@ func (w WizardModel) View() string {
 		sep,
 		navHint,
 	)
+
+	return lipgloss.Place(w.width, w.height, lipgloss.Center, lipgloss.Center, inner)
 }
 
 // viewPage dispatches to ViewWithState if available, otherwise View.

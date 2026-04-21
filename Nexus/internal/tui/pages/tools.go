@@ -65,7 +65,7 @@ func (p *ToolsPage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
 			if len(tools) > 0 && p.cursor < len(tools)-1 {
 				p.cursor++
 			}
-		case " ":
+		case " ", "enter":
 			if p.cursor < len(tools) {
 				state.SelectedTools[p.cursor] = !state.SelectedTools[p.cursor]
 			}
