@@ -1809,13 +1809,14 @@ func (d *Daemon) walWatchdog(walDir string) {
 	defer ticker.Stop()
 
 	for {
+		if d.supervisor != nil {
+			d.supervisor.Beat("walwatchdog")
+		}
+
 		select {
 		case <-d.stopped:
 			return
 		case <-ticker.C:
-			if d.supervisor != nil {
-				d.supervisor.Beat("walwatchdog")
-			}
 			d.runWatchdogCheck(walDir)
 		}
 	}
