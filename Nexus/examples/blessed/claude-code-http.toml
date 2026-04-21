@@ -18,7 +18,7 @@ queue_size = 512
 drain_timeout_seconds = 30
 
 [daemon.wal]
-path               = ""  # defaults to ~/.bubblefish/Nexus/wal/
+path               = ""  # defaults to ~/.nexus/Nexus/wal/
 max_segment_size_mb = 10
 
 [daemon.wal.integrity]
