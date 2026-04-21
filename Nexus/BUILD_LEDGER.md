@@ -1237,7 +1237,24 @@
   - 92 packages PASS — zero failures (pre-existing flaky TestSoak_24h passed on this run)
 
 ## Current branch: v0.1.3-moat-takeover
-## Current subtask: NAMING complete. Final exit gate / v0.1.3 tag prep is next.
+## Current subtask: A2A bridge bugs fixed. Final exit gate / v0.1.3 tag prep is next.
+
+## A2A Bridge Bug Fixes: COMPLETE
+- Bug 1 (loadA2AAgents skip → upsert): Added Store.UpdateTransportAndCard to
+  internal/a2a/registry/store.go; loadA2AAgents now calls it when an agent already
+  exists by name so TOML changes (URL, methods, display_name) propagate to registry.db
+  on every restart. UpdateTransportAndCard handles both plaintext and AES-256-GCM
+  encrypted row paths identically to Register.
+- Bug 2 (HealthChecker never started): setupA2ABridge now instantiates
+  registry.NewHealthChecker and runs CheckAll every 30s in a goroutine;
+  goroutine exits on d.shutdownReq. agent status:active is now live liveness,
+  not a write-once lifecycle flag.
+- Commit: 38e8503
+
+## mcpb Cleanup: COMPLETE
+- Removed mcpb/ (Node.js MCP bridge artifact, superseded by mcpb-stdio)
+- Removed mcpb-studio/ (exact manifest duplicate of mcpb-stdio, zero functional delta)
+- Commit: d019e91
 
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
