@@ -71,6 +71,11 @@ var QuarantineHTML string
 //go:embed memgraph.html
 var MemgraphHTML string
 
+// MemHealthHTML is the memory health dashboard page.
+//
+//go:embed memhealth.html
+var MemHealthHTML string
+
 // LogoPNG is the BubbleFish logo used in the sidebar and witness HUD.
 //
 //go:embed assets/logo_metal.png

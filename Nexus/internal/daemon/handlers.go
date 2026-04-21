@@ -20,6 +20,7 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -40,6 +41,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/health"
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/demo"
 	"github.com/bubblefish-tech/nexus/internal/destination"
@@ -2476,6 +2478,20 @@ func (d *Daemon) handleProve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.writeJSON(w, http.StatusOK, att)
+}
+
+func (d *Daemon) handleMemoryHealth(w http.ResponseWriter, r *http.Request) {
+	var db *sql.DB
+	if d.registryStore != nil {
+		db = d.registryStore.DB()
+	}
+	h, err := health.CalculateMemoryHealth(db)
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+			"failed to calculate memory health: "+err.Error(), 0)
+		return
+	}
+	d.writeJSON(w, http.StatusOK, h)
 }
 
 func (d *Daemon) boostSubscribedResults(ctx context.Context, records []destination.TranslatedPayload, subs []*subscribe.Subscription) {

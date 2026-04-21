@@ -89,6 +89,7 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/policies", d.handleAdminPolicies)
 		r.Get("/api/config", d.handleAdminConfig)
 		r.Get("/api/lint", d.handleLint)
+		r.Get("/api/health/memory", d.handleMemoryHealth)
 		// Structured security events — admin only.
 		// Reference: Tech Spec Section 12, Phase R-17.
 		r.Get("/api/security/events", d.handleSecurityEvents)
@@ -204,6 +205,7 @@ func (d *Daemon) buildRouter() http.Handler {
 
 	// SHOW.2: memory graph dashboard — always registered.
 	r.Get("/dashboard/memgraph", d.handleDashboardMemgraph)
+	r.Get("/dashboard/memhealth", d.handleDashboardMemHealth)
 
 	// Review routes — require bfn_review_list_ or bfn_review_read_ tokens.
 	// Any other token class receives 401 wrong_token_class.

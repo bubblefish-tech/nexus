@@ -104,6 +104,10 @@ func (d *Daemon) handleDashboardQuarantine(w http.ResponseWriter, r *http.Reques
 	d.serveDashboardPage(w, r, dashboard.QuarantineHTML)
 }
 
+func (d *Daemon) handleDashboardMemHealth(w http.ResponseWriter, r *http.Request) {
+	d.serveDashboardPage(w, r, dashboard.MemHealthHTML)
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/control/agents
 // ---------------------------------------------------------------------------

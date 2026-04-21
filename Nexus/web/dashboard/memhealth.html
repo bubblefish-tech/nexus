@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Health — BubbleFish Nexus</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;background:#0d1117;color:#c9d1d9;padding:2rem}
+h1{color:#58a6ff;margin-bottom:1.5rem;font-size:1.4rem}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:1.5rem;margin-bottom:1rem}
+.score{font-size:3rem;font-weight:700;color:#3fb950}
+.score.warn{color:#d29922}
+.score.bad{color:#f85149}
+.label{color:#8b949e;font-size:0.85rem;margin-top:0.25rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1rem 0}
+.stat{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:1rem;text-align:center}
+.stat .num{font-size:1.8rem;font-weight:600;color:#c9d1d9}
+table{width:100%;border-collapse:collapse;margin-top:1rem}
+th,td{text-align:left;padding:0.5rem 1rem;border-bottom:1px solid #21262d}
+th{color:#8b949e;font-size:0.8rem;text-transform:uppercase}
+td{font-family:monospace}
+.back{color:#58a6ff;text-decoration:none;display:inline-block;margin-bottom:1rem}
+.back:hover{text-decoration:underline}
+#error{color:#f85149;display:none;margin:1rem 0}
+</style>
+</head>
+<body>
+<a class="back" href="/">&larr; Dashboard</a>
+<h1>Memory Health Report (last 7 days)</h1>
+<div id="error"></div>
+<div class="card" id="scoreCard">
+  <div class="score" id="score">--</div>
+  <div class="label">Continuity Score</div>
+  <div class="label" id="scoreDetail"></div>
+</div>
+<div class="stats">
+  <div class="stat"><div class="num" id="crashes">--</div><div class="label">Crash Recoveries</div></div>
+  <div class="stat"><div class="num" id="quarantine">--</div><div class="label">Quarantined (7d)</div></div>
+  <div class="stat"><div class="num" id="writers">--</div><div class="label">Writing Agents</div></div>
+  <div class="stat"><div class="num" id="readers">--</div><div class="label">Reading Agents</div></div>
+</div>
+<div class="card">
+  <h2 style="color:#58a6ff;font-size:1rem;margin-bottom:0.5rem">Agent Breakdown</h2>
+  <table>
+    <thead><tr><th>Agent</th><th>Writes</th><th>Reads</th><th>Last Active</th></tr></thead>
+    <tbody id="agentTable"><tr><td colspan="4" style="color:#8b949e">Loading...</td></tr></tbody>
+  </table>
+</div>
+<script>
+(function(){
+  const token = new URLSearchParams(location.search).get('token') || '';
+  fetch('/api/health/memory', {headers:{'Authorization':'Bearer '+token}})
+    .then(r=>{if(!r.ok)throw new Error(r.status);return r.json()})
+    .then(h=>{
+      const pct = (h.continuity_score*100).toFixed(1);
+      const el = document.getElementById('score');
+      el.textContent = pct+'%';
+      if(h.continuity_score<0.9)el.classList.add('bad');
+      else if(h.continuity_score<0.99)el.classList.add('warn');
+      document.getElementById('scoreDetail').textContent =
+        h.retrievable_count+'/'+h.total_memories_7d+' memories retrievable';
+      document.getElementById('crashes').textContent = h.crash_recoveries;
+      document.getElementById('quarantine').textContent = h.quarantine_count_7d;
+      const ca = h.cross_agent_coverage||{};
+      document.getElementById('writers').textContent = ca.writing_agents||0;
+      document.getElementById('readers').textContent = ca.reading_agents||0;
+      const tbody = document.getElementById('agentTable');
+      const agents = ca.agent_breakdown||[];
+      if(!agents.length){tbody.innerHTML='<tr><td colspan="4" style="color:#8b949e">No agent activity in last 7 days</td></tr>';return}
+      tbody.innerHTML = agents.map(a=>
+        '<tr><td>'+a.agent_id+'</td><td>'+a.writes+'</td><td>'+a.reads+'</td><td>'+a.last_active+'</td></tr>'
+      ).join('');
+    })
+    .catch(e=>{
+      const el=document.getElementById('error');
+      el.style.display='block';
+      el.textContent='Failed to load memory health: '+e.message;
+    });
+})();
+</script>
+</body>
+</html>
