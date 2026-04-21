@@ -27,8 +27,13 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
+	_ "modernc.org/sqlite"
+
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/doctor"
+	"github.com/bubblefish-tech/nexus/internal/health"
 )
 
 // runDoctor executes the `nexus doctor` command.
@@ -38,10 +43,13 @@ import (
 //
 // Reference: Tech Spec WIRE.5 / Section 6.4.
 func runDoctor() {
-	// Handle --fsync-test flag before loading config.
 	for _, arg := range os.Args[2:] {
 		if arg == "--fsync-test" {
 			runFsyncTest()
+			return
+		}
+		if arg == "--memory-health" {
+			runMemoryHealth()
 			return
 		}
 	}
@@ -280,4 +288,47 @@ func runFsyncTest() {
 		fmt.Fprintln(os.Stderr, "  This filesystem may silently lose data on power failure.")
 		os.Exit(1)
 	}
+}
+
+func runMemoryHealth() {
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nexus doctor --memory-health: %v\n", err)
+		os.Exit(1)
+	}
+
+	regPath := filepath.Join(configDir, "a2a", "registry.db")
+	db, err := sql.Open("sqlite", regPath+"?_pragma=busy_timeout%3d5000")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nexus doctor --memory-health: cannot open registry DB: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	h, err := health.CalculateMemoryHealth(db)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nexus doctor --memory-health: %v\n", err)
+		os.Exit(1)
+	}
+
+	pct := h.ContinuityScore * 100
+	fmt.Fprintf(os.Stderr, "\nMemory Health Report (last 7 days)\n")
+	fmt.Fprintf(os.Stderr, "══════════════════════════════════\n")
+	fmt.Fprintf(os.Stderr, "  Continuity Score:   %.1f%%  (%d/%d memories retrievable)\n",
+		pct, h.RetrievableCount, h.TotalMemories7d)
+	fmt.Fprintf(os.Stderr, "  Crash Recoveries:   %d\n", h.CrashRecoveries)
+	fmt.Fprintf(os.Stderr, "  Quarantined:        %d       (blocked before entering memory pool)\n",
+		h.QuarantineCount7d)
+	fmt.Fprintf(os.Stderr, "\n  Cross-Agent Coverage:\n")
+	fmt.Fprintf(os.Stderr, "    Writing agents:   %d\n", h.CrossAgentCoverage.WritingAgents)
+	fmt.Fprintf(os.Stderr, "    Reading agents:   %d\n", h.CrossAgentCoverage.ReadingAgents)
+
+	if len(h.CrossAgentCoverage.AgentBreakdown) > 0 {
+		fmt.Fprintf(os.Stderr, "\n    Agent Breakdown:\n")
+		for _, a := range h.CrossAgentCoverage.AgentBreakdown {
+			fmt.Fprintf(os.Stderr, "      %-22s %4d writes %4d reads   last active %s\n",
+				a.AgentID, a.Writes, a.Reads, a.LastActive)
+		}
+	}
+	fmt.Fprintln(os.Stderr)
 }
