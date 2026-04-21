@@ -79,6 +79,10 @@ type Config struct {
 	// Nil if not configured. NEVER log.
 	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
 	ResolvedReviewReadKey []byte
+
+	// ResolvedA2ARegToken is the resolved a2a.registration_token bytes.
+	// Nil when self-registration is disabled (empty or not configured). NEVER log.
+	ResolvedA2ARegToken []byte
 }
 
 // SourceByName returns the Source with the given name, or nil if not found.
@@ -155,7 +159,8 @@ type OAuthClientConfig struct {
 
 // A2AConfig models the top-level [a2a] section. Defaults to disabled.
 type A2AConfig struct {
-	Enabled bool `toml:"enabled"`
+	Enabled           bool   `toml:"enabled"`
+	RegistrationToken string `toml:"registration_token"` // env:/file:/literal; empty = self-registration disabled
 }
 
 // AuditConfig models [daemon.audit].

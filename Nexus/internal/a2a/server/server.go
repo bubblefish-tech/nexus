@@ -25,6 +25,8 @@ import (
 
 	"github.com/bubblefish-tech/nexus/internal/a2a"
 	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 )
 
 // contextKey is an unexported type used for context keys to avoid collisions.
@@ -90,6 +92,19 @@ type SkillExecutor interface {
 	Execute(ctx context.Context, skill string, input *a2a.DataPart, files []a2a.FilePart) (*a2a.DataPart, []a2a.FilePart, error)
 }
 
+// RegistrationStore is the registry.Store subset needed for agent self-registration.
+type RegistrationStore interface {
+	Register(ctx context.Context, agent registry.RegisteredAgent) error
+	GetByName(ctx context.Context, name string) (*registry.RegisteredAgent, error)
+	UpdateTransportAndCard(ctx context.Context, agentID string, card a2a.AgentCard,
+		displayName string, tc transport.TransportConfig) error
+}
+
+// AgentPinger verifies an agent is reachable at its declared URL.
+type AgentPinger interface {
+	Check(ctx context.Context, agent registry.RegisteredAgent) error
+}
+
 // AuditSink records audit events.
 type AuditSink interface {
 	LogTaskEvent(ctx context.Context, taskID string, eventType string, data interface{}) error
@@ -124,6 +139,12 @@ type Server struct {
 	// pushConfigs stores push notification configs keyed by taskID.
 	// In production this would be in the task store; here it is in-memory.
 	pushConfigs map[string]PushNotificationConfig
+
+	// Self-registration dependencies. All three must be non-nil/non-empty for
+	// agent/register to be enabled; any missing value disables the method.
+	registrationStore RegistrationStore
+	registrationToken string
+	agentPinger       AgentPinger
 }
 
 // ServerOption configures a Server.
@@ -164,6 +185,22 @@ func WithLogger(l *slog.Logger) ServerOption {
 	return func(s *Server) { s.logger = l }
 }
 
+// WithRegistrationStore sets the registry store for agent self-registration.
+func WithRegistrationStore(rs RegistrationStore) ServerOption {
+	return func(s *Server) { s.registrationStore = rs }
+}
+
+// WithRegistrationToken sets the registration token required for agent/register.
+// Empty string disables the method.
+func WithRegistrationToken(token string) ServerOption {
+	return func(s *Server) { s.registrationToken = token }
+}
+
+// WithAgentPinger sets the pinger used to verify agents before registration.
+func WithAgentPinger(p AgentPinger) ServerOption {
+	return func(s *Server) { s.agentPinger = p }
+}
+
 // NewServer creates a new NA2A Server with the given agent card and options.
 func NewServer(card a2a.AgentCard, opts ...ServerOption) *Server {
 	s := &Server{
@@ -190,6 +227,7 @@ func NewServer(card a2a.AgentCard, opts ...ServerOption) *Server {
 	s.router.RegisterFunc("agent/card", jsonrpc.HandlerFunc(s.handleAgentCard))
 	s.router.RegisterFunc("agent/ping", jsonrpc.HandlerFunc(s.handleAgentPing))
 	s.router.RegisterFunc("agent/invoke", jsonrpc.HandlerFunc(s.handleAgentInvoke))
+	s.router.RegisterFunc("agent/register", jsonrpc.HandlerFunc(s.handleAgentRegister))
 
 	s.router.RegisterFunc("governance/grants/list", jsonrpc.HandlerFunc(s.handleGovernanceGrantsList))
 	s.router.RegisterFunc("governance/grants/create", jsonrpc.HandlerFunc(s.handleGovernanceGrantsCreate))

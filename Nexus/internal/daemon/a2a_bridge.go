@@ -135,6 +135,19 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 		}
 	}()
 
+	// Construct the NA2A JSON-RPC server for inbound requests (agent/register).
+	var regToken string
+	if len(cfg.ResolvedA2ARegToken) > 0 {
+		regToken = string(cfg.ResolvedA2ARegToken)
+	}
+	a2aCard := a2a.AgentCard{Name: "nexus", ProtocolVersion: "0.1.0"}
+	d.a2aServer = server.NewServer(a2aCard,
+		server.WithRegistrationStore(regStore),
+		server.WithAgentPinger(hc),
+		server.WithRegistrationToken(regToken),
+		server.WithLogger(d.logger),
+	)
+
 	// Count registered agents for the log message.
 	agents, _ := regStore.List(context.Background(), registry.ListFilter{})
 	agentCount := 0
@@ -209,7 +222,7 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 
 		agentID := raw.Agent.AgentID
 		if agentID == "" {
-			agentID = "agt_" + a2a.NewTaskID()[4:] // generate if not set
+			agentID = a2a.NewAgentID()
 		}
 
 		// Build transport config.

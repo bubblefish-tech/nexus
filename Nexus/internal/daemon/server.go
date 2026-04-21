@@ -170,6 +170,13 @@ func (d *Daemon) buildRouter() http.Handler {
 		).ServeHTTP)
 	})
 
+	// NA2A JSON-RPC endpoint — no daemon-level auth; methods authenticate
+	// individually (e.g. agent/register uses registration_token param).
+	// Gated on a2aServer so the route only appears when A2A is enabled.
+	if d.a2aServer != nil {
+		r.Post("/a2a/jsonrpc", d.handleA2AJSONRPC)
+	}
+
 	// SSE endpoints — accept admin token from Authorization header OR ?token=
 	// query param (EventSource cannot send custom headers).
 	// Reference: dashboard-contract.md Authentication section.
@@ -292,6 +299,12 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 			promhttp.HandlerOpts{EnableOpenMetrics: false},
 		).ServeHTTP)
 	})
+
+	// NA2A JSON-RPC endpoint — no daemon-level auth; methods authenticate
+	// individually. Mirrored here so the admin router also accepts agent calls.
+	if d.a2aServer != nil {
+		r.Post("/a2a/jsonrpc", d.handleA2AJSONRPC)
+	}
 
 	// SSE with query-param auth.
 	r.Get("/api/viz/events", d.handleVizEventsWithQueryAuth)

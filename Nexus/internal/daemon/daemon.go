@@ -50,6 +50,7 @@ import (
 	"database/sql"
 
 	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	a2aserver "github.com/bubblefish-tech/nexus/internal/a2a/server"
 	"github.com/bubblefish-tech/nexus/internal/actions"
 	"github.com/bubblefish-tech/nexus/internal/agent"
 	"github.com/bubblefish-tech/nexus/internal/approvals"
@@ -184,6 +185,11 @@ type Daemon struct {
 
 	// startedAt records when Start() was called, for uptime calculation.
 	startedAt time.Time
+
+	// a2aServer is the NA2A JSON-RPC server exposed on POST /a2a/jsonrpc.
+	// Nil until setupA2ABridge succeeds. Provides agent/register when a
+	// registration token is configured.
+	a2aServer *a2aserver.Server
 
 	// registryStore holds the A2A agent registry (configDir/a2a/registry.db).
 	// Opened unconditionally early in Start(); owns the shared *sql.DB used

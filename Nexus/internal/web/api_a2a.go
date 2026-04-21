@@ -175,9 +175,7 @@ func (d *A2ADashboard) handleAgentsCreate(w http.ResponseWriter, r *http.Request
 		req.Transport = "http"
 	}
 
-	agentID := a2a.NewTaskID() // reuse ULID generator; prefix doesn't matter for registry IDs
-	// Use a simple agent ID format.
-	agentID = "agent_" + agentID[4:] // strip tsk_ prefix, add agent_
+	agentID := a2a.NewAgentID()
 
 	agent := registry.RegisteredAgent{
 		AgentID:     agentID,

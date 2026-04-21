@@ -423,6 +423,17 @@ func resolveAndValidate(cfg *Config, configDir string, logger *slog.Logger) erro
 		}
 	}
 
+	// Resolve A2A registration token if configured.
+	if cfg.A2A.Enabled && cfg.A2A.RegistrationToken != "" {
+		regToken, err := ResolveEnv(cfg.A2A.RegistrationToken, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: a2a.registration_token: %w", err)
+		}
+		if regToken != "" {
+			cfg.ResolvedA2ARegToken = []byte(regToken)
+		}
+	}
+
 	// Resolve review tokens if configured.
 	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
 	if cfg.Daemon.Review.ListToken != "" {
