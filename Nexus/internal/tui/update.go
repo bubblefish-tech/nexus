@@ -44,11 +44,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastErr = msg.err
 			return m, nil
 		}
+		wasDown := !m.daemonUp
 		m.daemonUp = true
 		m.lastErr = nil
-		// Lazy-init the first tab on connection.
 		if !m.tabInited[m.activeTab] {
 			m.tabInited[m.activeTab] = true
+			tabCmd := m.tabs[m.activeTab].FireRefresh(m.client)
+			statusCmd := fetchStatusCache(m.client)
+			return m, tea.Batch(tabCmd, statusCmd)
+		}
+		// Daemon just came back — refresh immediately instead of waiting for next tick.
+		if wasDown {
+			m.retryCount = 0
 			tabCmd := m.tabs[m.activeTab].FireRefresh(m.client)
 			statusCmd := fetchStatusCache(m.client)
 			return m, tea.Batch(tabCmd, statusCmd)
@@ -111,11 +118,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.retryCount++
 			return m, healthCheckCmd(m.client)
 		}
-		if m.daemonUp {
-			cmd := m.tabs[m.activeTab].FireRefresh(m.client)
-			return m, cmd
-		}
-		return m, nil
+		cmd := m.tabs[m.activeTab].FireRefresh(m.client)
+		return m, cmd
 	}
 
 	// Tab switching — only when help is not showing.
@@ -165,10 +169,10 @@ func (m Model) switchTab(idx int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.activeTab = idx
-	if !m.tabInited[idx] && m.daemonUp {
-		m.tabInited[idx] = true
-		cmd := m.tabs[idx].FireRefresh(m.client)
-		return m, cmd
+	if !m.daemonUp {
+		return m, nil
 	}
-	return m, nil
+	m.tabInited[idx] = true
+	cmd := m.tabs[idx].FireRefresh(m.client)
+	return m, cmd
 }
