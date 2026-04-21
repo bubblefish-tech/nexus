@@ -1373,3 +1373,17 @@
   - `internal/maintain/configio` PASS (19/19, -race -count=1)
   - `internal/maintain/registry` PASS (19/19, -race -count=1)
   - `internal/maintain/topology` PASS (11/11, -race -count=1)
+
+### W8: COMPLETE — Transparent AI API Proxy
+- New package: `internal/maintain/proxy/`
+  - `whitelist.go`: `AllowList{mu sync.RWMutex, allowed map[string]struct{}}` — SSRF-safe allowlist; `NewAllowList(urls)`, `Add(rawURL)`, `IsAllowed(rawURL)`, `Snapshot()`; `normaliseKey()` extracts scheme+host and enforces loopback-only invariant (non-loopback URLs silently dropped — prevents use as SSRF vector); "localhost" hostname allowed alongside 127.x.x.x and ::1
+  - `intercept.go`: `Interceptor` interface (`InterceptRequest(*http.Request) error`, `InterceptResponse(*http.Response) error`); `HeaderInterceptor` — stamps `X-Nexus-Proxy: 1` and `X-Nexus-Version: {version}` on every outbound request and response; `MemoryInterceptor{ContextFn func}` — stub that sets `X-Nexus-Memory-Context: stub` header (real memory injection wired in W10+ when memory sub-system is available); `ContextFn` field allows injection for testing
+  - `transparent.go`: `Config{ListenAddr string}`; `Proxy{mu, config, routes map[string]*url.URL, allowList, interceptors, server}`; `NewProxy(cfg)` — creates proxy with HeaderInterceptor pre-loaded; `AddRoute(toolName, rawBaseURL)` — validates loopback, adds to routes + allowlist; `AddInterceptor(ic)`; `Start(ctx)` — binds listener, shuts down cleanly on ctx cancel; `ServeHTTP` — URL scheme `/proxy/{tool-name}/{path}`: parses tool name, looks up route, validates allowlist (403 on fail), builds target URL with query passthrough, runs interceptor chain in Director + ModifyResponse, uses `httputil.ReverseProxy` for streaming-safe forwarding; `parsePath`, `buildTargetURL`, `isLoopback` helpers
+  - `proxy_test.go`: 15 tests — allowlist permits loopback IP, permits localhost, blocks external IP, blocks unregistered loopback, snapshot; proxy 404 unknown tool, 400 bad path, forwards to upstream (path verified), injects Nexus headers, response body passthrough, streaming/SSE chunked response, query string forwarded, memory interceptor header injection, AddRoute rejects non-loopback, Start/Stop lifecycle
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/proxy` PASS (15/15, -race -count=1)
+  - `internal/maintain` PASS (42/42, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
+  - `internal/maintain/topology` PASS (11/11, -race -count=1)
