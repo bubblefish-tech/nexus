@@ -368,9 +368,15 @@ func actionWaitForPort(ctx context.Context, params map[string]any) (any, error) 
 	if err != nil {
 		return nil, err
 	}
+	timeoutSec := 30
+	if v, ok := params["timeout_seconds"]; ok {
+		if n, ok := toInt(v); ok && n > 0 {
+			timeoutSec = n
+		}
+	}
 	url := fmt.Sprintf("http://localhost:%d/", port)
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url)
 		if err == nil {
@@ -478,13 +484,21 @@ func intParam(params map[string]any, key string) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("maintain: missing required param %q", key)
 	}
-	switch n := v.(type) {
-	case int:
+	if n, ok := toInt(v); ok {
 		return n, nil
-	case int64:
-		return int(n), nil
-	case float64:
-		return int(n), nil
 	}
 	return 0, fmt.Errorf("maintain: param %q must be numeric, got %T", key, v)
+}
+
+// toInt converts numeric types (int, int64, float64) to int.
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	}
+	return 0, false
 }

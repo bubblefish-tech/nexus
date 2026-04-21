@@ -1338,3 +1338,22 @@
   - `internal/maintain/registry` PASS (19/19, -race -count=1)
   - `internal/maintain` PASS (32/32, -race -count=1)
   - `internal/maintain/configio` PASS (19/19, -race -count=1)
+
+### W6: COMPLETE — Convergence Reconciliation Loop
+- New files: `internal/maintain/convergence.go`, `convergence_test.go`
+  - `ReconcileResult{Tool, IssueID, Steps, Err, Skipped}` — per-tool outcome of one reconcile pass
+  - `Reconciler{twin *EnvironmentTwin, registry *registry.Registry}` — Kubernetes-style declarative control loop
+  - `NewReconciler(twin, reg)` — wires reconciler to twin + registry
+  - `Reconcile(ctx)` — single convergence pass: for each tracked tool, refreshes desired state from registry MCP template, selects matching known issue, converts `[]registry.RawStep → []maintain.Step` with template substitution, builds + executes Transaction; sequential (one tool at a time)
+  - `Run(ctx, interval)` — continuous loop; logs per-tool errors but never stops; exits cleanly on ctx cancel
+  - `selectIssue(ts, conn)` — priority-ordered issue selection: liveness issues (recipe contains restart_process or wait_for_port) matched when tool is stopped/unknown; config issues matched when drift present; returns "" when no applicable issue
+  - `issueKind(ki)` — classifies issue recipe as "liveness" or "config" by inspecting action types
+  - `convertSteps(raw, ts, conn)` — thin adapter: `[]registry.RawStep → []Step` (ActionType cast + template substitution); no import cycle
+  - `templateVars(ts, conn)` — builds substitution map: `{{tool_name}}`, `{{config_path}}` (first ConfigPaths entry), `{{endpoint}}`
+  - `substituteParams(params, vars)` — shallow copy of params map with string values substituted; non-string values pass through unchanged
+  - `actionWaitForPort` updated: reads optional `timeout_seconds` param (default 30) via new `toInt(v any)` helper; test uses `timeout_seconds:1` to avoid 30s poll
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (42/42 W1+W3+W4+W6 combined, -race -count=1, 2.8s)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
