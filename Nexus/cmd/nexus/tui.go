@@ -43,8 +43,12 @@ func runTUI() {
 		os.Exit(1)
 	}
 
-	addr := fmt.Sprintf("http://%s:%d", cfg.Daemon.Bind, cfg.Daemon.Port)
-	if cfg.Daemon.Bind != "127.0.0.1" && cfg.Daemon.Bind != "localhost" && !cfg.Daemon.TLS.Enabled {
+	bindHost := cfg.Daemon.Bind
+	if bindHost == "0.0.0.0" || bindHost == "::" {
+		bindHost = "127.0.0.1"
+	}
+	addr := fmt.Sprintf("http://%s:%d", bindHost, cfg.Daemon.Port)
+	if cfg.Daemon.Bind != "127.0.0.1" && cfg.Daemon.Bind != "localhost" && cfg.Daemon.Bind != "0.0.0.0" && !cfg.Daemon.TLS.Enabled {
 		slog.Warn("admin key will be sent over plain HTTP (TLS not enabled, bind is not loopback)",
 			"bind", cfg.Daemon.Bind)
 	}
