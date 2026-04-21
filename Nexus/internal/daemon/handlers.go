@@ -830,6 +830,25 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	})
 	d.liteBus.Emit("memory_written", map[string]any{"source": src.Name, "payload_id": payloadID})
 
+	if d.subscribeMatcher != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			matches, err := d.subscribeMatcher.Match(ctx, tp.Content)
+			if err == nil {
+				for _, sub := range matches {
+					d.subscribeStore.IncrementMatch(sub.ID)
+					d.liteBus.Emit("subscription.matched", map[string]any{
+						"subscription_id": sub.ID,
+						"agent_id":        sub.AgentID,
+						"filter":          sub.Filter,
+						"memory_id":       payloadID,
+					})
+				}
+			}
+		}()
+	}
+
 	// Step 13 — Return 200 + payload_id.
 	d.writeJSON(w, http.StatusOK, writeResponse{
 		PayloadID: payloadID,

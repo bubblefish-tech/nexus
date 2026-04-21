@@ -87,6 +87,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/secrets"
 	"github.com/bubblefish-tech/nexus/internal/securitylog"
 	"github.com/bubblefish-tech/nexus/internal/signing"
+	"github.com/bubblefish-tech/nexus/internal/subscribe"
 	"github.com/bubblefish-tech/nexus/internal/substrate"
 	"github.com/bubblefish-tech/nexus/internal/supervisor"
 	"github.com/bubblefish-tech/nexus/internal/tasks"
@@ -299,6 +300,11 @@ type Daemon struct {
 	// Data map[string]any payload. A bridge goroutine forwards events to
 	// eventBus so all events appear in the SSE feed.
 	liteBus *events.LiteBus
+
+	// subscribeStore holds semantic subscriptions. Nil when the registry DB is
+	// unavailable. Reference: SNC.2.
+	subscribeStore   *subscribe.Store
+	subscribeMatcher *subscribe.Matcher
 
 	// discoveryScanner runs the 5-tier AI-tool discovery scan on demand for
 	// GET /api/discover/results. Nil until Start() resolves configDir.
@@ -1175,6 +1181,23 @@ func (d *Daemon) Start() error {
 				d.logger.Info("daemon: control plane disabled (control.enabled = false)",
 					"component", "control",
 				)
+			}
+		}
+
+		if d.registryStore != nil {
+			ss, err := subscribe.NewStore(d.registryStore.DB())
+			if err != nil {
+				d.logger.Warn("daemon: subscribe store init failed", "error", err)
+			} else {
+				d.subscribeStore = ss
+				var embedFn subscribe.EmbedFunc
+				if d.embeddingClient != nil {
+					embedFn = func(ctx context.Context, text string) ([]float32, error) {
+						return d.embeddingClient.Embed(ctx, text)
+					}
+				}
+				d.subscribeMatcher = subscribe.NewMatcher(ss, embedFn)
+				d.logger.Info("daemon: subscribe system initialized")
 			}
 		}
 	} else {
