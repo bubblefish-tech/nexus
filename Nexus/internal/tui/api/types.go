@@ -96,26 +96,31 @@ type SecurityEventsResponse struct {
 
 // SecuritySummaryResponse is the shape of GET /api/security/summary.
 type SecuritySummaryResponse struct {
-	AuthFailures              int            `json:"auth_failures"`
-	PolicyDenials             int            `json:"policy_denials"`
-	RateLimitHits             int            `json:"rate_limit_hits"`
+	AuthFailures              int            `json:"auth_failures_total"`
+	PolicyDenials             int            `json:"policy_denials_total"`
+	RateLimitHits             int            `json:"rate_limit_hits_total"`
 	WALTamperDetected         int            `json:"wal_tamper_detected"`
 	ConfigSignatureInvalid    int            `json:"config_signature_invalid"`
-	AdminAccess               int            `json:"admin_access"`
+	AdminAccess               int            `json:"admin_calls_total"`
 	RetrievalFirewallFiltered int            `json:"retrieval_firewall_filtered"`
 	RetrievalFirewallDenied   int            `json:"retrieval_firewall_denied"`
 	BySource                  map[string]int `json:"by_source"`
 }
 
 // ConflictEntry is a single conflict group.
-// Matches destination.ConflictGroup from the server.
 type ConflictEntry struct {
-	Subject           string      `json:"subject"`
-	EntityKey         string      `json:"entity_key"`
-	ConflictingValues []string    `json:"conflicting_values"`
-	Sources           []string    `json:"sources"`
-	Timestamps        []time.Time `json:"timestamps"`
-	Count             int         `json:"count"`
+	ID        string           `json:"id"`
+	Subject   string           `json:"subject"`
+	Entity    string           `json:"entity"`
+	GroupSize int              `json:"group_size"`
+	Memories  []ConflictMemory `json:"memories"`
+}
+
+type ConflictMemory struct {
+	Source    string `json:"source"`
+	ActorType string `json:"actor_type"`
+	Ts       string `json:"ts"`
+	Content  string `json:"content"`
 }
 
 // ConflictsResponse is the shape of GET /api/conflicts.

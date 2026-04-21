@@ -221,7 +221,12 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 	dashPort := ":8081"
 	if m.statusCache != nil {
 		if m.statusCache.Bind != "" {
-			apiPort = m.statusCache.Bind
+			parts := strings.SplitN(m.statusCache.Bind, ":", 2)
+			if len(parts) == 2 {
+				apiPort = ":" + parts[1]
+			} else {
+				apiPort = m.statusCache.Bind
+			}
 		}
 		if m.statusCache.WebPort > 0 {
 			dashPort = fmt.Sprintf(":%d", m.statusCache.WebPort)

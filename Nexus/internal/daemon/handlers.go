@@ -1470,6 +1470,7 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":               "ok",
 		"version":              version.Version,
 		"uptime_seconds":       int(time.Since(d.startedAt).Seconds()),
 		"pid":                  os.Getpid(),

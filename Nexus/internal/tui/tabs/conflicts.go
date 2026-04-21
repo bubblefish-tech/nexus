@@ -20,7 +20,6 @@ package tabs
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	"github.com/bubblefish-tech/nexus/internal/tui/components"
@@ -120,53 +119,46 @@ func (t *ConflictsTab) View(width, height int) string {
 func renderConflictCard(c api.ConflictEntry, width int) string {
 	var lines []string
 
-	// Subject header.
 	subjectLine := styles.PrimaryStyle.Bold(true).Render(c.Subject)
-	if c.EntityKey != "" {
-		subjectLine += styles.MutedStyle.Render("  key=" + c.EntityKey)
+	if c.Entity != "" {
+		subjectLine += styles.MutedStyle.Render("  entity=" + c.Entity)
 	}
 	lines = append(lines, subjectLine)
+	lines = append(lines, styles.MutedStyle.Render(fmt.Sprintf("Group size: %d memories", c.GroupSize)))
 	lines = append(lines, "")
 
-	// Conflicting values.
-	lines = append(lines, styles.StatLabel.Render("CONFLICTING VALUES"))
-	for i, v := range c.ConflictingValues {
-		display := v
-		if len(display) > 80 {
-			display = display[:77] + "..."
+	lines = append(lines, styles.StatLabel.Render("MEMORIES"))
+	for i, m := range c.Memories {
+		if i >= 10 {
+			lines = append(lines, styles.MutedStyle.Render(fmt.Sprintf("  ... and %d more", len(c.Memories)-10)))
+			break
 		}
-		lines = append(lines, fmt.Sprintf("  %d. %s", i+1,
-			lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(display)))
+		content := m.Content
+		if len(content) > 80 {
+			content = content[:77] + "..."
+		}
+		srcBadge := components.ProvBadge(m.Source)
+		lines = append(lines, fmt.Sprintf("  %s %s  %s",
+			srcBadge,
+			lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(m.Ts),
+			lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(content)))
+	}
+	if len(c.Memories) == 0 {
+		lines = append(lines, styles.MutedStyle.Render("  (no memories in this group)"))
 	}
 	lines = append(lines, "")
 
-	// Sources with provenance badges.
-	lines = append(lines, styles.StatLabel.Render("SOURCES"))
-	for _, src := range c.Sources {
-		lines = append(lines, "  "+components.ProvBadge(src)+" "+
-			lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(src))
-	}
-	lines = append(lines, "")
-
-	// Timestamps.
-	lines = append(lines, styles.StatLabel.Render("TIMESTAMPS"))
-	for _, ts := range c.Timestamps {
-		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(ts.In(time.Local).Format(time.RFC3339)))
-	}
-	lines = append(lines, "")
-
-	// Decay score colouring based on count.
 	decayScore := 1.0
-	if c.Count > 0 {
-		decayScore = 1.0 / float64(c.Count)
+	if c.GroupSize > 1 {
+		decayScore = 1.0 / float64(c.GroupSize)
 	}
 	scoreColor := styles.ColorGreen
-	if decayScore < 0.4 {
+	if decayScore < 0.01 {
 		scoreColor = styles.ColorRed
-	} else if decayScore < 0.7 {
+	} else if decayScore < 0.1 {
 		scoreColor = styles.ColorAmber
 	}
-	scoreLine := fmt.Sprintf("Decay score: %.2f  (count: %d)", decayScore, c.Count)
+	scoreLine := fmt.Sprintf("Decay score: %.4f  (group_size: %d)", decayScore, c.GroupSize)
 	lines = append(lines, lipgloss.NewStyle().Foreground(scoreColor).Render(scoreLine))
 
 	content := strings.Join(lines, "\n")
