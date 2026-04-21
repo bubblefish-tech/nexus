@@ -1553,3 +1553,13 @@
   - MCP path: Claude Desktop → MCP bridge → `sendViaTasksSend` (already worked)
   - HTTP/Cloudflare path: `agent/invoke` → `poolAdapter.sendViaTasksSend` (now works)
 - Exit gate: Build OK | Vet OK | daemon PASS
+
+## SNC REVERT (2026-04-21): feat/supernexusclaw branch cleanup
+- Reverted 13 SNC commits (SNC.1.1–SNC.4.1): git reset --hard a20a4a4
+  - SNC.1 (markdown diary importer), SNC.2 (nexus_subscribe), SNC.3 (memory health), SNC.4 (content-ops preset)
+  - These were executed on Windows; need to be re-done from WSL2
+- Moved OpenClaw_Wiring.md from repo root to .claude/ (confidential, gitignored)
+- Commit: 582a525
+- Files NOT touched (confirmed required): examples/blessed/openclaw/*, connect-openclaw-to-nexus*.ps1, web/dashboard/openclaw.html
+- Branch tip: 582a525 (feat/supernexusclaw)
+- Next: re-execute Linux SuperNexusClaw build plan from WSL2 ~/.openclaw/
