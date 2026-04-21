@@ -36,10 +36,13 @@ type Result struct {
 }
 
 var (
-	reT0001       = regexp.MustCompile(`(?i)(ignore|disregard|forget)\s+(previous|prior|all)\s+(instructions|prompts|rules)`)
+	reT0001       = regexp.MustCompile(`(?i)(ignore|disregard|forget|bypass|override)\s+(\w+\s+){0,2}(previous|prior|all|any|every|safety|system)\s+(\w+\s+){0,2}(instructions|prompts|rules|guidelines|restrictions|constraints|directives?)`)
 	reT0002       = regexp.MustCompile(`(?i)(system|admin|root)\s*:\s*(you are|act as|pretend|roleplay)`)
 	reT0003       = regexp.MustCompile(`(?i)(ADMIN_OVERRIDE|SUDO_MODE|DEBUG_MODE|JAILBREAK)`)
 	reT0007       = regexp.MustCompile(`(?i)(DROP\s+TABLE|UNION\s+SELECT|;\s*DELETE|INSERT\s+INTO)`)
+	reT0013       = regexp.MustCompile(`(?i)(you are now|act as|pretend to be|roleplay as|behave as|become)\s+(DAN|STAN|DUDE|AIM|KEVIN|BISH|MONGO|an?\s+(unrestricted|uncensored|unfiltered|unlimited|evil|unaligned)\s+\w+)`)
+	reT0014a      = regexp.MustCompile(`(?i)(output|reveal|show|print|display|leak|exfiltrate)\s+(\w+\s+)?(your|the|my)?\s*(system prompt|instructions|initial prompt|hidden prompt|original prompt)`)
+	reT0014b      = regexp.MustCompile(`(?i)(execute|eval|run|exec)\s*[:(]\s*(rm\s|curl\s|wget\s|nc\s|bash\s|sh\s|python|import\s+os)`)
 	reBase64Block = regexp.MustCompile(`[A-Za-z0-9+/]{500,}={0,2}`)
 )
 
@@ -102,6 +105,19 @@ func ScanContent(content string, metadata map[string]any, embedding []float32, e
 	// T0-003: admin override keywords
 	if reT0003.MatchString(content) {
 		return Result{Action: "quarantine", Rule: "T0-003", Details: "admin override keyword detected"}
+	}
+
+	// T0-013: jailbreak persona invocation
+	if reT0013.MatchString(content) {
+		return Result{Action: "quarantine", Rule: "T0-013", Details: "jailbreak persona invocation detected"}
+	}
+
+	// T0-014: system prompt exfiltration / command execution
+	if reT0014a.MatchString(content) {
+		return Result{Action: "quarantine", Rule: "T0-014", Details: "system prompt exfiltration pattern detected"}
+	}
+	if reT0014b.MatchString(content) {
+		return Result{Action: "quarantine", Rule: "T0-014", Details: "command execution pattern detected"}
 	}
 
 	// T0-004: base64-encoded executable payload
