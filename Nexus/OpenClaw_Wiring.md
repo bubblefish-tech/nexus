@@ -74,10 +74,20 @@ Now uses `NEXUS_ADMIN_KEY` (correct admin token) with `A2A_SHARED_SECRET` as fal
 **Change:** Added `nexus_invoke` tool registration after `nexus_status` (inserted before
 the final `api.logger?.info` call). Updated tool count in log message from 3 to 4.
 
-**Tool spec:**
-```
-nexus_invoke(targetAgentId: string, message: string, skill?: string)
-```
+**Replaced `nexus_invoke` with full A2A tool suite (10 tools total):**
+
+| Tool | Purpose |
+|------|---------|
+| `nexus_write` | Write memories (enhanced description) |
+| `nexus_search` | Search memories (enhanced description) |
+| `nexus_status` | Daemon health check |
+| `a2a_list_agents` | List all registered agents + status |
+| `a2a_describe_agent` | Get detailed agent info by name or ID |
+| `a2a_send_to_agent` | Send message to agent, get response (primary A2A tool) |
+| `a2a_get_task` | Poll task status by ID |
+| `a2a_cancel_task` | Cancel a running task |
+| `a2a_list_grants` | List governance grants |
+| `a2a_list_pending_approvals` | List pending approval requests |
 
 **Behavior:**
 1. Builds a JSON-RPC 2.0 request: `method: "agent/invoke"`, params: `{targetAgentId, message: {role: "user", parts: [{type: "text", text}]}}`
