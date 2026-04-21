@@ -22,6 +22,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -41,9 +42,12 @@ import (
 
 // poolAdapter adapts client.Pool + registry.Store to the server.ClientPool interface
 // so the a2aServer can dispatch agent/invoke calls through the pool.
+// It is protocol-aware: agents declaring tasks/send (OpenClaw-style) get dispatched
+// via tasks/send + polling, while standard A2A agents use message/send.
 type poolAdapter struct {
-	pool  *client.Pool
-	store *registry.Store
+	pool   *client.Pool
+	store  *registry.Store
+	logger *slog.Logger
 }
 
 func (a *poolAdapter) SendMessage(ctx context.Context, targetAgentID string, msg *a2a.Message, skill string) (*a2a.Task, error) {
@@ -55,7 +59,124 @@ func (a *poolAdapter) SendMessage(ctx context.Context, targetAgentID string, msg
 	if err != nil {
 		return nil, fmt.Errorf("get client: %w", err)
 	}
+
+	if agentUsesTasksSend(agent) {
+		return a.sendViaTasksSend(ctx, c, agent, msg, skill)
+	}
 	return c.SendMessage(ctx, msg, skill, nil)
+}
+
+func agentUsesTasksSend(agent *registry.RegisteredAgent) bool {
+	for _, m := range agent.AgentCard.Methods {
+		if m == "tasks/send" {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *poolAdapter) sendViaTasksSend(ctx context.Context, c *client.Client, agent *registry.RegisteredAgent, msg *a2a.Message, skill string) (*a2a.Task, error) {
+	var messageStr string
+	for _, pw := range msg.Parts {
+		if tp, ok := pw.Part.(a2a.TextPart); ok {
+			messageStr += tp.Text
+		}
+	}
+	if messageStr == "" {
+		raw, _ := json.Marshal(msg)
+		messageStr = string(raw)
+	}
+
+	params := map[string]interface{}{"message": messageStr}
+	if skill != "" {
+		params["agentId"] = skill
+	}
+
+	resp, err := c.Call(ctx, "tasks/send", params)
+	if err != nil {
+		return nil, fmt.Errorf("tasks/send to %s: %w", agent.Name, err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(resp.Result, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshal tasks/send result: %w", err)
+	}
+
+	status, _ := raw["status"].(string)
+	if status != "pending" && status != "running" {
+		return a.taskFromRaw(raw, agent.AgentID), nil
+	}
+
+	taskID, _ := raw["taskId"].(string)
+	if taskID == "" {
+		return nil, fmt.Errorf("tasks/send returned pending but no taskId")
+	}
+
+	a.logger.Info("poolAdapter: polling for task completion",
+		"agent", agent.Name, "taskId", taskID)
+
+	return a.pollTasksGet(ctx, c, agent, taskID)
+}
+
+const (
+	poolPollInterval = 1500 * time.Millisecond
+	poolPollMaxWait  = 120 * time.Second
+)
+
+func (a *poolAdapter) pollTasksGet(ctx context.Context, c *client.Client, agent *registry.RegisteredAgent, taskID string) (*a2a.Task, error) {
+	deadline := time.Now().Add(poolPollMaxWait)
+	ticker := time.NewTicker(poolPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled polling %s: %w", agent.Name, ctx.Err())
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return &a2a.Task{
+					TaskID: taskID,
+					Status: a2a.TaskStatus{State: "failed"},
+				}, fmt.Errorf("timeout polling %s after %v", agent.Name, poolPollMaxWait)
+			}
+
+			resp, err := c.Call(ctx, "tasks/get", map[string]interface{}{"taskId": taskID})
+			if err != nil {
+				continue
+			}
+
+			var raw map[string]interface{}
+			if err := json.Unmarshal(resp.Result, &raw); err != nil {
+				continue
+			}
+
+			status, _ := raw["status"].(string)
+			if status == "pending" || status == "running" {
+				continue
+			}
+
+			return a.taskFromRaw(raw, agent.AgentID), nil
+		}
+	}
+}
+
+func (a *poolAdapter) taskFromRaw(raw map[string]interface{}, agentID string) *a2a.Task {
+	taskID, _ := raw["taskId"].(string)
+	status, _ := raw["status"].(string)
+	resultText, _ := raw["result"].(string)
+
+	task := &a2a.Task{
+		TaskID: taskID,
+		Status: a2a.TaskStatus{State: a2a.TaskState(status)},
+	}
+
+	if resultText != "" {
+		task.Artifacts = []a2a.Artifact{{
+			Parts: []a2a.PartWrapper{{Part: a2a.NewTextPart(resultText)}},
+		}}
+	}
+
+	return task
 }
 
 // setupA2ABridge constructs the A2A bridge and wires it into the MCP server.
@@ -168,7 +289,7 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 		server.WithRegistrationStore(regStore),
 		server.WithAgentPinger(hc),
 		server.WithRegistrationToken(regToken),
-		server.WithClientPool(&poolAdapter{pool: pool, store: regStore}),
+		server.WithClientPool(&poolAdapter{pool: pool, store: regStore, logger: d.logger}),
 		server.WithLogger(d.logger),
 	)
 
