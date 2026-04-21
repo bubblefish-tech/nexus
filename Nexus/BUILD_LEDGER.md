@@ -1266,3 +1266,24 @@
   - Build: OK
   - Vet: OK (implicit clean build)
   - `internal/maintain/configio` PASS (19/19, -race -count=1)
+
+### W4: COMPLETE — 12 Atomic Actions with Path Allowlist
+- New files: `internal/maintain/actions.go`, `actions_unix.go` (build !windows), `actions_windows.go` (build windows), `actions_test.go`
+  - `ActionType` closed set of 12 constants — only entry point is `ExecuteAction(ctx, action, params)`
+  - `InitAllowedPaths()`: populates allowlist at startup — home dir + APPDATA/LOCALAPPDATA (Windows)
+  - `validatePath()`: resolves symlinks via `filepath.EvalSymlinks` before prefix check — symlink traversal caught
+  - `ActionBackupFile`: copies to `<path>.nexus-backup-<unix_ts>`, validates both paths
+  - `ActionRestoreFile`: restores backup over original, validates both paths
+  - `ActionReadConfig`/`ActionWriteConfig`: open via configio, path-validated
+  - `ActionSetConfigKey`: open → Set(keypath, value) → Save; path-validated
+  - `ActionDeleteConfigKey`: open → Delete(keypath) → Save; path-validated
+  - `ActionSetEnvVar`: Unix writes to `~/.nexus/env.sh` (idempotent line replace); Windows writes to `HKCU\Environment` via `golang.org/x/sys/windows/registry`
+  - `ActionRestartProcess`: gopsutil process find → terminate (SIGTERM/taskkill) → 5s graceful wait → re-launch if exec_path given → 2s verify; 3 attempts with 2s/4s/8s backoff
+  - `ActionWaitForPort`: polls `http://localhost:<port>/` every 500ms for 30s
+  - `ActionVerifyConfig`: open via configio (parse = validate); path-validated
+  - `ActionHTTPCall`: typed HTTP call with expected_status check; 10s timeout; body returned
+  - `ActionCreateFile`: fails if target already exists; validates path; creates parent dirs 0700
+  - `stringParam`/`intParam` helpers with clear error messages
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (12/12, -race -count=1, including configio 19/19)
