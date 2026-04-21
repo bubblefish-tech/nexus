@@ -101,12 +101,39 @@ func runImport(args []string) {
 		os.Exit(1)
 	}
 
-	if *dryRun {
+	if result.Format == importer.FormatMarkdownDiary {
+		printMarkdownDiarySummary(result, *dryRun, *sourceName)
+	} else if *dryRun {
 		fmt.Fprintf(os.Stderr, "nexus import: DRY RUN — %d memories found, 0 written\n", result.Total)
 	} else {
 		fmt.Fprintf(os.Stderr, "nexus import: %d written, %d skipped, %d errored (%.1fs)\n",
 			result.Written, result.Skipped, result.Errored, result.Duration.Seconds())
 	}
+}
+
+func printMarkdownDiarySummary(r *importer.Result, dryRun bool, sourceName string) {
+	if sourceName == "" {
+		sourceName = "markdown-import"
+	}
+	action := "imported"
+	if dryRun {
+		action = "found (dry run)"
+	}
+	fmt.Fprintf(os.Stderr, "\nMarkdown diary import complete:\n")
+	fmt.Fprintf(os.Stderr, "  Files scanned:      %d\n", r.FilesScanned)
+	fmt.Fprintf(os.Stderr, "  Memories %s: %d\n", action, r.Written)
+	fmt.Fprintf(os.Stderr, "  Duplicates skipped: %d\n", r.Skipped)
+	fmt.Fprintf(os.Stderr, "  Fragments skipped:  %d (too short)\n", r.FragmentsSkipped)
+	fmt.Fprintf(os.Stderr, "  Source: %q\n", sourceName)
+	if len(r.TypeBreakdown) > 0 {
+		fmt.Fprintf(os.Stderr, "\n  Type breakdown:\n")
+		for _, typ := range []string{"diary", "long-term", "personality", "preferences", "document"} {
+			if count, ok := r.TypeBreakdown[typ]; ok {
+				fmt.Fprintf(os.Stderr, "    %-14s %d\n", typ+":", count)
+			}
+		}
+	}
+	fmt.Fprintln(os.Stderr)
 }
 
 // httpImportWriter sends imported memories to the running daemon via HTTP.

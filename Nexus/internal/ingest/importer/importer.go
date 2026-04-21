@@ -56,12 +56,15 @@ type Memory struct {
 
 // Result holds import statistics.
 type Result struct {
-	Format   Format
-	Total    int
-	Written  int
-	Skipped  int
-	Errored  int
-	Duration time.Duration
+	Format         Format
+	Total          int
+	Written        int
+	Skipped        int
+	Errored        int
+	Duration       time.Duration
+	FilesScanned   int
+	FragmentsSkipped int
+	TypeBreakdown  map[string]int
 }
 
 // Writer is the interface for writing imported memories to Nexus.
@@ -97,6 +100,8 @@ func Run(opts Options) (*Result, error) {
 
 	var memories []Memory
 	var err error
+	var filesScanned, fragmentsSkipped int
+	var typeBreakdown map[string]int
 
 	switch format {
 	case FormatClaudeZIP:
@@ -110,7 +115,20 @@ func Run(opts Options) (*Result, error) {
 	case FormatJSONL:
 		memories, err = parseGenericJSONL(opts.Path)
 	case FormatMarkdownDiary:
-		memories, err = parseMarkdownDiary(opts.Path, sourceName)
+		var diaryStats *MarkdownDiaryResult
+		memories, diaryStats, err = parseMarkdownDiaryDir(opts.Path)
+		if err == nil && diaryStats != nil {
+			filesScanned = diaryStats.FilesScanned
+			fragmentsSkipped = diaryStats.FragmentsSkipped
+			typeBreakdown = diaryStats.TypeBreakdown
+			for i := range memories {
+				if memories[i].Meta == nil {
+					memories[i].Meta = make(map[string]string)
+				}
+				memories[i].Meta["source"] = sourceName
+				memories[i].Source = sourceName
+			}
+		}
 	default:
 		return nil, fmt.Errorf("import: unsupported format %q", format)
 	}
@@ -119,8 +137,11 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	result := &Result{
-		Format: format,
-		Total:  len(memories),
+		Format:           format,
+		Total:            len(memories),
+		FilesScanned:     filesScanned,
+		FragmentsSkipped: fragmentsSkipped,
+		TypeBreakdown:    typeBreakdown,
 	}
 
 	for _, mem := range memories {
@@ -537,21 +558,6 @@ func extractContent(v interface{}) string {
 		return strings.Join(parts, "\n")
 	}
 	return ""
-}
-
-func parseMarkdownDiary(path, sourceName string) ([]Memory, error) {
-	memories, _, err := parseMarkdownDiaryDir(path)
-	if err != nil {
-		return nil, err
-	}
-	for i := range memories {
-		if memories[i].Meta == nil {
-			memories[i].Meta = make(map[string]string)
-		}
-		memories[i].Meta["source"] = sourceName
-		memories[i].Source = sourceName
-	}
-	return memories, nil
 }
 
 // parseTS parses an ISO 8601 timestamp to Unix milliseconds.
