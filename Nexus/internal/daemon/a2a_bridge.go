@@ -120,6 +120,21 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 	// Wire into the MCP server.
 	d.mcpServer.SetBridge(br)
 
+	// Start periodic health checks on all active agents.
+	hc := registry.NewHealthChecker(regStore, registry.WithHealthLogger(d.logger))
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-d.shutdownReq:
+				return
+			case <-ticker.C:
+				_ = hc.CheckAll(context.Background())
+			}
+		}
+	}()
+
 	// Count registered agents for the log message.
 	agents, _ := regStore.List(context.Background(), registry.ListFilter{})
 	agentCount := 0
@@ -205,13 +220,25 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 			BearerTokenEnv: raw.Transport.HTTP.BearerTokenEnv,
 		}
 
-		// Check if already registered (idempotent on restart).
+		// Upsert: if already registered, update transport config and card
+		// so TOML changes (URL fixes, method list, etc.) take effect on restart.
 		existing, _ := regStore.GetByName(ctx, raw.Agent.Name)
 		if existing != nil {
-			d.logger.Debug("daemon: agent already registered, skipping",
-				"component", "a2a",
-				"name", raw.Agent.Name,
-			)
+			card := a2a.AgentCard{Name: raw.Agent.Name, Methods: raw.Agent.Methods}
+			if err := regStore.UpdateTransportAndCard(ctx, existing.AgentID, card, raw.Agent.Name, tc); err != nil {
+				d.logger.Warn("daemon: failed to update agent from TOML",
+					"component", "a2a",
+					"name", raw.Agent.Name,
+					"error", err,
+				)
+			} else {
+				d.logger.Info("daemon: updated A2A agent from TOML",
+					"component", "a2a",
+					"name", raw.Agent.Name,
+					"agent_id", existing.AgentID,
+					"url", tc.URL,
+				)
+			}
 			continue
 		}
 

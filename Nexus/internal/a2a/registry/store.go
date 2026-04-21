@@ -408,6 +408,57 @@ func (s *Store) UpdateLastSeen(ctx context.Context, agentID string, seenAt time.
 	return nil
 }
 
+// UpdateTransportAndCard updates the transport config, agent card JSON, and
+// display name for an existing agent. Preserves agent_id, status, grants, and
+// all lifecycle fields. Called by loadA2AAgents on restart when TOML changes.
+func (s *Store) UpdateTransportAndCard(ctx context.Context, agentID string, card a2a.AgentCard, displayName string, tc transport.TransportConfig) error {
+	cardJSON, err := json.Marshal(card)
+	if err != nil {
+		return fmt.Errorf("registry: marshal agent card: %w", err)
+	}
+	transportTOML, err := marshalTransportConfig(tc)
+	if err != nil {
+		return fmt.Errorf("registry: marshal transport config: %w", err)
+	}
+	now := time.Now().UnixMilli()
+	var res sql.Result
+	if s.mkm != nil && s.mkm.IsEnabled() {
+		subKey := s.mkm.SubKey("nexus-control-key-v1")
+		rowKey, keyErr := nexuscrypto.DeriveRowKey(subKey, agentID, rowInfo)
+		if keyErr != nil {
+			return fmt.Errorf("registry: derive row key: %w", keyErr)
+		}
+		encCard, sealErr := nexuscrypto.SealAES256GCM(rowKey, cardJSON, []byte(agentID))
+		if sealErr != nil {
+			return fmt.Errorf("registry: encrypt agent_card_json: %w", sealErr)
+		}
+		encTransport, sealErr := nexuscrypto.SealAES256GCM(rowKey, []byte(transportTOML), []byte(agentID))
+		if sealErr != nil {
+			return fmt.Errorf("registry: encrypt transport_toml: %w", sealErr)
+		}
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE a2a_agents
+			SET display_name = ?, agent_card_json = '{}', transport_toml = '',
+			    agent_card_json_encrypted = ?, transport_toml_encrypted = ?,
+			    encryption_version = 1, updated_at_ms = ?
+			WHERE agent_id = ?`, displayName, encCard, encTransport, now, agentID)
+	} else {
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE a2a_agents
+			SET display_name = ?, agent_card_json = ?, transport_toml = ?,
+			    updated_at_ms = ?
+			WHERE agent_id = ?`, displayName, string(cardJSON), transportTOML, now, agentID)
+	}
+	if err != nil {
+		return fmt.Errorf("registry: update transport and card: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("registry: agent %q not found", agentID)
+	}
+	return nil
+}
+
 // Delete removes an agent from the registry.
 func (s *Store) Delete(ctx context.Context, agentID string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM a2a_agents WHERE agent_id = ?`, agentID)
