@@ -20,6 +20,7 @@ package tabs
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	"github.com/bubblefish-tech/nexus/internal/tui/components"
@@ -38,6 +39,12 @@ type controlStatusMsg struct {
 type controlHealthMsg struct {
 	ok  bool
 	err error
+}
+
+// controlAuditMsg carries audit log data for the heat grid.
+type controlAuditMsg struct {
+	data *api.AuditResponse
+	err  error
 }
 
 // ControlTab is the landing tab showing daemon health signals.
@@ -75,11 +82,15 @@ func (t *ControlTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	case controlHealthMsg:
 		t.healthErr = m.err
 		t.healthy = m.ok
+	case controlAuditMsg:
+		if m.err == nil && m.data != nil {
+			t.heatData = buildHeatData(m.data.Records)
+		}
 	}
 	return t, nil
 }
 
-// FireRefresh dispatches parallel status and health API calls.
+// FireRefresh dispatches parallel status, health, and audit API calls.
 func (t *ControlTab) FireRefresh(client *api.Client) tea.Cmd {
 	return tea.Batch(
 		func() tea.Msg {
@@ -89,6 +100,10 @@ func (t *ControlTab) FireRefresh(client *api.Client) tea.Cmd {
 		func() tea.Msg {
 			ok, err := client.Health()
 			return controlHealthMsg{ok: ok, err: err}
+		},
+		func() tea.Msg {
+			data, err := client.AuditLog(500)
+			return controlAuditMsg{data: data, err: err}
 		},
 	)
 }
@@ -214,6 +229,25 @@ func (t *ControlTab) View(width, height int) string {
 		Width(width).
 		Height(height).
 		Render(content)
+}
+
+func buildHeatData(records []api.AuditRecord) []int {
+	heat := make([]int, 24)
+	now := time.Now()
+	cutoff := now.Add(-24 * time.Hour)
+	for _, r := range records {
+		if r.Timestamp.Before(cutoff) {
+			continue
+		}
+		if r.OperationType != "write" {
+			continue
+		}
+		hoursAgo := int(now.Sub(r.Timestamp).Hours())
+		if hoursAgo >= 0 && hoursAgo < 24 {
+			heat[23-hoursAgo]++
+		}
+	}
+	return heat
 }
 
 // Compile-time interface check.

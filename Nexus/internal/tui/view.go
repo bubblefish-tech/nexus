@@ -195,34 +195,63 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 		}
 	}
 
+	memories := "—"
+	if m.statusCache != nil && m.statusCache.MemoriesTotal > 0 {
+		memories = fmt.Sprintf("%d", m.statusCache.MemoriesTotal)
+	}
+
+	destItems := []components.SidebarItem{}
+	if m.statusCache != nil {
+		for _, d := range m.statusCache.Destinations {
+			dot := "green"
+			val := "ok"
+			if !d.Healthy {
+				dot = "red"
+				val = "err"
+			}
+			destItems = append(destItems, components.SidebarItem{Name: d.Name, Value: val, Dot: dot})
+		}
+	}
+	if len(destItems) == 0 {
+		destItems = append(destItems, components.SidebarItem{Name: "—", Value: "—"})
+	}
+	destItems = append(destItems, components.SidebarItem{Name: "wal", Value: queue + " pend"})
+
+	apiPort := ":8080"
+	dashPort := ":8081"
+	if m.statusCache != nil {
+		if m.statusCache.Bind != "" {
+			apiPort = m.statusCache.Bind
+		}
+		if m.statusCache.WebPort > 0 {
+			dashPort = fmt.Sprintf(":%d", m.statusCache.WebPort)
+		}
+	}
+
 	all := map[string]components.SidebarSection{
 		"Daemon": {
 			Title: "Daemon",
 			Items: []components.SidebarItem{
 				{Name: "Status", Value: statusVal, Dot: statusDot},
 				{Name: "Version", Value: ver},
-				{Name: "Mode", Value: "simple"},
+				{Name: "Memories", Value: memories},
 			},
 		},
 		"Sources": {
 			Title: "Sources",
 			Items: []components.SidebarItem{
-				{Name: "default", Value: "active", Dot: "green"},
+				{Name: "default", Value: "active", Dot: statusDot},
 			},
 		},
 		"Destinations": {
 			Title: "Destinations",
-			Items: []components.SidebarItem{
-				{Name: "sqlite", Value: "ok", Dot: "green"},
-				{Name: "wal", Value: queue + " pend"},
-			},
+			Items: destItems,
 		},
 		"Ports": {
 			Title: "Ports",
 			Items: []components.SidebarItem{
-				{Name: "API", Value: ":8080"},
-				{Name: "MCP", Value: ":7474"},
-				{Name: "Dashboard", Value: ":8081"},
+				{Name: "API", Value: apiPort},
+				{Name: "Dashboard", Value: dashPort},
 			},
 		},
 		"Health": {
