@@ -22,21 +22,43 @@ import "time"
 
 // StatusResponse is the shape of GET /api/status.
 type StatusResponse struct {
-	Status             string             `json:"status"`
-	Version            string             `json:"version"`
-	QueueDepth         int                `json:"queue_depth"`
-	ConsistencyScore   float64            `json:"consistency_score"`
-	MemoriesTotal      int                `json:"memories_total"`
-	SourcesTotal       int                `json:"sources_total"`
-	UptimeSeconds      int                `json:"uptime_seconds"`
-	Goroutines         int                `json:"goroutines"`
-	MemoryResidentBytes int64             `json:"memory_resident_bytes"`
-	PID                int                `json:"pid"`
-	Bind               string             `json:"bind"`
-	WebPort            int                `json:"web_port"`
-	Cache              StatusCache        `json:"cache"`
-	WAL                StatusWAL          `json:"wal"`
-	Destinations       []StatusDest       `json:"destinations"`
+	Status              string                       `json:"status"`
+	Version             string                       `json:"version"`
+	QueueDepth          int                          `json:"queue_depth"`
+	ConsistencyScore    float64                      `json:"consistency_score"`
+	MemoriesTotal       int                          `json:"memories_total"`
+	SourcesTotal        int                          `json:"sources_total"`
+	UptimeSeconds       int                          `json:"uptime_seconds"`
+	Goroutines          int                          `json:"goroutines"`
+	MemoryResidentBytes int64                        `json:"memory_resident_bytes"`
+	PID                 int                          `json:"pid"`
+	Bind                string                       `json:"bind"`
+	WebPort             int                          `json:"web_port"`
+	Cache               StatusCache                  `json:"cache"`
+	WAL                 StatusWAL                    `json:"wal"`
+	Destinations        []StatusDest                 `json:"destinations"`
+	WritesTotal         int64                        `json:"writes_total"`
+	Writes1m            int                          `json:"writes_1m"`
+	ReadsTotal          int64                        `json:"reads_total"`
+	Reads1m             int                          `json:"reads_1m"`
+	Errors1m            int                          `json:"errors_1m"`
+	ImmuneScans         int64                        `json:"immune_scans"`
+	QuarantineTotal     int64                        `json:"quarantine_total"`
+	AuditEnabled        bool                         `json:"audit_enabled"`
+	CascadeStages       map[string]StageMetricEntry  `json:"cascade_stages"`
+	WriteStages         map[string]StageMetricEntry  `json:"write_stages"`
+	SourceHealth        []SourceHealthEntry          `json:"source_health"`
+}
+
+type StageMetricEntry struct {
+	Status string  `json:"status"`
+	AvgMs  float64 `json:"avg_ms"`
+	Hits   int64   `json:"hits"`
+}
+
+type SourceHealthEntry struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 type StatusCache struct {

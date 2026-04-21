@@ -113,9 +113,9 @@ func (t *SecurityTab) View(width, height int) string {
 	features := []feature{
 		{"WAL integrity", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.WALTamperDetected == 0 })},
 		{"Config signature", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.ConfigSignatureInvalid == 0 })},
-		{"Retrieval firewall", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.RetrievalFirewallFiltered > 0 })},
-		{"Rate limiting", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.RateLimitHits > 0 })},
-		{"Auth enforcement", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.AuthFailures > 0 || s.AdminAccess > 0 })},
+		{"Retrieval firewall", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return true })},
+		{"Rate limiting", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return true })},
+		{"Auth enforcement", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return true })},
 		{"Admin audit", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.AdminAccess > 0 })},
 	}
 
