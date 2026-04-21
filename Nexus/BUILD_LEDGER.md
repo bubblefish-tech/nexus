@@ -1519,3 +1519,17 @@
   - Vet: OK
   - `internal/a2a/registry` PASS (all tests including new TestHealthCheckTransportFailure)
   - Full suite (a2a/..., daemon/..., config/...): PASS — zero failures
+
+## WIRE.10: COMPLETE — Bidirectional A2A handshake + X-Agent-ID context (cc01aab)
+- `tryAgentHandshake()`: async goroutine fired after each TOML agent load/update
+  - Dials agent, sends `agent/card`, updates registry with authoritative card data
+  - Real methods list + protocol version replaces TOML-hardcoded values
+  - Failure is silent — TOML data remains fallback; no startup impact
+- `handleA2AJSONRPC`: extracts `X-Agent-ID` HTTP header and injects into context as
+  `CtxKeySourceAgent` — enables external agents (e.g. OpenClaw) to call `agent/invoke`
+  on Nexus with source identity, satisfying governance auth check
+- `openclaw.toml`: added `stream_path = "/a2a"` to match `jsonrpc_path`
+- Exit gate: Build OK | Vet OK | daemon + a2a/* PASS (no race flag per user instruction)
+- Next: for OpenClaw→Nexus routing to work, OpenClaw must POST to
+  `http://127.0.0.1:8081/a2a/jsonrpc` with `X-Agent-ID: agt_01KP7MN6P9VXPH5GB1BBZ6Q4WF`
+  (its registered agent ID); no Nexus-side admin token required for `agent/invoke`
