@@ -39,6 +39,25 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// poolAdapter adapts client.Pool + registry.Store to the server.ClientPool interface
+// so the a2aServer can dispatch agent/invoke calls through the pool.
+type poolAdapter struct {
+	pool  *client.Pool
+	store *registry.Store
+}
+
+func (a *poolAdapter) SendMessage(ctx context.Context, targetAgentID string, msg *a2a.Message, skill string) (*a2a.Task, error) {
+	agent, err := a.store.Get(ctx, targetAgentID)
+	if err != nil {
+		return nil, fmt.Errorf("agent not found: %w", err)
+	}
+	c, err := a.pool.Get(ctx, *agent)
+	if err != nil {
+		return nil, fmt.Errorf("get client: %w", err)
+	}
+	return c.SendMessage(ctx, msg, skill, nil)
+}
+
 // setupA2ABridge constructs the A2A bridge and wires it into the MCP server.
 // Callers gate on cfg.A2A.Enabled. Requires d.registryStore to have been
 // opened earlier in Start(); if nil, A2A is disabled. Any error during A2A
@@ -149,6 +168,7 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 		server.WithRegistrationStore(regStore),
 		server.WithAgentPinger(hc),
 		server.WithRegistrationToken(regToken),
+		server.WithClientPool(&poolAdapter{pool: pool, store: regStore}),
 		server.WithLogger(d.logger),
 	)
 
