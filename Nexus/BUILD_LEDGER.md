@@ -1287,3 +1287,20 @@
 - Exit gate:
   - Build: OK
   - `internal/maintain` PASS (12/12, -race -count=1, including configio 19/19)
+
+### W3: COMPLETE — ACID Transaction Engine with Journaled Rollback
+- New files: `internal/maintain/transaction.go`, `transaction_test.go`
+  - `Step{Action, Params}` — one action within a transaction
+  - `JournalEntry{StepIndex, Action, PreState, Path, Timestamp, Undone}` — pre-state capture for undo
+  - `Transaction{ID, Tool, Steps, Journal, Status, StartedAt}` — full ACID transaction
+  - `NewTransaction(tool, steps)` — creates pending transaction with crypto/rand ID (tx_<16 hex chars>)
+  - `Execute(ctx)`: sets status executing → journals pre-state per step → acquires file lock → runs ExecuteAction → on failure: rollback in reverse → on success: status committed; journal persisted to disk after each state change
+  - `Rollback()`: public method; walks Journal in reverse restoring PreState for each undone step; sets status rolled_back
+  - `RecoverIncomplete(ctx)`: scans `~/.nexus/maintain/transactions/*.journal` on startup; rolls back any "executing" or "failed" journals left by a crash
+  - `lockFile(path)`: per-path mutex — concurrent transactions on different files run in parallel; same file is serialised
+  - `newTxID()`: `crypto/rand` 8 bytes → `tx_<hex>` (deterministically unique, not time-dependent)
+  - Journal format: JSON at `~/.nexus/maintain/transactions/<id>.journal`; status transitions: pending → executing → committed | rolled_back | failed
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (19/19 W3+W4 combined, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19)
