@@ -64,6 +64,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/discover"
 	"github.com/bubblefish-tech/nexus/internal/doctor"
 	"github.com/bubblefish-tech/nexus/internal/embedding"
+	"github.com/bubblefish-tech/nexus/internal/maintain"
 	"github.com/bubblefish-tech/nexus/internal/eventbus"
 	"github.com/bubblefish-tech/nexus/internal/events"
 	"github.com/bubblefish-tech/nexus/internal/eventsink"
@@ -624,6 +625,15 @@ func (d *Daemon) Start() error {
 	// WEB.2: init discovery scanner for GET /api/discover/results.
 	if configDir, cdErr := config.ConfigDir(); cdErr == nil {
 		d.discoveryScanner = discover.NewScanner(configDir, d.logger)
+	}
+
+	// W1: initialise path allowlist for closed action set.
+	if err := maintain.InitAllowedPaths(); err != nil {
+		d.logger.Warn("daemon: maintain path allowlist init failed", "err", err)
+	}
+	// W4: recover any incomplete transactions from a prior crash.
+	if err := maintain.RecoverIncomplete(context.Background()); err != nil {
+		d.logger.Warn("daemon: maintain recover incomplete transactions", "err", err)
 	}
 
 	// Create embedding client from config. Returns nil when disabled.

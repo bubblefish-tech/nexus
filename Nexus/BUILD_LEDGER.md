@@ -1242,3 +1242,218 @@
 ### Stale branches (safe to delete):
 - v0.1.3-ingest: fully merged to main
 - fix/bench-windows-clock: fully merged to main
+
+---
+
+## feat/maintain-module — Worm Detection & Maintenance Module
+
+**Base:** v0.1.3-moat-takeover (branched after NAMING commit)
+**Package:** `internal/maintain/` (not `internal/agent/` — occupied by A2A identity management)
+**Coordinator type:** `Maintainer` · CLI: `nexus maintain ...` · TUI: `/maintain`
+**New deps:** `howett.net/plist v1.0.1` (plist parsing), `gopkg.in/yaml.v3` promoted from indirect
+
+### W2: COMPLETE — Universal Config Reader (configio)
+- New package: `internal/maintain/configio/`
+  - `reader.go`: ConfigFile struct + Open/Get/Set/Delete/Has/Save/SaveTo; format detection; keypath navigation with dot-notation + [N] array indexing
+  - `json.go`: JSON + JSONC (BOM strip, // and /* */ comment removal with string-literal awareness); 2-space MarshalIndent write-back
+  - `toml.go`: BurntSushi/toml decode+encode; top-level map required for serialize
+  - `yaml.go`: gopkg.in/yaml.v3; normalizeYAML handles map[any]any defensively
+  - `plist.go`: howett.net/plist; XML plist read/write with tab indent
+  - `ini.go`: minimal in-house parser (~80 lines); [section]/key=value; inline ; and # comment stripping; no external dep
+  - `sqlite.go`: read-only via modernc.org/sqlite; discovers key/value tables by trying common column-name pairs (key/value, name/value, key/data); never writes
+  - `configio_test.go`: 19 tests — format detection (5), JSON round-trip, JSONC comment stripping, BOM, missing-key nil, nested keypath creation, delete, Has, array index, TOML round-trip, YAML round-trip, INI round-trip, SQLite read-only enforcement, SaveTo, plist round-trip
+- Exit gate:
+  - Build: OK
+  - Vet: OK (implicit clean build)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+
+### W4: COMPLETE — 12 Atomic Actions with Path Allowlist
+- New files: `internal/maintain/actions.go`, `actions_unix.go` (build !windows), `actions_windows.go` (build windows), `actions_test.go`
+  - `ActionType` closed set of 12 constants — only entry point is `ExecuteAction(ctx, action, params)`
+  - `InitAllowedPaths()`: populates allowlist at startup — home dir + APPDATA/LOCALAPPDATA (Windows)
+  - `validatePath()`: resolves symlinks via `filepath.EvalSymlinks` before prefix check — symlink traversal caught
+  - `ActionBackupFile`: copies to `<path>.nexus-backup-<unix_ts>`, validates both paths
+  - `ActionRestoreFile`: restores backup over original, validates both paths
+  - `ActionReadConfig`/`ActionWriteConfig`: open via configio, path-validated
+  - `ActionSetConfigKey`: open → Set(keypath, value) → Save; path-validated
+  - `ActionDeleteConfigKey`: open → Delete(keypath) → Save; path-validated
+  - `ActionSetEnvVar`: Unix writes to `~/.nexus/env.sh` (idempotent line replace); Windows writes to `HKCU\Environment` via `golang.org/x/sys/windows/registry`
+  - `ActionRestartProcess`: gopsutil process find → terminate (SIGTERM/taskkill) → 5s graceful wait → re-launch if exec_path given → 2s verify; 3 attempts with 2s/4s/8s backoff
+  - `ActionWaitForPort`: polls `http://localhost:<port>/` every 500ms for 30s
+  - `ActionVerifyConfig`: open via configio (parse = validate); path-validated
+  - `ActionHTTPCall`: typed HTTP call with expected_status check; 10s timeout; body returned
+  - `ActionCreateFile`: fails if target already exists; validates path; creates parent dirs 0700
+  - `stringParam`/`intParam` helpers with clear error messages
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (12/12, -race -count=1, including configio 19/19)
+
+### W3: COMPLETE — ACID Transaction Engine with Journaled Rollback
+- New files: `internal/maintain/transaction.go`, `transaction_test.go`
+  - `Step{Action, Params}` — one action within a transaction
+  - `JournalEntry{StepIndex, Action, PreState, Path, Timestamp, Undone}` — pre-state capture for undo
+  - `Transaction{ID, Tool, Steps, Journal, Status, StartedAt}` — full ACID transaction
+  - `NewTransaction(tool, steps)` — creates pending transaction with crypto/rand ID (tx_<16 hex chars>)
+  - `Execute(ctx)`: sets status executing → journals pre-state per step → acquires file lock → runs ExecuteAction → on failure: rollback in reverse → on success: status committed; journal persisted to disk after each state change
+  - `Rollback()`: public method; walks Journal in reverse restoring PreState for each undone step; sets status rolled_back
+  - `RecoverIncomplete(ctx)`: scans `~/.nexus/maintain/transactions/*.journal` on startup; rolls back any "executing" or "failed" journals left by a crash
+  - `lockFile(path)`: per-path mutex — concurrent transactions on different files run in parallel; same file is serialised
+  - `newTxID()`: `crypto/rand` 8 bytes → `tx_<hex>` (deterministically unique, not time-dependent)
+  - Journal format: JSON at `~/.nexus/maintain/transactions/<id>.journal`; status transitions: pending → executing → committed | rolled_back | failed
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (19/19 W3+W4 combined, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19)
+
+### W1: COMPLETE — Digital Twin Environment Model
+- New files: `internal/maintain/twin.go`, `twin_test.go`
+  - `ToolState`: Name, Status (running/stopped/unknown), DetectionMethod, Port, ProcessPID, ConfigPaths, ConfigState, Version, Health, DesiredState, Drift, LastUpdated
+  - `DriftEntry{Field, Actual, Desired}` — one deviation between actual and desired config
+  - `HealthState{Reachable, LatencyMs, LastCheck, ErrorCount}` — per-tool API liveness
+  - `NetworkTopology` — forward-reference placeholder; W7 fills in the real implementation
+  - `EnvironmentTwin`: RWMutex-protected map of ToolState; platform string; NexusMCPPort/NexusAPIPort for desired-state parameterisation
+  - `NewTwin()` — empty twin for current runtime.GOOS
+  - `Refresh(ctx, []discover.DiscoveredTool)`: upserts tools from discovery output; probes health via 2s HTTP GET; marks absent tools "unknown" (not deleted)
+  - `GetToolState(name)` — nil-safe lookup
+  - `AllTools()` — snapshot slice (safe for iteration outside lock)
+  - `DriftReport()` — aggregates drift across all tools
+  - `ComputeDesiredState(tool, desired)` — sets DesiredState and recomputes Drift via reflect.DeepEqual comparison
+  - `computeDrift(actual, desired)` — keys in desired missing or different in actual → DriftEntry; extra actual keys are ignored
+  - `SetTopology`/`Topology()` — topology slot for W7 wiring
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (32/32 W1+W3+W4 combined, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19)
+
+### W5: COMPLETE — Connector Registry with Merkle Sync
+- New package: `internal/maintain/registry/`
+  - `registry.go`: `RawStep{Action, Params}` (no import of parent maintain — avoids import cycle); `Connector`, `DetectionConfig`, `MCPConfigTemplate`, `RuntimeAPIConfig`, `HealthCheckConfig`, `KnownIssue` structs; `Registry` (sync.RWMutex-protected name→*Connector map + Merkle hash); `NewRegistry([]byte)`, `ConnectorFor`, `AllConnectors` (sorted), `RecipeFor(tool, issueID)`, `MCPDesiredState(tool)` (builds nested map from dot-path template), `Merge(other, expectedMerkle)` (Merkle-verified), `Len`, `recomputeMerkle` (SHA-256 over sorted names); `buildNestedMap` helper
+  - `embedded.go`: `//go:embed connectors.json` → `LoadEmbedded()`, `MustLoadEmbedded()` (panic variant for init)
+  - `verify.go`: `VerifyPayload(data, sig, expectedHash)` — Ed25519 verify then SHA-256 check; `VerifyHash(data, expectedHash)` — constant-time comparison via crypto/subtle; `ContentHash(data)` — hex SHA-256; `SetRegistryPublicKey(pub)` — allows test injection of keypair
+  - `sync.go`: `TrySyncRemote(ctx, SyncOptions)` — fetches manifest JSON (sha256 field), downloads connectors payload, verifies hash, parses registry; non-fatal on any failure (logs Warn, returns error); `LoadWithFallback(ctx, opts)` — tries remote, falls back to embedded on any error; 4 MiB body cap; 10s timeout
+  - `connectors.json` (30 connectors): Claude Desktop, Cursor, Windsurf, Cline, VS Code+Continue, ChatGPT Desktop, Codex CLI, Claude Code CLI, Aider, Continue (JetBrains), Zed, Goose, Amp, OpenCode; Ollama, LM Studio, LocalAI, Jan, GPT4All; vLLM, text-generation-inference, koboldcpp, Tabby; Open WebUI, AnythingLLM, LibreChat; Docker variants: ollama-docker, localai-docker, open-webui-docker, vllm-docker, tgi-docker
+- Import cycle resolution: `registry` defines its own `RawStep{Action string, Params map[string]any}` — zero imports of parent `maintain` package; convergence (W6) will do thin slice conversion `[]registry.RawStep → []maintain.Step` at call site
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
+  - `internal/maintain` PASS (32/32, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+
+### W6: COMPLETE — Convergence Reconciliation Loop
+- New files: `internal/maintain/convergence.go`, `convergence_test.go`
+  - `ReconcileResult{Tool, IssueID, Steps, Err, Skipped}` — per-tool outcome of one reconcile pass
+  - `Reconciler{twin *EnvironmentTwin, registry *registry.Registry}` — Kubernetes-style declarative control loop
+  - `NewReconciler(twin, reg)` — wires reconciler to twin + registry
+  - `Reconcile(ctx)` — single convergence pass: for each tracked tool, refreshes desired state from registry MCP template, selects matching known issue, converts `[]registry.RawStep → []maintain.Step` with template substitution, builds + executes Transaction; sequential (one tool at a time)
+  - `Run(ctx, interval)` — continuous loop; logs per-tool errors but never stops; exits cleanly on ctx cancel
+  - `selectIssue(ts, conn)` — priority-ordered issue selection: liveness issues (recipe contains restart_process or wait_for_port) matched when tool is stopped/unknown; config issues matched when drift present; returns "" when no applicable issue
+  - `issueKind(ki)` — classifies issue recipe as "liveness" or "config" by inspecting action types
+  - `convertSteps(raw, ts, conn)` — thin adapter: `[]registry.RawStep → []Step` (ActionType cast + template substitution); no import cycle
+  - `templateVars(ts, conn)` — builds substitution map: `{{tool_name}}`, `{{config_path}}` (first ConfigPaths entry), `{{endpoint}}`
+  - `substituteParams(params, vars)` — shallow copy of params map with string values substituted; non-string values pass through unchanged
+  - `actionWaitForPort` updated: reads optional `timeout_seconds` param (default 30) via new `toInt(v any)` helper; test uses `timeout_seconds:1` to avoid 30s poll
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (42/42 W1+W3+W4+W6 combined, -race -count=1, 2.8s)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
+
+### W7: COMPLETE — Network Topology Resolver
+- New package: `internal/maintain/topology/`
+  - `topology.go`: `NetworkTopology{Docker, WSL2, Proxy, Ports, ResolvedAt}` — point-in-time snapshot; `DockerTopology{Available, Networks}`, `DockerNetwork{Name, Driver, Subnet}`, `WSL2Topology{Available, BridgeIP, DistroNames}`, `ProxyConfig{HTTPProxy, HTTPSProxy, NoProxy}`, `PortState{Port, Reachable, LatencyMs}`; `Resolver{ProbePorts []int}`; `NewResolver()` — default probe-port list (10 AI tool ports); `Resolve(ctx)` — orchestrates all sub-probes; `String()` — one-line summary
+  - `docker.go`: `detectDocker(ctx)` — `exec.LookPath("docker")` → `docker network ls --format {{.Name}}\t{{.Driver}}`; returns `Available=false` on missing/unresponsive daemon (non-fatal)
+  - `wsl2.go`: `detectWSL2()` — `runtime.GOOS != "windows"` → false immediately; otherwise scans `net.Interfaces()` for WSL/vEthernet adapter, extracts IPv4 bridge IP; `listWSLDistros()` runs `wsl --list --quiet`, strips null bytes from UTF-16LE output
+  - `proxy.go`: `detectProxy()` — reads `HTTP_PROXY`/`http_proxy`, `HTTPS_PROXY`/`https_proxy`, `NO_PROXY`/`no_proxy`; upper-case wins when both set
+  - `firewall.go`: `probePort(ctx, port)` — 500ms TCP dial to `127.0.0.1:port`; records latency; cancelled ctx → Reachable=false
+  - `topology_test.go`: 11 tests — resolve returns non-nil, ResolvedAt recent, sub-components non-nil, port map populated, open/closed port detection, proxy env vars, proxy empty when unset, docker unavailability, String non-empty, context cancellation
+- `internal/maintain/twin.go` updated: removed placeholder `type NetworkTopology struct{}`; added `type NetworkTopology = topology.NetworkTopology` (type alias re-export — callers of the maintain package need not import topology directly); added `maintain/topology` import
+- Exit gate:
+  - Build: OK
+  - `internal/maintain` PASS (42/42, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
+  - `internal/maintain/topology` PASS (11/11, -race -count=1)
+
+### W9: COMPLETE — Behavioral Protocol Fingerprinting
+- New package: `internal/maintain/fingerprint/`
+  - `fingerprint.go`: `Protocol` type with 6 constants (openai_compat, ollama_native, tgi, koboldcpp, tabby, unknown); `Evidence{ProbeName, Path, StatusCode, LatencyMs, Matched}`; `Fingerprint{Endpoint, Protocol, Confirmed, Evidence}`; `Probe{Name, Path, Proto, Match func(status int, body []byte) bool}`; `Prober{client *http.Client, probes []Probe}`; `NewProber()` — default probes; `NewProberWithProbes(probes)` — custom probes for testing; `Fingerprint(ctx, baseURL)` — runs probes in priority order, first match wins, stops on ctx cancellation; `runProbe` — GET + 64 KiB body cap + latency measurement; `probeTimeout = 3s`, `maxBodyBytes = 64 KiB`
+  - `probes.go`: `defaultProbes()` — 6 probes in priority order (tool-specific before generic): ollama-tags (`/api/tags` → hasField("models")), tgi-info (`/info` → hasField("model_id") && hasField("max_total_tokens")), koboldcpp-info (`/api/v1/info` → result=="KoboldCpp"), tabby-health (`/v1/health` → hasField("device")), openai-models (`/v1/models` → hasField("data")), openai-completions-probe (`/v1/completions` 400 → hasField("error")/"detail" fallback); `hasField(body, field)` — JSON object field presence check via `map[string]json.RawMessage`
+  - `fingerprint_test.go`: 12 tests — OllamaNative, OpenAICompat, TGI, KoboldCpp, Tabby, Unknown (all-404 server), Evidence recorded, Ollama not misidentified as OpenAI (serves both endpoints, Ollama wins by probe ordering), CustomProbes, ContextCancelled (50ms ctx vs 300ms server sleep), String non-empty, OpenAICompat fallback probe (/v1/completions 400)
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/fingerprint` PASS (12/12, -race -count=1)
+  - All other maintain packages PASS (total 118/118)
+
+### W10: COMPLETE — Adaptive Fix Learning (Immune Memory)
+- New package: `internal/maintain/learned/`
+  - `fixes.go`: `FixOutcome int` (OutcomeSuccess=0, OutcomeFailure=1); `FixMemory{ToolName, IssueID, Successes, Failures, LastSeen, LastResult}` — JSON-serialisable learned record; `FixMemory.Weight(now time.Time) float64` — decay-adjusted success rate: `(successes/total) × exp(−k × daysSinceLastSeen)` with k=ln(2)/7 (half-life 7 days), returns neutralWeight=0.5 for zero-observation records; `Store{mu sync.RWMutex, records map[string]*FixMemory, path string}` — thread-safe on-disk store; `NewStore(path)` — creates dirs, loads existing JSON (missing file = empty store); `Record(tool, issue, outcome)` — increments counter, updates LastSeen/LastResult, persists to disk after every call; `Weight(tool, issue)` — returns current decay-adjusted weight; `BestIssue(tool, candidates)` — returns candidate issue ID with highest weight (first candidate as tie-breaker when all weights equal); `All()` — snapshot sorted by tool then issue; `Save()` — explicit persist (checks write error); `Len()`; `persist()` — `json.MarshalIndent` + `os.WriteFile(0600)`; `load()` — on startup, reads and unmarshals JSON
+  - `fixes_test.go`: 15 tests — Record increases successes, Record increases failures, Record accumulates across calls, Weight no-history returns 0.5, Weight all-successes ≥ 0.9, Weight all-failures ≤ 0.1, FixMemory decay halves at 7 days (±5%), BestIssue prefers successful candidate, BestIssue no-history returns first, BestIssue empty returns "", Save+Load round-trip, PersistsAfterRecord (file exists on disk), All sorted (tool then issue), ConcurrentAccess (-race), Len
+- Decay invariants: neutralWeight=0.5 places unknown fixes between known-bad and known-good; half-life=7 days so knowledge 14 days stale has weight 25% of fresh; negative elapsed time clamped to 0
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/learned` PASS (15/15, -race -count=1)
+  - All maintain packages PASS (total 133/133, -race -count=1)
+
+### W8: COMPLETE — Transparent AI API Proxy
+- New package: `internal/maintain/proxy/`
+  - `whitelist.go`: `AllowList{mu sync.RWMutex, allowed map[string]struct{}}` — SSRF-safe allowlist; `NewAllowList(urls)`, `Add(rawURL)`, `IsAllowed(rawURL)`, `Snapshot()`; `normaliseKey()` extracts scheme+host and enforces loopback-only invariant (non-loopback URLs silently dropped — prevents use as SSRF vector); "localhost" hostname allowed alongside 127.x.x.x and ::1
+  - `intercept.go`: `Interceptor` interface (`InterceptRequest(*http.Request) error`, `InterceptResponse(*http.Response) error`); `HeaderInterceptor` — stamps `X-Nexus-Proxy: 1` and `X-Nexus-Version: {version}` on every outbound request and response; `MemoryInterceptor{ContextFn func}` — stub that sets `X-Nexus-Memory-Context: stub` header (real memory injection wired in W10+ when memory sub-system is available); `ContextFn` field allows injection for testing
+  - `transparent.go`: `Config{ListenAddr string}`; `Proxy{mu, config, routes map[string]*url.URL, allowList, interceptors, server}`; `NewProxy(cfg)` — creates proxy with HeaderInterceptor pre-loaded; `AddRoute(toolName, rawBaseURL)` — validates loopback, adds to routes + allowlist; `AddInterceptor(ic)`; `Start(ctx)` — binds listener, shuts down cleanly on ctx cancel; `ServeHTTP` — URL scheme `/proxy/{tool-name}/{path}`: parses tool name, looks up route, validates allowlist (403 on fail), builds target URL with query passthrough, runs interceptor chain in Director + ModifyResponse, uses `httputil.ReverseProxy` for streaming-safe forwarding; `parsePath`, `buildTargetURL`, `isLoopback` helpers
+  - `proxy_test.go`: 15 tests — allowlist permits loopback IP, permits localhost, blocks external IP, blocks unregistered loopback, snapshot; proxy 404 unknown tool, 400 bad path, forwards to upstream (path verified), injects Nexus headers, response body passthrough, streaming/SSE chunked response, query string forwarded, memory interceptor header injection, AddRoute rejects non-loopback, Start/Stop lifecycle
+- Exit gate:
+  - Build: OK
+  - `internal/maintain/proxy` PASS (15/15, -race -count=1)
+  - `internal/maintain` PASS (42/42, -race -count=1)
+  - `internal/maintain/configio` PASS (19/19, -race -count=1)
+  - `internal/maintain/registry` PASS (19/19, -race -count=1)
+  - `internal/maintain/topology` PASS (11/11, -race -count=1)
+
+### W11: COMPLETE — Coordinator + CLI + Daemon Hooks
+- New file: `internal/maintain/maintain.go` — `Maintainer` coordinator struct wiring all W1–W10 subsystems
+  - `Config{ConfigDir, ReconcileInterval, ScanInterval, LearnedStorePath}` — defaults: 60s reconcile, 30s scan, ~/.nexus/maintain/learned/fixes.json
+  - `Maintainer{cfg, twin, reg, reconciler, topRes, prober, learnStore, scanner, logger, mu, cancel, stopped, lastScan}`
+  - `New(cfg, logger)` — loads embedded registry, opens learned store, wires twin/reconciler/topology/prober/scanner
+  - `Start(ctx)` — runs initial scan synchronously, launches scanLoop + reconcileLoop goroutines; idempotent
+  - `Stop()` — cancels background loops
+  - `Scan(ctx)` — one-shot discovery + twin refresh + topology resolve
+  - `Reconcile(ctx)` — one convergence pass; records outcomes to learned store
+  - `FixTool(ctx, toolName)` — targeted single-tool convergence with learned-weighted issue selection
+  - `Status()` — point-in-time MaintainStatus snapshot for CLI display
+  - `Twin()`, `Registry()` — read-only accessors
+  - scanLoop, reconcileLoop — ticker-driven background goroutines
+- New file: `internal/maintain/maintain_test.go` — 10 tests
+  - TestNew_Defaults, TestNew_Twin, TestNew_Registry, TestStatus_EmptyAfterNew, TestScan_UpdatesLastScan, TestStart_Stop, TestStart_InitialScan, TestReconcile_ReturnsResults, TestFixTool_UnknownTool, TestStatus_Fields, TestStatus_LearnedCountReflectsReconcile
+- New file: `cmd/nexus/maintain.go` — CLI subcommand dispatcher
+  - `nexus maintain status` — scan + tabwriter tool table (NAME, STATUS, DRIFT, HEALTH, PROTOCOL)
+  - `nexus maintain fix <tool>` — targeted convergence attempt
+  - `nexus maintain watch` — live monitoring loop (Ctrl-C to stop); status summary every 10s
+  - `nexus maintain registry` — list all connectors + Merkle hash
+- `cmd/nexus/main.go` updated: added "maintain" to help text + switch case
+- `internal/daemon/daemon.go` updated: added `maintain.InitAllowedPaths()` + `maintain.RecoverIncomplete(ctx)` calls after discovery scanner init; added maintain import
+- Deadlock fix: `Start()` releases m.mu before calling `scan()` (scan acquires m.mu to update lastScan)
+- Exit gate:
+  - Build: OK (`go build ./...` clean)
+  - `internal/maintain` PASS (all tests, -race -count=1)
+  - All maintain sub-packages PASS
+  - `cmd/nexus` PASS
+
+### W12: COMPLETE — Integration & Platform Tests
+- New file: `internal/maintain/integration_test.go` — 8 integration tests
+  - TestIntegration_EndToEnd_DetectDrift_ApplyFix: full flow (discover → drift → reconcile → fix → verify)
+  - TestIntegration_Rollback_ReadOnlyConfig: transaction failure → rollback restores original
+  - TestIntegration_LearnedFix_PrefersSuccessful: learned store influences BestIssue ordering
+  - TestIntegration_PathTraversal_Rejected: symlink/traversal outside allowlist → blocked
+  - TestIntegration_JSONC_CommentsPreserved: VS Code JSONC with comments → parse + modify + save valid JSON
+  - TestIntegration_ConcurrentReconcile: two tools with independent configs both fixed correctly
+  - TestIntegration_RegistryMerkleIntegrity: embedded registry loads deterministically
+  - TestIntegration_FixTool_EndToEnd: Maintainer.FixTool targeted convergence (no panic, exercises full path)
+- Exit gate:
+  - Build: OK (`go build ./...`)
+  - All 7 maintain packages PASS (-race -count=1)
+  - Total maintain test count: ~150+ (unit + integration across all sub-packages)
+
+### Module FINAL EXIT GATE
+- `go build ./...` — PASS
+- `go vet ./...` — PASS
+- `go test ./internal/maintain/... -race -count=1` — ALL PASS (7 packages)
+- W1–W12 all committed on feat/maintain-module branch

@@ -20,12 +20,15 @@ require (
 	github.com/seiflotfy/cuckoofilter v0.0.0-20240715131351-a2f2c23f1771
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/tidwall/gjson v1.18.0
+	github.com/tursodatabase/libsql-client-go v0.0.0-20251219100830-236aa1ff8acc
 	go.mongodb.org/mongo-driver/v2 v2.5.1
 	golang.org/x/crypto v0.50.0
 	golang.org/x/sys v0.43.0
 	golang.org/x/term v0.42.0
 	golang.org/x/time v0.15.0
 	google.golang.org/api v0.274.0
+	gopkg.in/yaml.v3 v3.0.1
+	howett.net/plist v1.0.1
 	modernc.org/sqlite v1.48.1
 )
 
@@ -83,7 +86,6 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	github.com/tursodatabase/libsql-client-go v0.0.0-20251219100830-236aa1ff8acc // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
