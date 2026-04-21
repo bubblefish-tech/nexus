@@ -142,7 +142,7 @@ func TestMatcher_NilEmbedder(t *testing.T) {
 	}
 }
 
-func TestCosineSimilarity(t *testing.T) {
+func TestCosineSimilarityFunc(t *testing.T) {
 	tests := []struct {
 		name string
 		a, b []float32
@@ -156,7 +156,7 @@ func TestCosineSimilarity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cosineSimilarity(tt.a, tt.b)
+			got := CosineSimilarity(tt.a, tt.b)
 			if math.Abs(got-tt.want) > 0.001 {
 				t.Errorf("cosineSimilarity = %f, want %f", got, tt.want)
 			}

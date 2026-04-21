@@ -65,11 +65,11 @@ func (m *Matcher) Match(ctx context.Context, content string) ([]*Subscription, e
 
 	var matched []*Subscription
 	for _, sub := range subs {
-		filterVec, err := m.getFilterEmbedding(ctx, sub)
+		filterVec, err := m.GetFilterEmbedding(ctx, sub)
 		if err != nil || len(filterVec) == 0 {
 			continue
 		}
-		sim := cosineSimilarity(contentVec, filterVec)
+		sim := CosineSimilarity(contentVec, filterVec)
 		if sim >= m.threshold {
 			matched = append(matched, sub)
 		}
@@ -77,7 +77,7 @@ func (m *Matcher) Match(ctx context.Context, content string) ([]*Subscription, e
 	return matched, nil
 }
 
-func (m *Matcher) getFilterEmbedding(ctx context.Context, sub *Subscription) ([]float32, error) {
+func (m *Matcher) GetFilterEmbedding(ctx context.Context, sub *Subscription) ([]float32, error) {
 	m.mu.RLock()
 	vec, ok := m.cache[sub.ID]
 	m.mu.RUnlock()
@@ -103,7 +103,7 @@ func (m *Matcher) InvalidateCache(subscriptionID string) {
 	m.mu.Unlock()
 }
 
-func cosineSimilarity(a, b []float32) float64 {
+func CosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) || len(a) == 0 {
 		return 0
 	}

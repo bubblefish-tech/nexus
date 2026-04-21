@@ -48,6 +48,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/lint"
 	"github.com/bubblefish-tech/nexus/internal/provenance"
 	"github.com/bubblefish-tech/nexus/internal/quarantine"
+	"github.com/bubblefish-tech/nexus/internal/subscribe"
 	"github.com/bubblefish-tech/nexus/internal/vizpipe"
 	"github.com/bubblefish-tech/nexus/internal/query"
 	"github.com/bubblefish-tech/nexus/internal/version"
@@ -1141,6 +1142,17 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		d.writeErrorResponse(w, r, http.StatusForbidden, cascResult.Denial.Code,
 			cascResult.Denial.Reason, 0)
 		return
+	}
+
+	if d.subscribeStore != nil && d.subscribeMatcher != nil {
+		agentID := r.Header.Get("X-Agent-ID")
+		if agentID == "" {
+			agentID = src.Name
+		}
+		agentSubs := d.subscribeStore.ListForAgent(agentID)
+		if len(agentSubs) > 0 && len(cascResult.Records) > 1 {
+			d.boostSubscribedResults(r.Context(), cascResult.Records, agentSubs)
+		}
 	}
 
 	queryDuration := time.Since(queryStart)
@@ -2457,4 +2469,35 @@ func (d *Daemon) handleProve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.writeJSON(w, http.StatusOK, att)
+}
+
+func (d *Daemon) boostSubscribedResults(ctx context.Context, records []destination.TranslatedPayload, subs []*subscribe.Subscription) {
+	if d.subscribeMatcher == nil || len(subs) == 0 || len(records) <= 1 {
+		return
+	}
+
+	boosted := make([]bool, len(records))
+	for i, rec := range records {
+		for _, sub := range subs {
+			filterVec, err := d.subscribeMatcher.GetFilterEmbedding(ctx, sub)
+			if err != nil || len(filterVec) == 0 || len(rec.Embedding) == 0 {
+				continue
+			}
+			sim := subscribe.CosineSimilarity(filterVec, rec.Embedding)
+			if sim >= 0.65 {
+				boosted[i] = true
+				break
+			}
+		}
+	}
+
+	var top, rest []destination.TranslatedPayload
+	for i, rec := range records {
+		if boosted[i] {
+			top = append(top, rec)
+		} else {
+			rest = append(rest, rec)
+		}
+	}
+	copy(records, append(top, rest...))
 }
