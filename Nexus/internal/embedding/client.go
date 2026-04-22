@@ -41,6 +41,11 @@ type EmbeddingClient interface {
 	// the end client.
 	Embed(ctx context.Context, text string) ([]float32, error)
 
+	// BatchEmbed returns vector embeddings for multiple texts in one call.
+	// Providers that support native batch (OpenAI) send a single request.
+	// Others loop internally. Returns ErrEmbeddingUnavailable on failure.
+	BatchEmbed(ctx context.Context, texts []string) ([][]float32, error)
+
 	// Dimensions returns the number of dimensions this client produces.
 	// Used to validate stored embeddings are compatible with the query vector.
 	Dimensions() int

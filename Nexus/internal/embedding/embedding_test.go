@@ -350,3 +350,108 @@ func TestClient_Dimensions_ReturnsConfiguredValue(t *testing.T) {
 		t.Errorf("Dimensions() = %d; want 768", client.Dimensions())
 	}
 }
+
+func openAIBatchHandler(vec []float32) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input interface{} `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+		count := 1
+		if arr, ok := body.Input.([]interface{}); ok {
+			count = len(arr)
+		}
+		data := make([]map[string]interface{}, count)
+		for i := 0; i < count; i++ {
+			data[i] = map[string]interface{}{"embedding": vec, "index": i, "object": "embedding"}
+		}
+		resp := map[string]interface{}{"data": data}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	}
+}
+
+func TestOpenAIClient_BatchEmbed_Success(t *testing.T) {
+	want := []float32{0.1, 0.2, 0.3}
+	srv := httptest.NewServer(openAIBatchHandler(want))
+	defer srv.Close()
+
+	cfg := config.EmbeddingConfig{
+		Enabled:        true,
+		Provider:       embedding.ProviderOpenAI,
+		URL:            srv.URL,
+		Model:          "text-embedding-3-small",
+		Dimensions:     3,
+		TimeoutSeconds: 5,
+	}
+	client, err := embedding.NewClient(cfg, "test-key", nil)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	texts := []string{"hello", "world", "test"}
+	got, err := client.BatchEmbed(context.Background(), texts)
+	if err != nil {
+		t.Fatalf("BatchEmbed: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 vectors, got %d", len(got))
+	}
+	for i, v := range got {
+		if len(v) != 3 {
+			t.Errorf("vector %d: expected 3 dimensions, got %d", i, len(v))
+		}
+	}
+}
+
+func TestOpenAIClient_BatchEmbed_Empty(t *testing.T) {
+	cfg := config.EmbeddingConfig{
+		Enabled:    true,
+		Provider:   embedding.ProviderOpenAI,
+		URL:        "http://unused",
+		Model:      "m",
+		Dimensions: 3,
+	}
+	client, err := embedding.NewClient(cfg, "", nil)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	got, err := client.BatchEmbed(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BatchEmbed empty: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil for empty batch, got %v", got)
+	}
+}
+
+func TestOllamaClient_BatchEmbed_Sequential(t *testing.T) {
+	want := []float32{0.5, 0.6}
+	srv := httptest.NewServer(ollamaHandler(want))
+	defer srv.Close()
+
+	cfg := config.EmbeddingConfig{
+		Enabled:        true,
+		Provider:       embedding.ProviderOllama,
+		URL:            srv.URL,
+		Model:          "nomic-embed-text",
+		Dimensions:     2,
+		TimeoutSeconds: 5,
+	}
+	client, err := embedding.NewClient(cfg, "", nil)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	got, err := client.BatchEmbed(context.Background(), []string{"a", "b"})
+	if err != nil {
+		t.Fatalf("BatchEmbed: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 vectors, got %d", len(got))
+	}
+}
