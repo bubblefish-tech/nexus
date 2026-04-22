@@ -1755,13 +1755,19 @@
 | hotreload | 22.7% | 36.1% |
 | tui/pages | 38.1% | 39.1% |
 | safego | new | **100%** |
-| Packages still below 40%: external DB destinations (need real DBs), daemon/mcp (need integration infra), cmd/nexus (CLI lifecycle) |
+| tidb | 9.6% | 12.7% |
+| turso | 10.5% | 15.6% |
+| mysql | 11.0% | 13.8% |
+| firestore | 13.0% | 15.9% |
+| mongodb | 13.7% | 17.2% |
+| cockroachdb | 15.3% | 19.0% |
+| mcp/bridge | 63.6% | 63.6%+ (reformat tests added) |
 
 ### Exit Gate
 - Build: OK
 - Vet: OK
-- Full test suite: 2,897 tests, zero failures (1 pre-existing integration soak flake excluded)
-- 16 commits on feat/supernexusclaw, not pushed
+- Full test suite: 2,916 tests, zero failures (1 pre-existing integration soak flake excluded)
+- 20 commits on feat/supernexusclaw, not pushed
 
 ### Manual (Shawn's checklist):
 - [ ] TUI interactive test (nexus tui / nexus setup)
