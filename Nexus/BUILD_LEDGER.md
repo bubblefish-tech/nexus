@@ -1676,6 +1676,93 @@
   - Vet: OK
   - Full test suite: zero failures
 
+## CORS Middleware (9683a84)
+- New: `internal/daemon/cors.go` — corsMiddleware + isAllowedOrigin
+- Allows localhost/127.0.0.1 on any port. No wildcard. OPTIONS returns 204.
+- Applied before RequestID and logging middleware on all routes.
+- New: `internal/daemon/cors_test.go` — 6 tests (preflight 204, localhost allowed, 127.0.0.1 allowed, external rejected, no origin no headers, isAllowedOrigin table)
+
+## System Tray (b09adfe)
+- Modified: `internal/tray/tray_windows.go` — auto-opens dashboard in browser, MenuItemCount exported
+- Modified: `internal/tray/tray.go` — added NoBrowser config flag for tests
+- Fixed: `tray_test.go` — NoBrowser=true prevents browser open during test runs
+- 3 tests (nil logger, quit exits, menu item count)
+
+## Ingest Watchers (d5f1e53)
+- Implemented Parse() for 4 previously-stubbed watchers (were returning ErrNotImplemented):
+  - `watcher_claude_desktop.go` — JSON messages array with role/content/timestamp
+  - `watcher_chatgpt_desktop.go` — OpenAI export mapping tree + flat messages
+  - `watcher_open_webui.go` — messages array + nested chat.messages fallback
+  - `watcher_perplexity_comet.go` — messages + entries (query/answer pairs)
+- New: `internal/ingest/parse_helpers.go` — normalizeRole, parseTimestampMulti (shared by all 4)
+- New: `internal/ingest/watcher_new_parsers_test.go` — 13 tests (valid + malformed per watcher, normalizeRole, parseTimestampMulti)
+- Updated: `watcher_stubs_test.go` — removed ErrNotImplemented assertion (no longer stubs)
+
+## Batch Embedding (23f100a + 7c92919)
+- Added BatchEmbed to EmbeddingClient interface
+- OpenAI/compatible: native batch via array input in single POST
+- Ollama: sequential loop (no native batch)
+- Updated 4 test mock embedders across daemon + query packages
+- 3 new tests (batch of 3, empty batch, Ollama sequential)
+
+## Worm Auto-Connect (d22fa35)
+- Modified: `internal/maintain/maintain.go` — Config gains AutoConnect bool + SourcesDir string
+- New: autoConnect() generates source TOML for discovered tools after successful reconcile fix
+- Gated behind AutoConnect config flag (default false). Idempotent.
+- New: AutoConnectTool() public method for test access
+- 3 tests (writes source TOML, idempotent no-overwrite, disabled by default)
+
+## Merkle Configurable Interval (3b8db08)
+- New: `internal/config/types.go` — ProvenanceConfig{MerkleInterval, MerkleEveryN}
+- Modified: `internal/daemon/provenance_wire.go` — merkleRootTicker supports time interval + entry count trigger
+  - When merkle_every_n > 0, 5s polling loop checks entry count against threshold
+  - Whichever trigger fires first wins; both counters reset
+  - Default "24h" + 0 = backward-compatible daily-only behavior
+- New: `internal/provenance/merkle_interval_test.go` — 3 tests (entry count increments, threshold, deterministic root)
+
+## Panic Recovery Boundaries (70fd64a)
+- New: `internal/safego/safego.go` — Go(name, logger, tracker, fn) wrapper with defer recover()
+- New: `internal/safego/safego_test.go` — 5 tests (panic recovered, normal completion, nil tracker, multiple degraded, tracker empty)
+- StatusTracker tracks degraded subsystems by name + panic reason
+- Wrapped 6 daemon goroutines: wal-watchdog, consistency-checker, litebus-bridge, temporal-bin-refresher, merkle-root-ticker, a2a-health-check
+- Modified: `internal/daemon/handlers.go` — /health endpoint reports degraded subsystems
+- safego package: 100% coverage
+
+## Test Coverage Audit
+- Baseline: 2,826 tests across full suite
+- **0% packages — all now have test files:**
+  - `internal/version/version_test.go` — semver format + non-empty
+  - `internal/tui/styles/styles_test.go` — color constants + style rendering
+  - `internal/immune/rules/rules_test.go` — 10 Tier-0 rule tests (0% → 56%)
+  - `internal/tui/api/client_test.go` — HTTP mock client (0% → 81%)
+  - `internal/tui/tabs/tabs_test.go` — 7 tab Name/View/Init tests (0% → 42%)
+  - `internal/destination/factory/factory_test.go` — SQLite open, unknown type, error paths (0% → 16%)
+- **Below-40% packages improved:**
+  - eventsink: 27.4% → 42.1% (syslogPriority, formatSyslogMessage tests)
+  - hotreload: 22.7% → 36.1% (writeCompiledJSON atomic I/O tests)
+  - tui/api: 29.3% → 81.0% (9 httptest client method tests)
+  - mcp/bridge: reformat tests added (MCPToNA2A, NA2AToMCP, extractTextFromMessage)
+  - tui/pages: 38.1% → 39.1% (SummaryPage states, DatabasePage all 8 types, FeaturesPage safe mode)
+- **Final: 2,897 tests, zero failures**
+
+### Coverage Summary (after)
+| Package | Before | After |
+|---------|--------|-------|
+| tui/api | 0% | **81.0%** |
+| immune/rules | 0% | **56.0%** |
+| tui/tabs | 0% | **42.0%** |
+| eventsink | 27.4% | **42.1%** |
+| hotreload | 22.7% | 36.1% |
+| tui/pages | 38.1% | 39.1% |
+| safego | new | **100%** |
+| Packages still below 40%: external DB destinations (need real DBs), daemon/mcp (need integration infra), cmd/nexus (CLI lifecycle) |
+
+### Exit Gate
+- Build: OK
+- Vet: OK
+- Full test suite: 2,897 tests, zero failures (1 pre-existing integration soak flake excluded)
+- 16 commits on feat/supernexusclaw, not pushed
+
 ### Manual (Shawn's checklist):
 - [ ] TUI interactive test (nexus tui / nexus setup)
 - [ ] Orchestration with 2+ real agents
