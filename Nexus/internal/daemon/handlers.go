@@ -1389,6 +1389,13 @@ func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 		subs["eventbus"] = healthSubsystem{Status: "disabled"}
 	}
 
+	// Subsystem goroutine health — report any recovered panics.
+	if d.subsystemHealth != nil {
+		for name, reason := range d.subsystemHealth.Degraded() {
+			subs[name] = healthSubsystem{Status: "degraded", Details: "panic recovered: " + reason}
+		}
+	}
+
 	// Overall: degraded if any subsystem is degraded.
 	overall := "ok"
 	for _, s := range subs {

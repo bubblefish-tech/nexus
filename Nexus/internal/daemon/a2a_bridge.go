@@ -36,6 +36,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/mcp/bridge"
+	"github.com/bubblefish-tech/nexus/internal/safego"
 	"github.com/BurntSushi/toml"
 	_ "modernc.org/sqlite"
 )
@@ -266,7 +267,7 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 
 	// Start periodic health checks on all active agents.
 	hc := registry.NewHealthChecker(regStore, registry.WithHealthLogger(d.logger))
-	go func() {
+	safego.Go("a2a-health-check", d.logger, d.subsystemHealth, func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -277,7 +278,7 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 				_ = hc.CheckAll(context.Background())
 			}
 		}
-	}()
+	})
 
 	// Construct the NA2A JSON-RPC server for inbound requests (agent/register).
 	var regToken string

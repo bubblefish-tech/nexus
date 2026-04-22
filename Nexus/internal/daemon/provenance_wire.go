@@ -26,6 +26,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/destination"
 	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/safego"
 	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
@@ -133,7 +134,7 @@ func (d *Daemon) initProvenance(cfg *config.Config) {
 
 	// Start Merkle root ticker if daemon key is available.
 	if d.daemonKeyPair != nil {
-		go d.merkleRootTicker(dataDir, cfg.Provenance)
+		safego.Go("merkle-root-ticker", d.logger, d.subsystemHealth, func() { d.merkleRootTicker(dataDir, cfg.Provenance) })
 	}
 }
 

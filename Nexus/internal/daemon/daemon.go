@@ -83,6 +83,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/policy"
 	"github.com/bubblefish-tech/nexus/internal/provenance"
 	"github.com/bubblefish-tech/nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/safego"
 	"github.com/bubblefish-tech/nexus/internal/quarantine"
 	"github.com/bubblefish-tech/nexus/internal/queue"
 	"github.com/bubblefish-tech/nexus/internal/secrets"
@@ -315,6 +316,10 @@ type Daemon struct {
 	// Nil when destination is not SQLite. Wired into the cascade runner.
 	bm25Searcher query.BM25Searcher
 
+	// subsystemHealth tracks which subsystem goroutines are alive vs degraded
+	// after a recovered panic. Reported by /health endpoint.
+	subsystemHealth *safego.StatusTracker
+
 	// discoveryScanner runs the 5-tier AI-tool discovery scan on demand for
 	// GET /api/discover/results. Nil until Start() resolves configDir.
 	discoveryScanner *discover.Scanner
@@ -342,17 +347,18 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	}
 	m := metrics.New()
 	d := &Daemon{
-		cfg:         cfg,
-		logger:      logger,
-		metrics:     m,
-		rl:          newRateLimiter(),
-		bytesRL:     newBytesRateLimiter(),
-		vizPipe:     vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
-		eventBus:    eventbus.New(256),
-		liteBus:     events.NewLiteBus(512),
-		pipeMetrics: newPipelineMetrics(),
-		stopped:     make(chan struct{}),
-		shutdownReq: make(chan struct{}),
+		cfg:             cfg,
+		logger:          logger,
+		metrics:         m,
+		rl:              newRateLimiter(),
+		bytesRL:         newBytesRateLimiter(),
+		vizPipe:         vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
+		eventBus:        eventbus.New(256),
+		liteBus:         events.NewLiteBus(512),
+		pipeMetrics:     newPipelineMetrics(),
+		subsystemHealth: safego.NewStatusTracker(),
+		stopped:         make(chan struct{}),
+		shutdownReq:     make(chan struct{}),
 	}
 	// -1.0 means "not yet computed". Overwritten on first check.
 	d.consistencyScore.Store(math.Float64bits(-1.0))
@@ -604,7 +610,7 @@ func (d *Daemon) Start() error {
 			d.logger.Warn("daemon: initial temporal bin refresh failed (non-fatal)",
 				"component", "daemon", "error", refreshErr)
 		}
-		go d.temporalBinRefresher(sqliteDest.DB())
+		safego.Go("temporal-bin-refresher", d.logger, d.subsystemHealth, func() { d.temporalBinRefresher(sqliteDest.DB()) })
 		d.logger.Info("daemon: BM25 search and temporal bins enabled",
 			"component", "daemon")
 	}
@@ -762,7 +768,7 @@ func (d *Daemon) Start() error {
 	// Start WAL watchdog — updates WAL health and disk metrics periodically.
 	// Reference: Tech Spec Section 4.4.
 	d.supervisor.Register("walwatchdog")
-	go d.walWatchdog(walPath)
+	safego.Go("wal-watchdog", d.logger, d.subsystemHealth, func() { d.walWatchdog(walPath) })
 
 	// Start the goroutine heartbeat supervisor now that all monitored
 	// goroutines are registered.
@@ -771,7 +777,7 @@ func (d *Daemon) Start() error {
 	// Start consistency checker if enabled.
 	// Reference: Tech Spec Section 11.5.
 	if cfg.Consistency.Enabled {
-		go d.consistencyChecker()
+		safego.Go("consistency-checker", d.logger, d.subsystemHealth, func() { d.consistencyChecker() })
 		d.logger.Info("daemon: consistency checker started",
 			"component", "daemon",
 			"interval_seconds", cfg.Consistency.IntervalSeconds,
@@ -782,7 +788,7 @@ func (d *Daemon) Start() error {
 	// Start visualization pipe, WebUI activity event bus, and LiteBus bridge.
 	d.vizPipe.Start()
 	d.eventBus.Start()
-	go d.runLiteBusBridge()
+	safego.Go("litebus-bridge", d.logger, d.subsystemHealth, func() { d.runLiteBusBridge() })
 
 	// Initialise provenance: daemon Ed25519 key, source signing keys, and
 	// audit hash chain state. Non-fatal — the daemon runs without provenance
