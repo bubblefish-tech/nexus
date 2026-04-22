@@ -19,7 +19,6 @@ package ingest
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,12 +33,6 @@ func stubWatcherTest(t *testing.T, w Watcher, name, sourceName string) {
 	}
 	if w.SourceName() != sourceName {
 		t.Errorf("SourceName() = %q, want %q", w.SourceName(), sourceName)
-	}
-
-	// Parse always returns ErrNotImplemented.
-	_, err := w.Parse(context.Background(), "/dummy", 0)
-	if !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("Parse() error = %v, want ErrNotImplemented", err)
 	}
 
 	// DefaultPaths returns something (may be nil on some systems, but not error).

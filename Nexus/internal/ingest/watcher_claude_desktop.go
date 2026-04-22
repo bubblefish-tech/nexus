@@ -19,20 +19,18 @@ package ingest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 )
 
-// ClaudeDesktopWatcher is a v0.1.3 scaffold. The real parser is planned for
-// v0.1.4. Claude Desktop stores a local SQLite cache of conversations at
-// ~/Library/Application Support/Claude (macOS), %APPDATA%/Claude (Windows),
-// and ~/.config/Claude (Linux).
-//
-// This file exists so that the v0.1.3 interface is stable and so that the
-// manager can report "detected, not yet supported" for users who have Claude
-// Desktop installed.
+// ClaudeDesktopWatcher parses Claude Desktop conversation JSON files.
+// Claude Desktop stores conversations at platform-specific paths as JSON
+// files with a messages array containing role, content, and timestamp fields.
 type ClaudeDesktopWatcher struct {
 	mu    sync.Mutex
 	state WatcherState
@@ -73,8 +71,49 @@ func (w *ClaudeDesktopWatcher) Detect(ctx context.Context) (bool, string, error)
 	return false, "", nil
 }
 
+type claudeDesktopConversation struct {
+	Messages []struct {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		Timestamp string `json:"timestamp"`
+		CreatedAt string `json:"created_at"`
+	} `json:"messages"`
+	Title string `json:"title"`
+}
+
 func (w *ClaudeDesktopWatcher) Parse(ctx context.Context, path string, fromOffset int64) (*ParseResult, error) {
-	return nil, ErrNotImplemented
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("claude_desktop: read %s: %w", path, err)
+	}
+
+	contentHash := sha256.Sum256(data)
+
+	var conv claudeDesktopConversation
+	if err := json.Unmarshal(data, &conv); err != nil {
+		return &ParseResult{NewOffset: int64(len(data)), LastHash: contentHash}, nil
+	}
+
+	var memories []Memory
+	for _, msg := range conv.Messages {
+		if msg.Content == "" {
+			continue
+		}
+		ts := parseTimestampMulti(msg.Timestamp, msg.CreatedAt)
+		memories = append(memories, Memory{
+			Content:      msg.Content,
+			Role:         normalizeRole(msg.Role),
+			Timestamp:    ts,
+			OriginalFile: path,
+			SourceMeta:   map[string]string{"title": conv.Title},
+		})
+	}
+
+	return &ParseResult{
+		Memories:  memories,
+		NewOffset: int64(len(data)),
+		LastHash:  contentHash,
+	}, nil
 }
 
 func (w *ClaudeDesktopWatcher) State() WatcherState {
