@@ -513,6 +513,11 @@ func (m *mockEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	return []float32{0.1, 0.2, 0.3}, nil
 }
 
+func (m *mockEmbedder) BatchEmbed(_ context.Context, texts []string) ([][]float32, error) {
+	r := make([][]float32, len(texts))
+	for i := range texts { r[i] = []float32{0.1, 0.2, 0.3} }
+	return r, nil
+}
 func (m *mockEmbedder) Dimensions() int { return 3 }
 func (m *mockEmbedder) Close() error    { return nil }
 
