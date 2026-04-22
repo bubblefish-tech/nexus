@@ -1763,11 +1763,18 @@
 | cockroachdb | 15.3% | 19.0% |
 | mcp/bridge | 63.6% | 63.6%+ (reformat tests added) |
 
+## HOTFIX (post-verification)
+- Fix 1: supervisor timeout increased 30s → 120s, walwatchdog beats inside ticker case — daemon no longer self-kills
+- Fix 2: removed openBrowser() from tray — no more browser popup on daemon start
+- Fix 3: removed ErrNotImplemented sentinel — all watchers fully implemented
+- Commit: d76a573
+- Runtime verified: daemon survives 65+ seconds, /health returns status=ok
+
 ### Exit Gate
 - Build: OK
 - Vet: OK
 - Full test suite: 2,916 tests, zero failures (1 pre-existing integration soak flake excluded)
-- 20 commits on feat/supernexusclaw, not pushed
+- 22 commits on feat/supernexusclaw, not pushed
 
 ### Manual (Shawn's checklist):
 - [ ] TUI interactive test (nexus tui / nexus setup)
