@@ -119,6 +119,32 @@ func TestVectorSearchUnsupported(t *testing.T) {
 	}
 }
 
+func TestOpen_EmptyProjectID(t *testing.T) {
+	t.Helper()
+	_, err := fspkg.Open("", testLogger(t))
+	if err == nil { t.Fatal("expected error for empty project ID") }
+}
+
+func TestDocFromPayload_WithEmbedding(t *testing.T) {
+	t.Helper()
+	tp := destination.TranslatedPayload{
+		PayloadID: "p1",
+		Content:   "test",
+		Embedding: []float32{0.1, 0.2, 0.3},
+	}
+	doc := fspkg.ExportDocFromPayload(tp)
+	if doc.PayloadID != "p1" { t.Fatalf("expected p1, got %s", doc.PayloadID) }
+}
+
+func TestFloat32Float64_LargeArray(t *testing.T) {
+	t.Helper()
+	in := make([]float32, 768)
+	for i := range in { in[i] = float32(i) / 768.0 }
+	f64 := fspkg.ExportFloat32ToFloat64(in)
+	f32 := fspkg.ExportFloat64ToFloat32(f64)
+	if len(f32) != 768 { t.Fatalf("expected 768, got %d", len(f32)) }
+}
+
 // ── Integration tests (require TEST_FIRESTORE_PROJECT) ───────────────────────
 
 func openTestDB(t *testing.T) *fspkg.FirestoreDestination {

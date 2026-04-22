@@ -31,3 +31,5 @@ var ExportMarshalEmbeddingTV = marshalEmbeddingTV
 
 // ExportMarshalMetadata exposes marshalMetadata for white-box testing.
 var ExportMarshalMetadata = marshalMetadata
+
+var ExportParseSensitivityLabels = parseSensitivityLabels

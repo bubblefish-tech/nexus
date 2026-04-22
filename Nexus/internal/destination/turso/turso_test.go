@@ -110,6 +110,25 @@ func TestMarshalMetadata_Nil(t *testing.T) {
 	}
 }
 
+func TestParseSensitivityLabels_Empty(t *testing.T) {
+	t.Helper()
+	if l := tursopkg.ExportParseSensitivityLabels(""); len(l) != 0 {
+		t.Fatalf("expected 0, got %d", len(l))
+	}
+}
+
+func TestParseSensitivityLabels_Multiple(t *testing.T) {
+	t.Helper()
+	l := tursopkg.ExportParseSensitivityLabels("pii,financial,health")
+	if len(l) != 3 { t.Fatalf("expected 3, got %d", len(l)) }
+}
+
+func TestOpen_InvalidURL(t *testing.T) {
+	t.Helper()
+	_, err := tursopkg.Open("not-a-valid-url", testLogger(t))
+	if err == nil { t.Fatal("expected error") }
+}
+
 // ── Integration tests (require TEST_TURSO_URL) ────────────────────────────────
 
 func openTestDB(t *testing.T) *tursopkg.TursoDestination {

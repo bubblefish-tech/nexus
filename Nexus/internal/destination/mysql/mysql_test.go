@@ -126,6 +126,25 @@ func TestMarshalMetadata_Map(t *testing.T) {
 	}
 }
 
+func TestParseSensitivityLabels_Empty(t *testing.T) {
+	t.Helper()
+	if l := mysqlpkg.ExportParseSensitivityLabels(""); len(l) != 0 {
+		t.Fatalf("expected 0, got %d", len(l))
+	}
+}
+
+func TestParseSensitivityLabels_Multiple(t *testing.T) {
+	t.Helper()
+	l := mysqlpkg.ExportParseSensitivityLabels("pii,financial")
+	if len(l) != 2 { t.Fatalf("expected 2, got %d", len(l)) }
+}
+
+func TestOpen_InvalidDSN(t *testing.T) {
+	t.Helper()
+	_, err := mysqlpkg.Open("invalid:dsn", testLogger(t))
+	if err == nil { t.Fatal("expected error") }
+}
+
 // ── Integration tests (require TEST_MYSQL_DSN) ────────────────────────────────
 
 func openTestDB(t *testing.T) *mysqlpkg.MySQLDestination {

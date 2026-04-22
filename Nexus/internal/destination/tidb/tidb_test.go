@@ -129,6 +129,48 @@ func TestMarshalMetadata_Nil(t *testing.T) {
 	}
 }
 
+func TestParseSensitivityLabels_Empty(t *testing.T) {
+	t.Helper()
+	labels := tidbpkg.ExportParseSensitivityLabels("")
+	if len(labels) != 0 {
+		t.Fatalf("expected 0 labels for empty string, got %d", len(labels))
+	}
+}
+
+func TestParseSensitivityLabels_Single(t *testing.T) {
+	t.Helper()
+	labels := tidbpkg.ExportParseSensitivityLabels("pii")
+	if len(labels) != 1 || labels[0] != "pii" {
+		t.Fatalf("expected [pii], got %v", labels)
+	}
+}
+
+func TestParseSensitivityLabels_Multiple(t *testing.T) {
+	t.Helper()
+	labels := tidbpkg.ExportParseSensitivityLabels("pii,financial,health")
+	if len(labels) != 3 {
+		t.Fatalf("expected 3 labels, got %d", len(labels))
+	}
+}
+
+func TestOpen_InvalidDSN(t *testing.T) {
+	t.Helper()
+	_, err := tidbpkg.Open("invalid:dsn:that:wont:connect", testLogger(t))
+	if err == nil {
+		t.Fatal("expected error for invalid DSN")
+	}
+}
+
+func TestMarshalMetadata_WithValues(t *testing.T) {
+	t.Helper()
+	m := map[string]string{"key": "value", "foo": "bar"}
+	data, err := tidbpkg.ExportMarshalMetadata(m)
+	if err != nil { t.Fatal(err) }
+	if data == "" || data == "{}" {
+		t.Fatal("expected non-empty metadata JSON")
+	}
+}
+
 // ── Integration tests (require TEST_TIDB_DSN) ────────────────────────────────
 
 func openTestDB(t *testing.T) *tidbpkg.TiDBDestination {

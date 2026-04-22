@@ -157,6 +157,19 @@ func TestPayloadFromDoc_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestOpen_InvalidURI(t *testing.T) {
+	t.Helper()
+	_, err := mongodbpkg.Open("not-a-mongodb-uri", testLogger(t))
+	if err == nil { t.Fatal("expected error for invalid URI") }
+}
+
+func TestDocFromPayload_EmptyContent(t *testing.T) {
+	t.Helper()
+	tp := destination.TranslatedPayload{PayloadID: "p1", Content: ""}
+	doc := mongodbpkg.ExportDocFromPayload(tp)
+	if doc.ID != "p1" { t.Fatalf("expected p1, got %s", doc.ID) }
+}
+
 // ── Integration tests (require TEST_MONGODB_URI) ─────────────────────────────
 
 func openTestDB(t *testing.T) *mongodbpkg.MongoDBDestination {

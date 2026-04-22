@@ -161,6 +161,28 @@ func TestPGTextArray_Nil(t *testing.T) {
 	}
 }
 
+func TestOpen_InvalidDSN(t *testing.T) {
+	t.Helper()
+	_, err := crdbpkg.Open("not-a-valid-dsn", testLogger(t))
+	if err == nil { t.Fatal("expected error") }
+}
+
+func TestPGTextArray_EmptyInput(t *testing.T) {
+	t.Helper()
+	r := crdbpkg.ExportParsePGTextArray("")
+	if len(r) != 0 { t.Fatalf("expected 0, got %d", len(r)) }
+}
+
+func TestMarshalMetadata_NonNil(t *testing.T) {
+	t.Helper()
+	m := map[string]string{"x": "y"}
+	s, err := crdbpkg.ExportMarshalMetadata(m)
+	if err != nil { t.Fatal(err) }
+	if s == "" || s == "{}" {
+		t.Fatal("expected non-empty JSON")
+	}
+}
+
 // ── Integration tests (require TEST_CRDB_DSN) ─────────────────────────────────
 
 func openTestDB(t *testing.T) *crdbpkg.CockroachDBDestination {
