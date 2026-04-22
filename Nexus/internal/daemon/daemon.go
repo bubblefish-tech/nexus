@@ -522,7 +522,7 @@ func (d *Daemon) Start() error {
 	home, _ := os.UserHomeDir()
 	logsDir := filepath.Join(home, ".nexus", "logs")
 	d.supervisor = supervisor.New(supervisor.Config{
-		Timeout: 30 * time.Second,
+		Timeout: 120 * time.Second,
 		LogsDir: logsDir,
 	}, d.logger)
 
@@ -768,7 +768,7 @@ func (d *Daemon) Start() error {
 	// Start WAL watchdog — updates WAL health and disk metrics periodically.
 	// Reference: Tech Spec Section 4.4.
 	d.supervisor.Register("walwatchdog")
-	safego.Go("wal-watchdog", d.logger, d.subsystemHealth, func() { d.walWatchdog(walPath) })
+	go d.walWatchdog(walPath)
 
 	// Start the goroutine heartbeat supervisor now that all monitored
 	// goroutines are registered.
@@ -1894,15 +1894,17 @@ func (d *Daemon) walWatchdog(walDir string) {
 	defer ticker.Stop()
 
 	for {
-		if d.supervisor != nil {
-			d.supervisor.Beat("walwatchdog")
-		}
-
 		select {
 		case <-d.stopped:
 			return
 		case <-ticker.C:
+			if d.supervisor != nil {
+				d.supervisor.Beat("walwatchdog")
+			}
 			d.runWatchdogCheck(walDir)
+			if d.supervisor != nil {
+				d.supervisor.Beat("walwatchdog")
+			}
 		}
 	}
 }

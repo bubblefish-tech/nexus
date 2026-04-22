@@ -21,8 +21,6 @@ package tray
 
 import (
 	"fmt"
-	"os/exec"
-	"runtime"
 
 	"github.com/bubblefish-tech/nexus/internal/version"
 )
@@ -61,10 +59,6 @@ func Run(cfg Config) {
 		"menu_items", menuItemCount,
 	)
 
-	if !cfg.NoBrowser {
-		openBrowser(dashURL)
-	}
-
 	<-QuitCh()
 
 	cfg.Logger.Info("tray: system tray stopped", "component", "tray")
@@ -72,14 +66,3 @@ func Run(cfg Config) {
 
 // MenuItemCount returns the number of tray menu items for testing.
 func MenuItemCount() int { return menuItemCount }
-
-func openBrowser(url string) {
-	switch runtime.GOOS {
-	case "windows":
-		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		_ = exec.Command("open", url).Start()
-	default:
-		_ = exec.Command("xdg-open", url).Start()
-	}
-}

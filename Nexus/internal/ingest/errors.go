@@ -20,11 +20,6 @@ package ingest
 import "errors"
 
 var (
-	// ErrNotImplemented is returned by scaffolded watcher stubs whose parser
-	// is not yet shipped. The watcher's Detect method works (so status reports
-	// can show "detected, not yet supported"), but Parse returns this error.
-	ErrNotImplemented = errors.New("ingest: parser not implemented in this version")
-
 	// ErrDisabled is returned when Ingest is disabled via kill switch.
 	ErrDisabled = errors.New("ingest: disabled via kill switch")
 
