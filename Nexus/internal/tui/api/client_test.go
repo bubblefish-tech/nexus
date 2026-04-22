@@ -107,3 +107,137 @@ func TestGet_Non200ReturnsError(t *testing.T) {
 		t.Fatal("expected error for 403 response")
 	}
 }
+
+func TestReady_ReturnsTrue(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	ok, err := c.Ready()
+	if err != nil {
+		t.Fatalf("Ready: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ready")
+	}
+}
+
+func TestReady_ReturnsFalse(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "not_ready"})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	ok, _ := c.Ready()
+	if ok {
+		t.Fatal("expected not ready")
+	}
+}
+
+func TestLint_ReturnsFindings(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/lint" {
+			http.Error(w, "not found", 404)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"findings": []map[string]string{{"rule": "test"}}})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Lint()
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if len(resp.Findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(resp.Findings))
+	}
+}
+
+func TestSecurityEvents_PassesLimit(t *testing.T) {
+	t.Helper()
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		json.NewEncoder(w).Encode(map[string]interface{}{"events": []interface{}{}})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, _ = c.SecurityEvents(50)
+	if gotPath != "/api/security/events?limit=50" {
+		t.Fatalf("expected limit=50 in path, got %s", gotPath)
+	}
+}
+
+func TestAuditLog_ReturnsRecords(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"records": []interface{}{}, "total_matching": 0})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.AuditLog(100)
+	if err != nil {
+		t.Fatalf("AuditLog: %v", err)
+	}
+	if resp.Records == nil {
+		t.Fatal("expected non-nil records")
+	}
+}
+
+func TestConfig_ReturnsConfig(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"daemon": map[string]interface{}{"port": 8080}})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if resp.Daemon.Port != 8080 {
+		t.Fatalf("expected port 8080, got %d", resp.Daemon.Port)
+	}
+}
+
+func TestConflicts_WithLimit(t *testing.T) {
+	t.Helper()
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		json.NewEncoder(w).Encode(map[string]interface{}{"groups": []interface{}{}})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, _ = c.Conflicts(ConflictOpts{Limit: 10})
+	if gotPath != "/api/conflicts?limit=10" {
+		t.Fatalf("expected limit=10, got %s", gotPath)
+	}
+}
+
+func TestTimeTravel_QueryParams(t *testing.T) {
+	t.Helper()
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		json.NewEncoder(w).Encode(map[string]interface{}{"records": []interface{}{}})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, _ = c.TimeTravel(TimeTravelOpts{Subject: "test", Limit: 5})
+	if gotPath == "/api/timetravel" {
+		t.Fatal("expected query params in path")
+	}
+}

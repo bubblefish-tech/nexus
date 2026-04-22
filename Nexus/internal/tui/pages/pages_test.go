@@ -373,3 +373,92 @@ func TestSummaryPage_ViewWithState_NonEmpty(t *testing.T) {
 		t.Fatal("expected non-empty summary view")
 	}
 }
+
+func TestSummaryPage_ViewWithState_ShowsMode(t *testing.T) {
+	t.Helper()
+	p := NewSummaryPage()
+	state := &WizardState{
+		Mode:         "balanced",
+		DatabaseType: "postgres",
+		DatabaseDSN:  "postgres://localhost/db",
+		InstallDir:   "/opt/nexus",
+	}
+	v := p.ViewWithState(120, 40, state)
+	if v == "" {
+		t.Fatal("expected non-empty summary view")
+	}
+}
+
+func TestSummaryPage_ViewWithState_EncryptionEnabled(t *testing.T) {
+	t.Helper()
+	p := NewSummaryPage()
+	state := &WizardState{
+		Mode:           "safe",
+		DatabaseType:   "sqlite",
+		EncryptionPass: "secret",
+		InstallDir:     "/tmp/test",
+	}
+	v := p.ViewWithState(80, 24, state)
+	if v == "" {
+		t.Fatal("expected non-empty view with encryption")
+	}
+}
+
+func TestSummaryPage_ViewWithState_TunnelEnabled(t *testing.T) {
+	t.Helper()
+	p := NewSummaryPage()
+	state := &WizardState{
+		Mode:           "balanced",
+		DatabaseType:   "sqlite",
+		InstallDir:     "/tmp/test",
+		TunnelEnabled:  true,
+		TunnelProvider: "cloudflare",
+	}
+	v := p.ViewWithState(80, 24, state)
+	if v == "" {
+		t.Fatal("expected non-empty view with tunnel")
+	}
+}
+
+func TestDatabasePage_CanAdvance_AllTypes(t *testing.T) {
+	t.Helper()
+	p := NewDatabasePage()
+	needsDSN := map[string]bool{
+		"sqlite": false, "postgres": true, "mysql": true, "cockroachdb": true,
+		"mongodb": true, "firestore": true, "tidb": true, "turso": true,
+	}
+	for dbType, wantsDSN := range needsDSN {
+		state := &WizardState{DatabaseType: dbType, DatabaseDSN: ""}
+		if wantsDSN && p.CanAdvance(state) {
+			t.Errorf("%s without DSN should not advance", dbType)
+		}
+		state.DatabaseDSN = "some-dsn"
+		if !p.CanAdvance(state) {
+			t.Errorf("%s with DSN should advance", dbType)
+		}
+	}
+}
+
+func TestFeaturesPage_InitSetsDefaults_SafeMode(t *testing.T) {
+	t.Helper()
+	p := NewFeaturesPage()
+	state := &WizardState{Mode: "safe"}
+	_ = p.Init(state)
+	if !state.Features["audit"] {
+		t.Error("expected audit enabled in safe mode")
+	}
+	if !state.Features["mcp"] {
+		t.Error("expected mcp enabled in safe mode")
+	}
+}
+
+func TestWelcomePage_SelectMode_SetsState(t *testing.T) {
+	t.Helper()
+	p := NewWelcomePage()
+	state := &WizardState{}
+	p.cursor = 2
+	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}, state)
+	if state.Mode != "safe" {
+		t.Fatalf("expected mode 'safe' at cursor 2, got %q", state.Mode)
+	}
+}
