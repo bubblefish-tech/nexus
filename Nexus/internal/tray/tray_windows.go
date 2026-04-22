@@ -61,7 +61,9 @@ func Run(cfg Config) {
 		"menu_items", menuItemCount,
 	)
 
-	openBrowser(dashURL)
+	if !cfg.NoBrowser {
+		openBrowser(dashURL)
+	}
 
 	<-QuitCh()
 

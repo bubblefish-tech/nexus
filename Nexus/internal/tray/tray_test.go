@@ -63,6 +63,7 @@ func TestRunExitsOnQuit(t *testing.T) {
 			DaemonPort:    8080,
 			DashboardPort: 8081,
 			Logger:        logger,
+			NoBrowser:     true,
 		})
 		close(done)
 	}()

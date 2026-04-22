@@ -37,6 +37,7 @@ type Config struct {
 	DashboardPort int
 	Logger        *slog.Logger
 	OnStop        func() // Called when user clicks "Stop Daemon" in tray.
+	NoBrowser     bool   // Skip auto-opening browser (for tests).
 }
 
 // quitOnce ensures Quit() is idempotent.
