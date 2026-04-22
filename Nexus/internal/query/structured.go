@@ -57,6 +57,8 @@ func runStage3(
 		Cursor:      cursor,
 		Profile:     cq.Profile,
 		ActorType:   cq.ActorType,
+		TemporalBinFilter: cq.TemporalBin >= 0,
+		TemporalBin:       cq.TemporalBin,
 	}
 
 	result, err := q.Query(params)

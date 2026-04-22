@@ -134,6 +134,10 @@ type StatusResult struct {
 	Profiles []StatusProfile `json:"profiles"`
 	Sources  []string        `json:"sources"`
 	Ingest   StatusIngest    `json:"ingest"`
+
+	TemporalAwareness bool     `json:"temporal_awareness"`
+	TemporalBins      []string `json:"temporal_bins,omitempty"`
+	SearchModes       []string `json:"search_modes"`
 }
 
 // StatusDaemon holds daemon identity and uptime.
@@ -322,6 +326,8 @@ func (p *TestPipeline) Status(_ context.Context) (StatusResult, error) {
 		Daemon:     StatusDaemon{Version: version.Version, UptimeSeconds: 0},
 		Tools:      DefaultStatusTools(),
 		Profiles:   DefaultStatusProfiles(),
+		TemporalAwareness: true,
+		SearchModes:       []string{"semantic", "keyword", "hybrid"},
 	}, nil
 }
 

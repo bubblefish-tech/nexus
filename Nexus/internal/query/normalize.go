@@ -65,6 +65,10 @@ type CanonicalQuery struct {
 	//
 	// Reference: Tech Spec Section 3.6.
 	Collection string
+	// TemporalBin pre-filters results to a specific temporal bin (0-10).
+	// -1 means no temporal filtering. Set by Stage 3.1 when the query
+	// contains temporal language hints.
+	TemporalBin int
 }
 
 // Normalize converts raw QueryParams into a CanonicalQuery, applying defaults
@@ -103,6 +107,7 @@ func Normalize(p destination.QueryParams) (CanonicalQuery, error) {
 		RawCursor:    p.Cursor,
 		Profile:      profile,
 		ActorType:    p.ActorType,
+		TemporalBin:  -1,
 	}, nil
 }
 

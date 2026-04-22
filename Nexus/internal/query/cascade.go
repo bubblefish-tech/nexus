@@ -168,6 +168,7 @@ type CascadeRunner struct {
 	fw               *firewall.RetrievalFirewall  // Phase R-31: retrieval firewall
 	clusterQuerier   destination.ClusterQuerier   // Phase 3: cluster expansion
 	sketchPrefilter  *SketchPrefilterConfig       // Stage 3.5: BF-Sketch prefilter (nil = disabled)
+	bm25Searcher     BM25Searcher                 // Stage 3.75: BM25 sparse retrieval (nil = disabled)
 }
 
 // New creates a CascadeRunner backed by the provided querier. If logger is nil
@@ -279,6 +280,13 @@ func (cr *CascadeRunner) WithFirewall(fw *firewall.RetrievalFirewall) *CascadeRu
 // Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.7.
 func (cr *CascadeRunner) WithSketchPrefilter(cfg *SketchPrefilterConfig) *CascadeRunner {
 	cr.sketchPrefilter = cfg
+	return cr
+}
+
+// WithBM25Searcher attaches a BM25 sparse keyword searcher, enabling
+// Stage 3.75 in the cascade and RRF fusion in Stage 5.
+func (cr *CascadeRunner) WithBM25Searcher(s BM25Searcher) *CascadeRunner {
+	cr.bm25Searcher = s
 	return cr
 }
 
@@ -546,6 +554,21 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 
 	overSampledQ := q
 	overSampledQ.Limit = fetchLimit
+
+	// ── Stage 3.1: Temporal Bin Filter ──────────────────────────────────────
+	// When the query contains temporal language ("yesterday", "last week"),
+	// pre-filter Stage 3 results to the matching bin via SQL WHERE clause.
+	overSampledQ.TemporalBin = -1
+	temporalBin := ExtractTemporalHint(q.Q)
+	if temporalBin >= 0 {
+		overSampledQ.TemporalBin = temporalBin
+		cr.logger.Debug("query: Stage 3.1 temporal bin filter applied",
+			"component", "cascade",
+			"bin", temporalBin,
+			"query", q.Q,
+		)
+	}
+
 	records, nextCursor, hasMore, err := runStage3(ctx, cr.querier, overSampledQ)
 	if err != nil {
 		return CascadeResult{}, err
@@ -565,6 +588,28 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 			200, // prefilter threshold
 			100, // top-K
 		)
+	}
+
+	// ── Stage 3.75: BM25 Sparse Retrieval ──────────────────────────────────
+	// Active when: BM25 searcher configured and profile is not "fast"/"wake".
+	// Non-fatal: cascade continues with dense-only results on error.
+	var bm25Results []BM25Result
+	if cr.bm25Searcher != nil && q.Profile != "fast" && q.Profile != "wake" {
+		var bm25Err error
+		bm25Results, bm25Err = cr.bm25Searcher.BM25Search(ctx, q.Q, q.Namespace, fetchLimit)
+		if bm25Err != nil {
+			cr.logger.Warn("query: Stage 3.75 BM25 search failed, continuing without sparse results",
+				"component", "cascade",
+				"source", src.Name,
+				"error", bm25Err,
+			)
+		} else {
+			cr.logger.Debug("query: Stage 3.75 BM25 retrieval complete",
+				"component", "cascade",
+				"source", src.Name,
+				"results", len(bm25Results),
+			)
+		}
 	}
 
 	// ── Stage 4: Semantic Retrieval ─────────────────────────────────────────
@@ -630,7 +675,15 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 			}
 		}
 		decayCfg := ResolveDecay(cr.retrieval, destDecay, q.Collection, src.Policy.Decay, q.Profile)
-		finalRecords = HybridMerge(records, stage4Records, q.Limit, decayCfg.Enabled, decayCfg, time.Now())
+
+		if len(bm25Results) > 0 {
+			finalRecords = RRFMerge(stage4Records, bm25Results, 60)
+			if q.Limit > 0 && len(finalRecords) > q.Limit {
+				finalRecords = finalRecords[:q.Limit]
+			}
+		} else {
+			finalRecords = HybridMerge(records, stage4Records, q.Limit, decayCfg.Enabled, decayCfg, time.Now())
+		}
 		finalNextCursor = "" // Stage 5 result is a full reranked page; no cursor
 		finalHasMore = false
 		finalStage = 5
@@ -642,6 +695,7 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 			"source", src.Name,
 			"stage3_count", len(records),
 			"stage4_count", len(stage4Records),
+			"bm25_count", len(bm25Results),
 			"merged_count", len(finalRecords),
 			"decay_enabled", decayCfg.Enabled,
 		)

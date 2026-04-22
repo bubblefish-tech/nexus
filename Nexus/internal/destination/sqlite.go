@@ -32,6 +32,7 @@ import (
 	"time"
 
 	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
+	"github.com/bubblefish-tech/nexus/internal/temporal"
 
 	// Pure-Go SQLite driver (modernc.org/sqlite). No CGO required for production.
 	// Registers the "sqlite" driver name with database/sql.
@@ -217,6 +218,8 @@ CREATE INDEX IF NOT EXISTS idx_memories_idempotency_key
 	addContentEncryptedColumn  = `ALTER TABLE memories ADD COLUMN content_encrypted BLOB`
 	addMetadataEncryptedColumn = `ALTER TABLE memories ADD COLUMN metadata_encrypted BLOB`
 	addEncryptionVersionColumn = `ALTER TABLE memories ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 0`
+
+	addTemporalBinColumn = `ALTER TABLE memories ADD COLUMN temporal_bin INTEGER DEFAULT 3`
 )
 
 // SQLiteDestination writes TranslatedPayload records to a SQLite database.
@@ -430,6 +433,10 @@ func (d *SQLiteDestination) applyPragmasAndSchema() error {
 		_ = err // duplicate column — expected on existing databases
 	}
 
+	if _, err := d.db.Exec(addTemporalBinColumn); err != nil {
+		_ = err // duplicate column — expected on existing databases
+	}
+
 	return nil
 }
 
@@ -490,6 +497,8 @@ func (d *SQLiteDestination) Write(p TranslatedPayload) error {
 		encVersion = 1
 	}
 
+	temporalBin := temporal.ComputeBin(p.Timestamp, time.Now().UTC())
+
 	const query = `
 INSERT OR IGNORE INTO memories (
     payload_id, request_id, source, subject, namespace, destination,
@@ -498,8 +507,9 @@ INSERT OR IGNORE INTO memories (
     sensitivity_labels, classification_tier, tier,
     lsh_bucket, cluster_id, cluster_role,
     signature, signing_key_id, signature_alg,
-    content_encrypted, metadata_encrypted, encryption_version
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    content_encrypted, metadata_encrypted, encryption_version,
+    temporal_bin
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = d.db.Exec(query,
 		p.PayloadID,
@@ -532,6 +542,7 @@ INSERT OR IGNORE INTO memories (
 		contentEncrypted,
 		metadataEncrypted,
 		encVersion,
+		temporalBin,
 	)
 	if err != nil {
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
@@ -815,6 +826,10 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 	if params.TierFilter {
 		conditions = append(conditions, "tier <= ?")
 		args = append(args, params.SourceTier)
+	}
+	if params.TemporalBinFilter {
+		conditions = append(conditions, "temporal_bin = ?")
+		args = append(args, params.TemporalBin)
 	}
 
 	whereClause := ""

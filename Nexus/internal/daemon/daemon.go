@@ -82,6 +82,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/orchestrate"
 	"github.com/bubblefish-tech/nexus/internal/policy"
 	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/query"
 	"github.com/bubblefish-tech/nexus/internal/quarantine"
 	"github.com/bubblefish-tech/nexus/internal/queue"
 	"github.com/bubblefish-tech/nexus/internal/secrets"
@@ -91,6 +92,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/substrate"
 	"github.com/bubblefish-tech/nexus/internal/supervisor"
 	"github.com/bubblefish-tech/nexus/internal/tasks"
+	"github.com/bubblefish-tech/nexus/internal/temporal"
 	"github.com/bubblefish-tech/nexus/internal/version"
 	"github.com/bubblefish-tech/nexus/internal/vizpipe"
 	"github.com/bubblefish-tech/nexus/internal/wal"
@@ -308,6 +310,10 @@ type Daemon struct {
 
 	// pipeMetrics tracks per-stage latency and throughput for the TUI dashboard.
 	pipeMetrics *pipelineMetrics
+
+	// bm25Searcher runs BM25 sparse keyword queries against the FTS5 index.
+	// Nil when destination is not SQLite. Wired into the cascade runner.
+	bm25Searcher query.BM25Searcher
 
 	// discoveryScanner runs the 5-tier AI-tool discovery scan on demand for
 	// GET /api/discover/results. Nil until Start() resolves configDir.
@@ -589,6 +595,18 @@ func (d *Daemon) Start() error {
 	if migrateErr := openedDest.Migrate(context.Background(), 0); migrateErr != nil {
 		d.logger.Warn("daemon: schema migration failed (non-fatal)",
 			"component", "daemon", "error", migrateErr)
+	}
+
+	// Wire BM25 searcher and start temporal bin refresh for SQLite destinations.
+	if sqliteDest, ok := openedDest.(*destination.SQLiteDestination); ok {
+		d.bm25Searcher = &query.SQLBM25Searcher{DB: sqliteDest.DB()}
+		if refreshErr := temporal.RefreshBins(context.Background(), sqliteDest.DB()); refreshErr != nil {
+			d.logger.Warn("daemon: initial temporal bin refresh failed (non-fatal)",
+				"component", "daemon", "error", refreshErr)
+		}
+		go d.temporalBinRefresher(sqliteDest.DB())
+		d.logger.Info("daemon: BM25 search and temporal bins enabled",
+			"component", "daemon")
 	}
 
 	// CU.0.2: wire memory content encryption via MasterKeyManager.
@@ -1839,6 +1857,24 @@ func (d *Daemon) startHotReload() {
 // ---------------------------------------------------------------------------
 
 // walWatchdog is a background goroutine that periodically checks WAL health:
+// temporalBinRefresher updates temporal bins every hour so aging memories
+// move to the correct bin without needing a daemon restart.
+func (d *Daemon) temporalBinRefresher(db *sql.DB) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopped:
+			return
+		case <-ticker.C:
+			if err := temporal.RefreshBins(context.Background(), db); err != nil {
+				d.logger.Warn("daemon: temporal bin refresh failed",
+					"component", "daemon", "error", err)
+			}
+		}
+	}
+}
+
 // directory writeability, disk space, and pending entry count. Interval is
 // configurable via [daemon.wal.watchdog] interval_seconds (default 30).
 // Reference: Tech Spec Section 4.4.

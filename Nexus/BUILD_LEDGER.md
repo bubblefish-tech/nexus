@@ -1617,10 +1617,71 @@
 14. [PASS] Backup create (5 files + SQLite DB snapshot), verify (all checksums valid), restore (safety check works)
 15. [NOTE] internal/discover TestScanner_FullScan_Empty — pre-existing env-dependent failure (finds 1 tool on this machine where test expects 0). NOT a regression.
 
+## Setup Wizard Overhaul (14 Issues)
+- Branch: feat/supernexusclaw
+- All 14 user-reported issues addressed:
+  1. Welcome page: Space/Enter now auto-advances (AdvancePageMsg)
+  2. Tool selection: shows ALL 31+ known tools from manifest, not just scan results
+  3. Feature selection: added 7 missing features (signing, jwt, events, tls, consistency, security_events, oauth)
+  4. Tool selection: combined with #2, shows detected + available sections
+  5. Database: added download hints per DB; security page clarifies it's WAL/config encryption, not DB password
+  6. Tunnel: capitalized Yes/No consistently
+  7. Tunnel: CanAdvance now requires provider + endpoint when enabled
+  8. Directory: added quick-select presets with Windows drive detection (C:\, D:\)
+  9. Capitalization: standardized across all pages (Title Case labels)
+  10. Post-install: shows API keys, config path, bind address, and 3-step next-steps guide
+  11. Default install dir: changed from ~/.nexus/Nexus to ~/BubbleFish/Nexus everywhere
+  12-13. Post-install guidance explains config-only directory, nexus binary must be on PATH
+  14. Install() now uses ALL wizard state: Features → daemon.toml toggles, SelectedTools → tools/*.toml, Tunnel → tunnel.toml
+- Install() returns InstallResult (keys + bind addr) instead of bare error
+- SelectedTools type changed from map[int]bool to map[string]bool (keyed by tool name)
+- New dirs created on install: keys/, discovery/, tools/
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - Full test suite: zero failures
+
+## BM25 Hybrid Search + Temporal Bins
+- Branch: feat/supernexusclaw
+- Two features, ~350 new lines + ~70 modified:
+
+### Commit 1+2: BM25 Sparse Retrieval
+- New: `internal/migration/0002_fts5_bm25.go` — FTS5 virtual table with porter stemming + auto-sync triggers
+- New: `internal/query/bm25.go` — SQLBM25Searcher with BM25Searcher interface
+- New: `internal/query/fusion.go` — RRFMerge (Reciprocal Rank Fusion, k=60)
+- Registered: migration v2 in sqlite_compliance.go
+- Tests: RRF merge (both lists, empty BM25, empty dense, default k)
+
+### Commit 3+4: Temporal Bins
+- New: `internal/migration/0003_temporal_bins.go` — populate bins + composite index
+- New: `internal/temporal/bins.go` — ComputeBin, BinLabel, HumanRelativeTime, RefreshBins
+- New: `internal/query/temporal_hints.go` — ExtractTemporalHint (11 bin patterns)
+- Modified: `internal/destination/sqlite.go` — temporal_bin column in schema + Write path (31st column)
+- Registered: migration v3 in sqlite_compliance.go
+- Tests: 16 temporal tests (ComputeBin boundaries, BinLabel, HumanRelativeTime, ExtractTemporalHint)
+- Zero new dependencies (FTS5 built into modernc.org/sqlite)
+
+### Wiring Complete
+- Stage 3.75 (BM25) wired into cascade.go between Stage 3.5 and Stage 4
+- RRF fusion wired into Stage 5 when BM25 results exist
+- Stage 3.1 (temporal bin pre-filter) wired: ExtractTemporalHint → TemporalBin → SQL WHERE
+- Daemon: SQLBM25Searcher created from SQLite DB, initial RefreshBins at startup, hourly goroutine
+- Both HTTP and MCP query paths chain WithBM25Searcher
+- Per-record temporal metadata in query responses (temporal_bin, temporal_label, age_human)
+- nexus_status reports temporal_awareness, temporal_bins, search_modes
+- FTS5 query sanitization: hyphens/special chars wrapped in quotes
+- BM25 integration tests: exact match, empty query, porter stemming
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - Full test suite: zero failures
+
 ### Manual (Shawn's checklist):
 - [ ] TUI interactive test (nexus tui / nexus setup)
 - [ ] Orchestration with 2+ real agents
 - [ ] Discovery finds 3+ tools (nexus maintain status)
 - [ ] Encryption round-trip (NEXUS_PASSWORD)
+- [ ] BM25 search test: query "TPS-42" finds exact match
+- [ ] Temporal bins: query "what did I say yesterday" filters to bin 2
 - [ ] Merge feat/supernexusclaw → main
 - [ ] Tag v0.1.3 + push

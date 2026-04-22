@@ -53,6 +53,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/subscribe"
 	"github.com/bubblefish-tech/nexus/internal/vizpipe"
 	"github.com/bubblefish-tech/nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/temporal"
 	"github.com/bubblefish-tech/nexus/internal/version"
 	"github.com/bubblefish-tech/nexus/internal/wal"
 )
@@ -103,8 +104,30 @@ type writeResponse struct {
 
 // queryResponse is the success response for the read handler.
 type queryResponse struct {
-	Results []destination.TranslatedPayload `json:"results"`
-	Nexus   nexusMetadata                   `json:"_nexus"`
+	Results []enrichedRecord `json:"results"`
+	Nexus   nexusMetadata    `json:"_nexus"`
+}
+
+type enrichedRecord struct {
+	destination.TranslatedPayload
+	TemporalBin   int    `json:"temporal_bin"`
+	TemporalLabel string `json:"temporal_label"`
+	AgeHuman      string `json:"age_human"`
+}
+
+func enrichRecords(records []destination.TranslatedPayload) []enrichedRecord {
+	now := time.Now().UTC()
+	out := make([]enrichedRecord, len(records))
+	for i, r := range records {
+		bin := temporal.ComputeBin(r.Timestamp, now)
+		out[i] = enrichedRecord{
+			TranslatedPayload: r,
+			TemporalBin:       bin,
+			TemporalLabel:     temporal.BinLabel(bin),
+			AgeHuman:          temporal.HumanRelativeTime(r.Timestamp, now),
+		}
+	}
+	return out
 }
 
 // openAIMessage is a single entry in the OpenAI chat messages array.
@@ -140,6 +163,8 @@ type nexusMetadata struct {
 	RetrievalFirewallFiltered  bool             `json:"retrieval_firewall_filtered,omitempty"`
 	ClusterExpanded            bool             `json:"cluster_expanded,omitempty"`
 	Conflict                   bool             `json:"conflict,omitempty"`
+	TemporalAwareness          bool             `json:"temporal_awareness"`
+	SearchModes                []string         `json:"search_modes"`
 	Debug                      *query.DebugInfo `json:"debug,omitempty"`
 }
 
@@ -1122,7 +1147,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		WithRetrievalConfig(qcfg.Retrieval).
 		WithDecayCounter(d.metrics.TemporalDecayApplied).
 		WithDebug(debugStages).
-		WithFirewall(d.retrievalFirewall)
+		WithFirewall(d.retrievalFirewall).
+		WithBM25Searcher(d.bm25Searcher)
 
 	// Wire cluster querier for cluster-aware retrieval profile.
 	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
@@ -1230,6 +1256,7 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	d.liteBus.Emit("memory_queried", map[string]any{"source": src.Name, "result_count": len(cascResult.Records)})
 	d.pipeMetrics.recordRead()
 
+	searchModes := []string{"semantic", "keyword", "hybrid"}
 	meta := nexusMetadata{
 		ResultCount:               len(cascResult.Records),
 		HasMore:                   cascResult.HasMore,
@@ -1241,6 +1268,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
 		ClusterExpanded:           cascResult.ClusterExpanded,
 		Conflict:                  cascResult.Conflict,
+		TemporalAwareness:         true,
+		SearchModes:               searchModes,
 		Debug:                     cascResult.Debug,
 	}
 
@@ -1290,12 +1319,12 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// SSE streaming — when client sends Accept: text/event-stream.
 	// Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 8.
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		d.streamQuerySSE(w, cascResult.Records, meta)
+		d.streamQuerySSE(w, enrichRecords(cascResult.Records), meta)
 		return
 	}
 
 	d.writeJSON(w, http.StatusOK, queryResponse{
-		Results: cascResult.Records,
+		Results: enrichRecords(cascResult.Records),
 		Nexus:   meta,
 	})
 }
@@ -1676,10 +1705,9 @@ func (d *Daemon) handleLint(w http.ResponseWriter, r *http.Request) {
 // httptest.ResponseRecorder), this method falls back to regular JSON.
 //
 // Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 8.
-func (d *Daemon) streamQuerySSE(w http.ResponseWriter, records []destination.TranslatedPayload, meta nexusMetadata) {
+func (d *Daemon) streamQuerySSE(w http.ResponseWriter, records []enrichedRecord, meta nexusMetadata) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		// Fall back to regular JSON when the writer cannot flush.
 		d.writeJSON(w, http.StatusOK, queryResponse{Results: records, Nexus: meta})
 		return
 	}

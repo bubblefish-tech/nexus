@@ -287,7 +287,8 @@ func (d *Daemon) Search(ctx context.Context, params mcp.SearchParams) (mcp.Searc
 		WithEmbeddingClient(d.embeddingClient, d.metrics.EmbeddingLatency).
 		WithRetrievalConfig(cfg.Retrieval).
 		WithDecayCounter(d.metrics.TemporalDecayApplied).
-		WithFirewall(d.retrievalFirewall)
+		WithFirewall(d.retrievalFirewall).
+		WithBM25Searcher(d.bm25Searcher)
 	cascResult, err := runner.Run(ctx, src, cq)
 	if err != nil {
 		return mcp.SearchResult{}, fmt.Errorf("mcp: cascade: %w", err)
@@ -374,5 +375,12 @@ func (d *Daemon) Status(_ context.Context) (mcp.StatusResult, error) {
 		Profiles: mcp.DefaultStatusProfiles(),
 		Sources:  sourceNames,
 		Ingest:   mcp.StatusIngest{Enabled: !cfg.Ingest.KillSwitch && cfg.Ingest.Enabled},
+		TemporalAwareness: true,
+		TemporalBins: []string{
+			"last hour", "today", "yesterday", "this week",
+			"last week", "this month", "last month", "this quarter",
+			"this year", "last year", "older",
+		},
+		SearchModes: []string{"semantic", "keyword", "hybrid"},
 	}, nil
 }

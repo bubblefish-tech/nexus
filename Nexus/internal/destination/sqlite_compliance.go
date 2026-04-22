@@ -135,6 +135,8 @@ func (d *SQLiteDestination) VectorSearch(ctx context.Context, embedding []float3
 // open time; recording v1 in nexus_migrations marks the baseline for future versions.
 var sqliteMigrations = []migration.Migration{
 	{Version: 1, Description: "initial memories schema"},
+	{Version: 2, Description: "FTS5 virtual table for BM25 sparse retrieval", SQL: migration.FTS5BM25SQL},
+	{Version: 3, Description: "temporal bins column with composite index", SQL: migration.TemporalBinsSQL},
 }
 
 // Migrate creates the nexus_migrations tracking table (if needed) and applies
