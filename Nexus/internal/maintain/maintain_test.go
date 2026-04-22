@@ -19,7 +19,9 @@ package maintain_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,5 +174,82 @@ func TestStatus_LearnedCountReflectsReconcile(t *testing.T) {
 	after := m.Status().LearnedCount
 	if after < before {
 		t.Errorf("LearnedCount went from %d to %d after Reconcile", before, after)
+	}
+}
+
+func TestAutoConnect_WritesSourceTOML(t *testing.T) {
+	t.Helper()
+	sourcesDir := t.TempDir()
+	cfg := maintain.Config{
+		ConfigDir:         t.TempDir(),
+		ReconcileInterval: time.Hour,
+		ScanInterval:      time.Hour,
+		LearnedStorePath:  filepath.Join(t.TempDir(), "fixes.json"),
+		AutoConnect:       true,
+		SourcesDir:        sourcesDir,
+	}
+	m, err := maintain.New(cfg, nil)
+	if err != nil {
+		t.Fatalf("maintain.New: %v", err)
+	}
+
+	m.AutoConnectTool("Ollama")
+
+	data, err := os.ReadFile(filepath.Join(sourcesDir, "ollama.toml"))
+	if err != nil {
+		t.Fatalf("expected source TOML to be written: %v", err)
+	}
+	if !strings.Contains(string(data), `name = "ollama"`) {
+		t.Error("expected source name in TOML")
+	}
+}
+
+func TestAutoConnect_Idempotent(t *testing.T) {
+	t.Helper()
+	sourcesDir := t.TempDir()
+	existing := filepath.Join(sourcesDir, "ollama.toml")
+	os.WriteFile(existing, []byte("existing"), 0600)
+
+	cfg := maintain.Config{
+		ConfigDir:         t.TempDir(),
+		ReconcileInterval: time.Hour,
+		ScanInterval:      time.Hour,
+		LearnedStorePath:  filepath.Join(t.TempDir(), "fixes.json"),
+		AutoConnect:       true,
+		SourcesDir:        sourcesDir,
+	}
+	m, err := maintain.New(cfg, nil)
+	if err != nil {
+		t.Fatalf("maintain.New: %v", err)
+	}
+
+	m.AutoConnectTool("Ollama")
+
+	data, _ := os.ReadFile(existing)
+	if string(data) != "existing" {
+		t.Error("expected existing source TOML to be unchanged (idempotent)")
+	}
+}
+
+func TestAutoConnect_DisabledByDefault(t *testing.T) {
+	t.Helper()
+	sourcesDir := t.TempDir()
+	cfg := maintain.Config{
+		ConfigDir:         t.TempDir(),
+		ReconcileInterval: time.Hour,
+		ScanInterval:      time.Hour,
+		LearnedStorePath:  filepath.Join(t.TempDir(), "fixes.json"),
+		AutoConnect:       false,
+		SourcesDir:        sourcesDir,
+	}
+	m, err := maintain.New(cfg, nil)
+	if err != nil {
+		t.Fatalf("maintain.New: %v", err)
+	}
+
+	m.AutoConnectTool("Ollama")
+
+	if _, err := os.Stat(filepath.Join(sourcesDir, "ollama.toml")); err == nil {
+		t.Error("expected no source TOML when AutoConnect is false")
 	}
 }

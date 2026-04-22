@@ -47,6 +47,15 @@ type Config struct {
 	// LearnedStorePath is the on-disk path for the adaptive fix store.
 	// Defaults to ~/.nexus/maintain/learned/fixes.json.
 	LearnedStorePath string
+
+	// AutoConnect, when true, automatically generates source TOML files
+	// for discovered tools after successful reconciliation fixes.
+	// Default: false (proposals only).
+	AutoConnect bool
+
+	// SourcesDir is the path to the sources/ directory where auto-connect
+	// writes TOML files. Required when AutoConnect is true.
+	SourcesDir string
 }
 
 // ToolStatusRow is a snapshot of one tool's state for CLI display.
@@ -317,6 +326,9 @@ func (m *Maintainer) reconcileLoop(ctx context.Context) {
 					failed++
 				} else {
 					fixed++
+					if m.cfg.AutoConnect {
+						m.autoConnect(r.Tool)
+					}
 				}
 			}
 			if fixed+failed > 0 {
@@ -325,4 +337,66 @@ func (m *Maintainer) reconcileLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// AutoConnectTool generates a source TOML for the named tool if AutoConnect
+// is enabled and the source file does not already exist. Idempotent.
+func (m *Maintainer) AutoConnectTool(toolName string) {
+	if !m.cfg.AutoConnect {
+		return
+	}
+	m.autoConnect(toolName)
+}
+
+func (m *Maintainer) autoConnect(toolName string) {
+	if m.cfg.SourcesDir == "" {
+		return
+	}
+	safeName := sanitizeToolName(toolName)
+	sourcePath := filepath.Join(m.cfg.SourcesDir, safeName+".toml")
+	if _, err := os.Stat(sourcePath); err == nil {
+		return
+	}
+
+	apiKey := fmt.Sprintf("bfn_auto_%s_%d", safeName, time.Now().UnixMilli())
+	content := fmt.Sprintf(`# Auto-connected by Nexus maintain
+[source]
+name = "%s"
+api_key = "%s"
+namespace = "default"
+can_read = true
+can_write = true
+target_destination = "sqlite"
+default_actor_type = "user"
+default_profile = "balanced"
+
+[source.rate_limit]
+requests_per_minute = 2000
+`, safeName, apiKey)
+
+	if err := os.WriteFile(sourcePath, []byte(content), 0600); err != nil {
+		m.logger.Warn("maintain: auto-connect write failed",
+			"tool", toolName, "path", sourcePath, "error", err)
+		return
+	}
+	m.logger.Info("maintain: auto-connected tool",
+		"tool", toolName, "source", safeName, "path", sourcePath)
+}
+
+func sanitizeToolName(name string) string {
+	var b []byte
+	for _, c := range []byte(name) {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '_':
+			b = append(b, c)
+		case c >= 'A' && c <= 'Z':
+			b = append(b, c+'a'-'A')
+		case c == ' ', c == '-':
+			b = append(b, '_')
+		}
+	}
+	if len(b) == 0 {
+		return "tool"
+	}
+	return string(b)
 }
