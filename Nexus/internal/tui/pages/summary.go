@@ -30,7 +30,8 @@ import (
 
 // installResultMsg carries the outcome of the install operation.
 type installResultMsg struct {
-	err error
+	result *nexusinstall.InstallResult
+	err    error
 }
 
 // SummaryPage shows a read-only config summary and triggers installation.
@@ -38,6 +39,7 @@ type SummaryPage struct {
 	installing bool
 	installed  bool
 	err        string
+	result     *nexusinstall.InstallResult
 }
 
 var _ Page = (*SummaryPage)(nil)
@@ -58,6 +60,7 @@ func (p *SummaryPage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
 			return p, nil
 		}
 		p.installed = true
+		p.result = msg.result
 		configDir := state.InstallDir
 		return p, func() tea.Msg { return WizardCompleteMsg{ConfigDir: configDir} }
 
@@ -70,8 +73,8 @@ func (p *SummaryPage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
 			p.err = ""
 			st := *state // snapshot
 			return p, func() tea.Msg {
-				err := runInstallFromState(&st)
-				return installResultMsg{err: err}
+				result, err := runInstallFromState(&st)
+				return installResultMsg{result: result, err: err}
 			}
 		}
 	}
@@ -151,9 +154,31 @@ func (p *SummaryPage) ViewWithState(width, height int, state *WizardState) strin
 
 	if p.installed {
 		b.WriteString(lipgloss.NewStyle().Foreground(styles.ColorGreen).Bold(true).
-			Render("✓  Installation complete!") + "\n\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(styles.TextSecondary).
-			Render("Run `nexus start` to start the daemon."))
+			Render("✓  Installation Complete!") + "\n\n")
+
+		if p.result != nil {
+			b.WriteString(row("Config Directory", p.result.ConfigDir))
+			b.WriteString(row("Admin API Key", maskKey(p.result.AdminKey)))
+			b.WriteString(row("Source API Key", maskKey(p.result.SourceKey)))
+			b.WriteString(row("MCP Server Key", maskKey(p.result.MCPKey)))
+			b.WriteString(row("Daemon Address", "http://"+p.result.BindAddr))
+			b.WriteString("\n")
+			b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).
+				Render("  Full API keys are stored in daemon.toml and sources/default.toml.") + "\n")
+			b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).
+				Render("  This directory contains configuration files only.") + "\n\n")
+			b.WriteString(lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
+				Render("  Next Steps:") + "\n")
+			b.WriteString(lipgloss.NewStyle().Foreground(styles.TextSecondary).
+				Render(fmt.Sprintf("    1. nexus start --home %s", p.result.ConfigDir)) + "\n")
+			b.WriteString(lipgloss.NewStyle().Foreground(styles.TextSecondary).
+				Render("    2. nexus doctor") + "\n")
+			b.WriteString(lipgloss.NewStyle().Foreground(styles.TextSecondary).
+				Render(fmt.Sprintf("    3. curl http://%s/healthz", p.result.BindAddr)) + "\n")
+		} else {
+			b.WriteString(lipgloss.NewStyle().Foreground(styles.TextSecondary).
+				Render("Run `nexus start` to start the daemon."))
+		}
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
 
@@ -179,6 +204,13 @@ func countSelected(state *WizardState) int {
 	return n
 }
 
+func maskKey(key string) string {
+	if len(key) <= 20 {
+		return key
+	}
+	return key[:20] + "..."
+}
+
 // maskDSN hides the password portion of a DSN string.
 func maskDSN(dsn string) string {
 	if len(dsn) <= 8 {
@@ -188,7 +220,23 @@ func maskDSN(dsn string) string {
 }
 
 // runInstallFromState generates the Nexus config from wizard state.
-func runInstallFromState(state *WizardState) error {
+func runInstallFromState(state *WizardState) (*nexusinstall.InstallResult, error) {
+	var tools []nexusinstall.ToolSelection
+	for name, selected := range state.SelectedTools {
+		if !selected {
+			continue
+		}
+		ts := nexusinstall.ToolSelection{Name: name}
+		for _, dt := range state.DiscoveredTools {
+			if dt.Name == name {
+				ts.ConnectionType = dt.ConnectionType
+				ts.Endpoint = dt.Endpoint
+				break
+			}
+		}
+		tools = append(tools, ts)
+	}
+
 	return nexusinstall.Install(nexusinstall.Options{
 		ConfigDir:      state.InstallDir,
 		Mode:           state.Mode,
@@ -196,5 +244,10 @@ func runInstallFromState(state *WizardState) error {
 		DSN:            state.DatabaseDSN,
 		EncryptionPass: state.EncryptionPass,
 		Force:          false,
+		Features:       state.Features,
+		SelectedTools:  tools,
+		TunnelEnabled:  state.TunnelEnabled,
+		TunnelProvider: state.TunnelProvider,
+		TunnelEndpoint: state.TunnelEndpoint,
 	})
 }

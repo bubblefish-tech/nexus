@@ -33,7 +33,7 @@ func runSetup() {
 		fmt.Fprintf(os.Stderr, "nexus setup: home dir: %v\n", err)
 		os.Exit(1)
 	}
-	configDir := filepath.Join(home, ".nexus", "nexus")
+	configDir := filepath.Join(home, "BubbleFish", "Nexus")
 
 	app := tui.NewSetupApp(configDir)
 	p := tea.NewProgram(app, tea.WithAltScreen())

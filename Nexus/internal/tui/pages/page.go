@@ -36,8 +36,8 @@ type WizardState struct {
 	// Page 3: feature selection (feature name → enabled).
 	Features map[string]bool
 
-	// Page 4: tool selection (index into DiscoveredTools → selected).
-	SelectedTools map[int]bool
+	// Page 4: tool selection (tool name → selected).
+	SelectedTools map[string]bool
 
 	// Page 5: database selection.
 	DatabaseType string // "sqlite", "postgres", "mysql", "cockroachdb", "mongodb", "firestore", "tidb", "turso"
@@ -64,6 +64,9 @@ type WizardState struct {
 type WizardCompleteMsg struct {
 	ConfigDir string
 }
+
+// AdvancePageMsg is sent by pages that auto-advance after selection.
+type AdvancePageMsg struct{}
 
 // Page is the interface all setup wizard pages implement.
 type Page interface {

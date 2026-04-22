@@ -181,6 +181,19 @@ func TestToolsPage_ViewWithState_WithTools(t *testing.T) {
 	if v == "" {
 		t.Fatal("expected non-empty view with tools")
 	}
+	if !state.SelectedTools["Claude Code"] {
+		t.Fatal("expected detected tool to be pre-selected")
+	}
+}
+
+func TestToolsPage_ShowsAllKnownTools(t *testing.T) {
+	t.Helper()
+	p := NewToolsPage()
+	state := &WizardState{}
+	_ = p.Init(state)
+	if len(p.tools) == 0 {
+		t.Fatal("expected tool list to be populated from manifest")
+	}
 }
 
 // ---- DatabasePage ----
@@ -262,12 +275,29 @@ func TestTunnelPage_Name(t *testing.T) {
 	}
 }
 
-func TestTunnelPage_AlwaysCanAdvance(t *testing.T) {
+func TestTunnelPage_CanAdvance_DisabledOk(t *testing.T) {
 	t.Helper()
 	p := NewTunnelPage()
 	state := &WizardState{}
 	if !p.CanAdvance(state) {
-		t.Fatal("tunnel page should always allow advance")
+		t.Fatal("tunnel page should allow advance when disabled")
+	}
+}
+
+func TestTunnelPage_CanAdvance_EnabledRequiresEndpoint(t *testing.T) {
+	t.Helper()
+	p := NewTunnelPage()
+	state := &WizardState{TunnelEnabled: true}
+	if p.CanAdvance(state) {
+		t.Fatal("tunnel page should not advance when enabled without provider/endpoint")
+	}
+	state.TunnelProvider = "cloudflare"
+	if p.CanAdvance(state) {
+		t.Fatal("tunnel page should not advance when enabled without endpoint")
+	}
+	state.TunnelEndpoint = "https://my-tunnel.example.com"
+	if !p.CanAdvance(state) {
+		t.Fatal("tunnel page should advance when provider and endpoint set")
 	}
 }
 

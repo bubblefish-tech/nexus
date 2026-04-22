@@ -63,6 +63,13 @@ func (w WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 		w.height = msg.Height
 		return w, nil
 
+	case pages.AdvancePageMsg:
+		if w.current < len(w.pgs)-1 && len(w.pgs) > 0 && w.pgs[w.current].CanAdvance(w.state) {
+			w.current++
+			return w, w.pgs[w.current].Init(w.state)
+		}
+		return w, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+n", "right":

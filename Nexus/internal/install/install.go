@@ -29,6 +29,13 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
+// ToolSelection describes a single AI tool the user selected during setup.
+type ToolSelection struct {
+	Name           string
+	ConnectionType string
+	Endpoint       string
+}
+
 // Options describes what the wizard collects before calling Install.
 type Options struct {
 	ConfigDir      string
@@ -37,14 +44,28 @@ type Options struct {
 	DSN            string // connection string for non-sqlite backends
 	EncryptionPass string // empty = no encryption
 	Force          bool
+
+	Features      map[string]bool  // feature name → enabled
+	SelectedTools []ToolSelection  // tools the user chose to connect
+	TunnelEnabled  bool
+	TunnelProvider string // cloudflare | ngrok | tailscale | bore | custom
+	TunnelEndpoint string
+}
+
+// InstallResult carries data generated during installation for display to the user.
+type InstallResult struct {
+	ConfigDir string
+	AdminKey  string
+	SourceKey string
+	MCPKey    string
+	BindAddr  string
 }
 
 // Install creates the Nexus config directory tree from wizard options.
 // It is idempotent when Force is true.
-func Install(opts Options) error {
+func Install(opts Options) (*InstallResult, error) {
 	configDir := opts.configDir()
 
-	// Directory tree.
 	dirs := []string{
 		configDir,
 		filepath.Join(configDir, "sources"),
@@ -52,10 +73,13 @@ func Install(opts Options) error {
 		filepath.Join(configDir, "compiled"),
 		filepath.Join(configDir, "wal"),
 		filepath.Join(configDir, "logs"),
+		filepath.Join(configDir, "keys"),
+		filepath.Join(configDir, "discovery"),
+		filepath.Join(configDir, "tools"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0700); err != nil {
-			return fmt.Errorf("create dir %q: %w", d, err)
+			return nil, fmt.Errorf("create dir %q: %w", d, err)
 		}
 	}
 
@@ -72,21 +96,37 @@ func Install(opts Options) error {
 		destType = "sqlite"
 	}
 
-	daemonTOML, _ := BuildDaemonTOML(configDir, mode, adminKey, mcpKey, "")
+	daemonTOML, bindAddr := BuildDaemonTOML(configDir, mode, adminKey, mcpKey, "", opts.Features)
 	daemonPath := filepath.Join(configDir, "daemon.toml")
 	if err := WriteConfigFile(daemonPath, daemonTOML, opts.Force); err != nil {
-		return fmt.Errorf("write daemon.toml: %w", err)
+		return nil, fmt.Errorf("write daemon.toml: %w", err)
 	}
 
 	if err := WriteDestination(configDir, destType, opts.DSN, opts.Force); err != nil {
-		return fmt.Errorf("write destination: %w", err)
+		return nil, fmt.Errorf("write destination: %w", err)
 	}
 
 	if err := WriteDefaultSource(configDir, mode, destType, sourceKey, opts.Force); err != nil {
-		return fmt.Errorf("write source: %w", err)
+		return nil, fmt.Errorf("write source: %w", err)
 	}
 
-	return nil
+	if opts.TunnelEnabled && opts.TunnelProvider != "" {
+		if err := WriteTunnelConfig(configDir, opts.TunnelProvider, opts.TunnelEndpoint, opts.Force); err != nil {
+			return nil, fmt.Errorf("write tunnel config: %w", err)
+		}
+	}
+
+	if err := WriteToolConfigs(configDir, opts.SelectedTools, opts.Force); err != nil {
+		return nil, fmt.Errorf("write tool configs: %w", err)
+	}
+
+	return &InstallResult{
+		ConfigDir: configDir,
+		AdminKey:  adminKey,
+		SourceKey: sourceKey,
+		MCPKey:    mcpKey,
+		BindAddr:  bindAddr,
+	}, nil
 }
 
 func (o Options) configDir() string {
@@ -94,7 +134,7 @@ func (o Options) configDir() string {
 		return o.ConfigDir
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".nexus", "nexus")
+	return filepath.Join(home, "BubbleFish", "Nexus")
 }
 
 // GenerateKey returns a cryptographically random 32-byte hex-encoded key
@@ -119,7 +159,7 @@ func WriteConfigFile(path, content string, force bool) error {
 }
 
 // ResolveInstallHome resolves the config directory using:
-// homeFlag > BUBBLEFISH_HOME env var > ~/.nexus/nexus
+// homeFlag > BUBBLEFISH_HOME env var > ~/BubbleFish/Nexus
 func ResolveInstallHome(homeFlag string) (string, error) {
 	var dir string
 	switch {
@@ -132,14 +172,24 @@ func ResolveInstallHome(homeFlag string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		dir = filepath.Join(home, ".nexus", "nexus")
+		dir = filepath.Join(home, "BubbleFish", "Nexus")
 	}
 	return filepath.Abs(dir)
 }
 
-// BuildDaemonTOML generates daemon.toml content for the given mode and keys.
-// Returns the TOML string and the resolved bind address (e.g. "127.0.0.1:8080").
-func BuildDaemonTOML(configDir, mode, adminKey, mcpKey, oauthIssuer string) (string, string) {
+func featureEnabled(features map[string]bool, key string, fallback bool) bool {
+	if features == nil {
+		return fallback
+	}
+	if v, ok := features[key]; ok {
+		return v
+	}
+	return fallback
+}
+
+// BuildDaemonTOML generates daemon.toml content for the given mode, keys, and
+// feature toggles. Returns the TOML string and the resolved bind address.
+func BuildDaemonTOML(configDir, mode, adminKey, mcpKey, oauthIssuer string, features map[string]bool) (string, string) {
 	bind := "127.0.0.1"
 	port := 8080
 	logLevel := "info"
@@ -148,7 +198,6 @@ func BuildDaemonTOML(configDir, mode, adminKey, mcpKey, oauthIssuer string) (str
 	walIntegrity := "crc32"
 	walEncryption := false
 	rateLimit := 2000
-	embeddingEnabled := false
 	webPort := 8081
 
 	switch mode {
@@ -161,6 +210,17 @@ func BuildDaemonTOML(configDir, mode, adminKey, mcpKey, oauthIssuer string) (str
 		walEncryption = true
 		rateLimit = 500
 	}
+
+	embeddingEnabled := featureEnabled(features, "embedding", false)
+	mcpEnabled := featureEnabled(features, "mcp", true)
+	dashboardEnabled := featureEnabled(features, "dashboard", true)
+	signingEnabled := featureEnabled(features, "signing", false)
+	jwtEnabled := featureEnabled(features, "jwt", false)
+	eventsEnabled := featureEnabled(features, "events", false)
+	tlsEnabled := featureEnabled(features, "tls", false)
+	auditEnabled := featureEnabled(features, "audit", true)
+	consistencyEnabled := featureEnabled(features, "consistency", false)
+	securityEventsEnabled := featureEnabled(features, "security_events", true)
 
 	walPath := filepath.ToSlash(filepath.Join(configDir, "wal"))
 	securityLogPath := filepath.ToSlash(filepath.Join(configDir, "security.log"))
@@ -204,33 +264,35 @@ global_requests_per_minute = %d
 enabled = %t
 
 [daemon.mcp]
-enabled = true
+enabled = %t
 port = 7474
 bind = "127.0.0.1"
 source_name = "default"
 api_key = "%s"
 
 [daemon.web]
+enabled = %t
 port = %d
 require_auth = true
 
 [daemon.tls]
-enabled = false
+enabled = %t
 
 [daemon.trusted_proxies]
 cidrs = []
 forwarded_headers = []
 
 [daemon.signing]
-enabled = false
+enabled = %t
 
 [daemon.jwt]
-enabled = false
+enabled = %t
 
 [daemon.events]
-enabled = false
+enabled = %t
 
 [daemon.audit]
+enabled = %t
 log_file = "%s"
 
 [retrieval]
@@ -241,18 +303,24 @@ over_sample_factor = 100
 default_profile = "balanced"
 
 [consistency]
-enabled = false
+enabled = %t
 interval_seconds = 300
 sample_size = 100
 
 [security_events]
-enabled = true
+enabled = %t
 log_file = "%s"
 `, version.Version, mode, port, bind, adminKey, logLevel, logFormat, mode,
-		queueSize, walPath, walIntegrity, walEncryption, rateLimit, embeddingEnabled, mcpKey, webPort,
-		auditLogPath, securityLogPath)
+		queueSize, walPath, walIntegrity, walEncryption, rateLimit,
+		embeddingEnabled, mcpEnabled, mcpKey, dashboardEnabled, webPort,
+		tlsEnabled, signingEnabled, jwtEnabled, eventsEnabled,
+		auditEnabled, auditLogPath,
+		consistencyEnabled, securityEventsEnabled, securityLogPath)
 
-	if oauthIssuer != "" {
+	if oauthIssuer != "" || featureEnabled(features, "oauth", false) {
+		if oauthIssuer == "" {
+			oauthIssuer = "https://localhost:8080"
+		}
 		keyPath := filepath.ToSlash(filepath.Join(configDir, "oauth_private.key"))
 		t += fmt.Sprintf(`
 [daemon.oauth]
@@ -272,6 +340,56 @@ allowed_scopes = ["openid", "mcp"]
 	}
 
 	return t, fmt.Sprintf("%s:%d", bind, port)
+}
+
+// WriteTunnelConfig creates tunnel.toml when a tunnel provider is selected.
+func WriteTunnelConfig(configDir, provider, endpoint string, force bool) error {
+	content := fmt.Sprintf(`# BubbleFish Nexus -- Tunnel Configuration
+[tunnel]
+enabled = true
+provider = "%s"
+endpoint = "%s"
+mcp_port = 7474
+`, provider, endpoint)
+	return WriteConfigFile(filepath.Join(configDir, "tunnel.toml"), content, force)
+}
+
+// WriteToolConfigs creates a TOML config file per selected tool in the tools/ directory.
+func WriteToolConfigs(configDir string, tools []ToolSelection, force bool) error {
+	toolsDir := filepath.Join(configDir, "tools")
+	for _, t := range tools {
+		content := fmt.Sprintf(`# BubbleFish Nexus -- Tool: %s
+[tool]
+name = "%s"
+connection_type = "%s"
+endpoint = "%s"
+enabled = true
+`, t.Name, t.Name, t.ConnectionType, t.Endpoint)
+		safeName := sanitizeFileName(t.Name)
+		path := filepath.Join(toolsDir, safeName+".toml")
+		if err := WriteConfigFile(path, content, force); err != nil {
+			return fmt.Errorf("write tool %q: %w", t.Name, err)
+		}
+	}
+	return nil
+}
+
+func sanitizeFileName(name string) string {
+	var b []byte
+	for _, c := range []byte(name) {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '_':
+			b = append(b, c)
+		case c >= 'A' && c <= 'Z':
+			b = append(b, c+'a'-'A')
+		case c == ' ':
+			b = append(b, '_')
+		}
+	}
+	if len(b) == 0 {
+		return "tool"
+	}
+	return string(b)
 }
 
 // WriteDestination creates the appropriate destination TOML file.

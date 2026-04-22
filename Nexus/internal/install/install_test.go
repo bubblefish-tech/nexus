@@ -52,7 +52,7 @@ func TestGenerateKey_Unique(t *testing.T) {
 
 func TestBuildDaemonTOML_ContainsMode(t *testing.T) {
 	t.Helper()
-	toml, _ := BuildDaemonTOML("/tmp/nexus", "balanced", "adminkey", "mcpkey", "")
+	toml, _ := BuildDaemonTOML("/tmp/nexus", "balanced", "adminkey", "mcpkey", "", nil)
 	if !strings.Contains(toml, `mode = "balanced"`) {
 		t.Fatal("expected mode=balanced in TOML")
 	}
@@ -60,7 +60,7 @@ func TestBuildDaemonTOML_ContainsMode(t *testing.T) {
 
 func TestBuildDaemonTOML_ContainsAdminKey(t *testing.T) {
 	t.Helper()
-	toml, _ := BuildDaemonTOML("/tmp/nexus", "simple", "myAdminKey", "myMCPKey", "")
+	toml, _ := BuildDaemonTOML("/tmp/nexus", "simple", "myAdminKey", "myMCPKey", "", nil)
 	if !strings.Contains(toml, "myAdminKey") {
 		t.Fatal("expected admin key in TOML")
 	}
@@ -68,7 +68,7 @@ func TestBuildDaemonTOML_ContainsAdminKey(t *testing.T) {
 
 func TestBuildDaemonTOML_BindAddress(t *testing.T) {
 	t.Helper()
-	_, addr := BuildDaemonTOML("/tmp/nexus", "simple", "k", "m", "")
+	_, addr := BuildDaemonTOML("/tmp/nexus", "simple", "k", "m", "", nil)
 	if addr != "127.0.0.1:8080" {
 		t.Fatalf("expected 127.0.0.1:8080, got %s", addr)
 	}
@@ -76,7 +76,7 @@ func TestBuildDaemonTOML_BindAddress(t *testing.T) {
 
 func TestBuildDaemonTOML_SafeMode_WalMAC(t *testing.T) {
 	t.Helper()
-	toml, _ := BuildDaemonTOML("/tmp/nexus", "safe", "k", "m", "")
+	toml, _ := BuildDaemonTOML("/tmp/nexus", "safe", "k", "m", "", nil)
 	if !strings.Contains(toml, `mode = "mac"`) {
 		t.Fatal("expected WAL integrity mode=mac in safe mode")
 	}
@@ -177,10 +177,10 @@ func TestInstall_CreatesDirectories(t *testing.T) {
 		DestType:  "sqlite",
 		Force:     true,
 	}
-	if err := Install(opts); err != nil {
+	if _, err := Install(opts); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	for _, sub := range []string{"sources", "destinations", "compiled", "wal", "logs"} {
+	for _, sub := range []string{"sources", "destinations", "compiled", "wal", "logs", "keys", "discovery", "tools"} {
 		if _, err := os.Stat(filepath.Join(dir, sub)); err != nil {
 			t.Errorf("expected directory %q to exist: %v", sub, err)
 		}
@@ -191,7 +191,7 @@ func TestInstall_WritesDaemonTOML(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	opts := Options{ConfigDir: dir, Mode: "balanced", DestType: "sqlite", Force: true}
-	if err := Install(opts); err != nil {
+	if _, err := Install(opts); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "daemon.toml"))

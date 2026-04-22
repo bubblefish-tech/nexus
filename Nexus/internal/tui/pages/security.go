@@ -130,11 +130,11 @@ func (p *SecurityPage) View(width, height int) string {
 		Render("Encryption Password (optional)")
 	b.WriteString(title + "\n\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).
-		Render("Setting a password encrypts memories, config secrets, and audit events at rest.\nLeave blank to skip encryption.") + "\n\n")
+		Render("This password encrypts WAL segments, config secrets, and audit events at rest.\nIt does NOT set a database password — configure that in your database directly.\nLeave blank to skip encryption.") + "\n\n")
 
 	labelStyle := lipgloss.NewStyle().Foreground(styles.TextSecondary).Width(20)
 	b.WriteString(labelStyle.Render("Password:") + " " + p.password.View() + "\n\n")
-	b.WriteString(labelStyle.Render("Confirm password:") + " " + p.confirm.View() + "\n\n")
+	b.WriteString(labelStyle.Render("Confirm Password:") + " " + p.confirm.View() + "\n\n")
 
 	if p.err != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(styles.ColorRed).Bold(true).

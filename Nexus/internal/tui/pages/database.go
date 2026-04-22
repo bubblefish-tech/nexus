@@ -28,21 +28,22 @@ import (
 )
 
 var dbChoices = []struct {
-	key         string
-	label       string
-	desc        string
-	needsDSN    bool
-	dsnLabel    string
-	dsnExample  string
+	key          string
+	label        string
+	desc         string
+	needsDSN     bool
+	dsnLabel     string
+	dsnExample   string
+	downloadHint string
 }{
-	{"sqlite", "SQLite (local)", "Zero-config embedded database — recommended for single-node installs", false, "", ""},
-	{"postgres", "PostgreSQL", "Production-grade relational DB with pgvector support", true, "Connection string", "postgres://user:pass@localhost:5432/nexus"},
-	{"mysql", "MySQL / MariaDB", "MySQL-compatible with app-level vector search", true, "Connection string", "user:pass@tcp(localhost:3306)/nexus"},
-	{"cockroachdb", "CockroachDB", "Distributed SQL, PostgreSQL-compatible", true, "Connection string", "postgres://user:pass@localhost:26257/nexus"},
-	{"mongodb", "MongoDB", "Document store with Atlas Vector Search", true, "MongoDB URI", "mongodb://user:pass@localhost:27017/nexus"},
-	{"firestore", "Firebase / Firestore", "Google Firestore — schemaless, serverless", true, "Project ID", "my-firebase-project"},
-	{"tidb", "TiDB", "MySQL-compatible distributed DB with native vector type", true, "Connection string", "user:pass@tcp(localhost:4000)/nexus"},
-	{"turso", "Turso / libSQL", "SQLite-compatible with edge replication", true, "Turso URL", "libsql://database.turso.io?authToken=TOKEN"},
+	{"sqlite", "SQLite (Local)", "Zero-config embedded database — recommended for single-node installs", false, "", "", "Built-in, no download needed"},
+	{"postgres", "PostgreSQL", "Production-grade relational DB with pgvector support", true, "Connection String", "postgres://user:pass@localhost:5432/nexus", "https://postgresql.org/download"},
+	{"mysql", "MySQL / MariaDB", "MySQL-compatible with app-level vector search", true, "Connection String", "user:pass@tcp(localhost:3306)/nexus", "https://dev.mysql.com/downloads"},
+	{"cockroachdb", "CockroachDB", "Distributed SQL, PostgreSQL-compatible", true, "Connection String", "postgres://user:pass@localhost:26257/nexus", "https://cockroachlabs.com/docs/releases"},
+	{"mongodb", "MongoDB", "Document store with Atlas Vector Search", true, "MongoDB URI", "mongodb://user:pass@localhost:27017/nexus", "https://mongodb.com/try/download"},
+	{"firestore", "Firebase / Firestore", "Google Firestore — schemaless, serverless", true, "Project ID", "my-firebase-project", "https://console.firebase.google.com"},
+	{"tidb", "TiDB", "MySQL-compatible distributed DB with native vector type", true, "Connection String", "user:pass@tcp(localhost:4000)/nexus", "https://tidb.io/download"},
+	{"turso", "Turso / libSQL", "SQLite-compatible with edge replication", true, "Turso URL", "libsql://database.turso.io?authToken=TOKEN", "https://turso.tech"},
 }
 
 // DatabasePage handles database type selection and optional DSN input.
@@ -162,10 +163,17 @@ func (p *DatabasePage) View(width, height int) string {
 		b.WriteString(fmt.Sprintf("%s%s\n", cursor, rowStyle.Render(c.label)))
 		b.WriteString(fmt.Sprintf("    %s\n",
 			lipgloss.NewStyle().Foreground(styles.TextMuted).Render(c.desc)))
-		if i == p.cursor && c.needsDSN {
-			b.WriteString(fmt.Sprintf("    %s: %s\n",
-				lipgloss.NewStyle().Foreground(styles.ColorBlue).Render(c.dsnLabel),
-				p.dsnInput.View()))
+		if i == p.cursor {
+			if c.downloadHint != "" {
+				b.WriteString(fmt.Sprintf("    %s %s\n",
+					lipgloss.NewStyle().Foreground(styles.ColorBlue).Render("Download:"),
+					lipgloss.NewStyle().Foreground(styles.TextMuted).Render(c.downloadHint)))
+			}
+			if c.needsDSN {
+				b.WriteString(fmt.Sprintf("    %s: %s\n",
+					lipgloss.NewStyle().Foreground(styles.ColorBlue).Render(c.dsnLabel),
+					p.dsnInput.View()))
+			}
 		}
 		b.WriteString("\n")
 	}

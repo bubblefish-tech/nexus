@@ -44,6 +44,13 @@ var allFeatures = []featureEntry{
 	{"ingest", "Nexus Ingest", "Auto-ingest conversations from Claude Code, Cursor, LM Studio", true, false},
 	{"audit", "Audit Chain", "Hash-chained, Ed25519-signed audit log", true, true},
 	{"dashboard", "Web Dashboard", "Read-only monitoring UI at port 8081", true, true},
+	{"signing", "Config Signing", "Ed25519 signing for config file integrity verification", true, false},
+	{"jwt", "JWT Authentication", "Enable JWT-based authentication for API access", false, false},
+	{"events", "Event Bus", "Publish internal events for external consumers", false, false},
+	{"tls", "TLS Termination", "Terminate TLS at the daemon for HTTPS connections", false, false},
+	{"consistency", "Consistency Checking", "Periodic WAL and database consistency verification", true, false},
+	{"security_events", "Security Event Log", "Dedicated security event logging and alerting", true, true},
+	{"oauth", "OAuth 2.1 Server", "RFC 9126 OAuth server for MCP client authentication", false, false},
 }
 
 // FeaturesPage presents a checkbox list of optional features.

@@ -75,6 +75,7 @@ func (p *WelcomePage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
 			}
 		case " ", "enter":
 			state.Mode = modeChoices[p.cursor].key
+			return p, func() tea.Msg { return AdvancePageMsg{} }
 		}
 	}
 	return p, nil
@@ -104,8 +105,8 @@ func (p *WelcomePage) View(width, height int) string {
 	}
 
 	hint := lipgloss.NewStyle().Foreground(styles.TextMuted).
-		Render("↑/↓ or j/k to navigate  ·  Space or Enter to select")
+		Render("↑/↓ or j/k to navigate  ·  Space or Enter to select and continue")
 	b.WriteString(hint)
 
-	return lipgloss.NewStyle().Width(width).Render(b.String())
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, b.String())
 }

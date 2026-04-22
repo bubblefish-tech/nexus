@@ -78,17 +78,33 @@ func (l Logo) fullView() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(color).Render(row.text))
 	}
 
+	lines = append(lines, "")
+
 	// Block-letter banner.
 	for _, row := range bannerLines {
 		lines = append(lines, lipgloss.NewStyle().Foreground(row.color).Render(row.text))
 	}
 
-	// Subtitle + copyright.
+	lines = append(lines, "")
+
+	// The banner block is ~82 chars wide; center subtitle/copyright/designer to match.
+	bannerWidth := 82
+	if l.Width > bannerWidth {
+		bannerWidth = l.Width
+	}
+
+	subtitleText := lipgloss.NewStyle().Foreground(styles.TextSecondary).
+		Render("N   E   X   U   S   ·   THE  Governed  AI  Control  Plane")
+	copyrightText := lipgloss.NewStyle().Foreground(styles.TextMuted).
+		Render("BubbleFish  Technologies,  Inc.   ·   Copyright  ©  2026")
+	designerText := lipgloss.NewStyle().Foreground(styles.TextMuted).
+		Render("Designed by: Shawn Sammartano")
+
 	lines = append(lines,
-		lipgloss.NewStyle().Foreground(styles.TextSecondary).
-			Render("         N  E  X  U  S  ·  Governed AI Memory Daemon"),
-		lipgloss.NewStyle().Foreground(styles.TextMuted).
-			Render("         BubbleFish Technologies, Inc.  ·  Copyright © 2026"),
+		lipgloss.PlaceHorizontal(bannerWidth, lipgloss.Center, subtitleText),
+		lipgloss.PlaceHorizontal(bannerWidth, lipgloss.Center, copyrightText),
+		"",
+		lipgloss.PlaceHorizontal(bannerWidth, lipgloss.Center, designerText),
 	)
 
 	return strings.Join(lines, "\n") + "\n"
@@ -96,8 +112,18 @@ func (l Logo) fullView() string {
 
 func (l Logo) compactView() string {
 	fish := lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
-		Render("  ><((((°>  BubbleFish NEXUS")
+		Render("><((((°>  BubbleFish NEXUS")
 	sub := lipgloss.NewStyle().Foreground(styles.TextMuted).
-		Render("  Governed AI Memory Daemon  ·  © 2026 BubbleFish Technologies, Inc.")
-	return lipgloss.JoinVertical(lipgloss.Left, fish, sub) + "\n"
+		Render("THE Governed AI Control Plane  ·  © 2026 BubbleFish Technologies, Inc.")
+	designer := lipgloss.NewStyle().Foreground(styles.TextMuted).
+		Render("Designed by: Shawn Sammartano")
+	w := l.Width
+	if w < 1 {
+		w = 80
+	}
+	return lipgloss.JoinVertical(lipgloss.Center,
+		lipgloss.PlaceHorizontal(w, lipgloss.Center, fish),
+		lipgloss.PlaceHorizontal(w, lipgloss.Center, sub),
+		lipgloss.PlaceHorizontal(w, lipgloss.Center, designer),
+	) + "\n"
 }

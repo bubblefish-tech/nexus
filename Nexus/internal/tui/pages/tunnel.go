@@ -107,7 +107,12 @@ func (p *TunnelPage) Update(msg tea.Msg, state *WizardState) (Page, tea.Cmd) {
 	return p, nil
 }
 
-func (p *TunnelPage) CanAdvance(_ *WizardState) bool { return true }
+func (p *TunnelPage) CanAdvance(state *WizardState) bool {
+	if !state.TunnelEnabled {
+		return true
+	}
+	return state.TunnelProvider != "" && strings.TrimSpace(state.TunnelEndpoint) != ""
+}
 
 func (p *TunnelPage) View(width, height int) string {
 	var b strings.Builder
@@ -119,12 +124,12 @@ func (p *TunnelPage) View(width, height int) string {
 	b.WriteString(lipgloss.NewStyle().Foreground(styles.TextSecondary).
 		Render("Connect to a tunnel? ") +
 		lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("[Y]") +
-		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(" yes  ") +
+		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(" Yes  ") +
 		lipgloss.NewStyle().Foreground(styles.ColorAmber).Render("[N]") +
-		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(" no") + "\n\n")
+		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(" No") + "\n\n")
 
 	b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).
-		Render("Provider options:\n"))
+		Render("Provider Options:\n"))
 	for i, prov := range tunnelProviders {
 		cursor := "  "
 		rowStyle := lipgloss.NewStyle().Foreground(styles.TextMuted)
@@ -155,19 +160,19 @@ func (p *TunnelPage) ViewWithState(width, height int, state *WizardState) string
 	b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).
 		Render("Tunnels expose the MCP server (:7474) to remote AI clients.") + "\n\n")
 
-	enabled := "no"
+	enabled := "No"
 	if state.TunnelEnabled {
-		enabled = lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("yes")
+		enabled = lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("Yes")
 	}
 	b.WriteString(fmt.Sprintf("Connect to a tunnel: %s\n\n", enabled))
 
 	if !state.TunnelEnabled {
 		b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).
-			Render("Press Y to enable  ·  Ctrl+N to continue"))
+			Render("Press Y to enable  ·  Ctrl+N to skip"))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
 
-	b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).Render("Select provider:\n"))
+	b.WriteString(lipgloss.NewStyle().Foreground(styles.TextMuted).Render("Select Provider:\n"))
 	for i, prov := range tunnelProviders {
 		cursor := "  "
 		rowStyle := lipgloss.NewStyle().Foreground(styles.TextMuted)
@@ -190,6 +195,11 @@ func (p *TunnelPage) ViewWithState(width, height int, state *WizardState) string
 			b.WriteString(lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(state.TunnelEndpoint))
 		}
 		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	if state.TunnelProvider == "" || strings.TrimSpace(state.TunnelEndpoint) == "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(styles.ColorAmber).
+			Render("Select a provider and enter an endpoint URL to continue."))
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
