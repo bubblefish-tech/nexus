@@ -52,6 +52,9 @@ const (
 func (d *Daemon) buildRouter() http.Handler {
 	r := chi.NewRouter()
 
+	// CORS middleware — allow cross-origin requests from localhost origins.
+	r.Use(corsMiddleware)
+
 	// Request ID middleware — attach a unique request_id to every request.
 	r.Use(middleware.RequestID)
 
