@@ -43,6 +43,10 @@ type Config struct {
 	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
 	Canonical CanonicalConfig `toml:"canonical"`
 
+	// Provenance holds the [provenance] section for configurable Merkle tree
+	// computation intervals and entry count triggers.
+	Provenance ProvenanceConfig `toml:"provenance"`
+
 	// Control holds the [control] section for the Nexus-native policy engine.
 	// Reference: v0.1.3 Moat-Takeover Build Plan, MT.3.
 	Control ControlConfig `toml:"control"`
@@ -371,6 +375,12 @@ type ConsistencyConfig struct {
 	Enabled         bool `toml:"enabled"`
 	IntervalSeconds int  `toml:"interval_seconds"`
 	SampleSize      int  `toml:"sample_size"`
+}
+
+// ProvenanceConfig models the [provenance] section.
+type ProvenanceConfig struct {
+	MerkleInterval string `toml:"merkle_interval"`
+	MerkleEveryN   int    `toml:"merkle_every_n"`
 }
 
 // SecurityEventsConfig models the [security_events] section.
