@@ -1875,5 +1875,12 @@
 - Oversized buffer eviction (>1MiB not pooled)
 - Reset-on-Get pattern (safe against skipped Put)
 - Tests: 4 new tests
+- Commit: ae07890
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## DEDUP.1: COMPLETE — Write Deduplication
+- Content-hash dedup cache: identical content within 24h returns existing memory ID
+- Thread-safe via sync.Mutex
+- Tests: 3 new tests
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 104 packages PASS
