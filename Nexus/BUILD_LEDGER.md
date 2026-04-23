@@ -1882,5 +1882,12 @@
 - Content-hash dedup cache: identical content within 24h returns existing memory ID
 - Thread-safe via sync.Mutex
 - Tests: 3 new tests
+- Commit: ea5c511
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## WARM.1: COMPLETE — Warm-Start + Code Hygiene
+- Embedding connection pre-warmed at startup
+- Lazy-compile regexes: headingRE moved to package level in markdown_diary.go
+- bytes.Buffer in compactJSON kept (json.Compact requires *bytes.Buffer)
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 104 packages PASS

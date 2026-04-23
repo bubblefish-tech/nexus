@@ -27,6 +27,7 @@ import (
 )
 
 var dateFileRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\.md$`)
+var headingRE = regexp.MustCompile(`(?m)^#{1,2} `)
 
 func classifyMarkdownFile(name string) (memoryType string, date time.Time) {
 	lower := strings.ToLower(name)
@@ -51,7 +52,6 @@ func classifyMarkdownFile(name string) (memoryType string, date time.Time) {
 }
 
 func splitMarkdownMemories(content string) []string {
-	headingRE := regexp.MustCompile(`(?m)^#{1,2} `)
 	locs := headingRE.FindAllStringIndex(content, -1)
 
 	if len(locs) > 0 {
@@ -164,7 +164,6 @@ func parseMarkdownDiaryDir(path string) ([]Memory, *MarkdownDiaryResult, error) 
 }
 
 func countFragments(content string) int {
-	headingRE := regexp.MustCompile(`(?m)^#{1,2} `)
 	locs := headingRE.FindAllStringIndex(content, -1)
 	if len(locs) > 0 {
 		count := 0

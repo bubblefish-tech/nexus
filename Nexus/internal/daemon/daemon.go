@@ -724,6 +724,14 @@ func (d *Daemon) Start() error {
 				)
 			} else {
 				d.embeddingClient = ec
+
+				// Pre-warm embedding connection so first real query doesn't pay cold-start tax.
+				go func() {
+					warmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					_, _ = ec.Embed(warmCtx, "warm-start probe")
+					d.logger.Debug("embedding connection warmed", "component", "daemon")
+				}()
 			}
 		}
 	}
