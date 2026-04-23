@@ -25,7 +25,6 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/tui"
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
-	"github.com/bubblefish-tech/nexus/internal/tui/tabs"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -55,22 +54,12 @@ func runTUI() {
 	client := api.NewClient(addr, string(cfg.ResolvedAdminKey))
 	defer client.Close()
 
-	tabList := []tabs.Tab{
-		tabs.NewControlTab(),
-		tabs.NewAuditTab(),
-		tabs.NewSecurityTab(),
-		tabs.NewPipelineTab(),
-		tabs.NewConflictsTab(),
-		tabs.NewTimeTravelTab(),
-		tabs.NewSettingsTab(),
-	}
-
 	prefs, err := tui.LoadPrefs(configDir)
 	if err != nil {
 		slog.Warn("failed to load tui prefs, using defaults", "err", err)
 	}
 
-	app := tui.NewRunningApp(client, tabList, prefs)
+	app := tui.NewRunningApp(client, prefs)
 
 	if os.Getenv("DEBUG") != "" {
 		f, err := tea.LogToFile("debug.log", "debug")

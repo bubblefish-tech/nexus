@@ -28,7 +28,6 @@ import (
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	"github.com/bubblefish-tech/nexus/internal/tui/pages"
-	"github.com/bubblefish-tech/nexus/internal/tui/tabs"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 )
@@ -46,7 +45,7 @@ func newMockDaemon(t *testing.T) *httptest.Server {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "ok", "version": "0.1.3",
 			"queue_depth": 0, "consistency_score": 1.0,
-			"memories_total": 42,
+			"memories_total": 42, "audit_enabled": true,
 		})
 	})
 	mux.HandleFunc("/api/audit/log", func(w http.ResponseWriter, _ *http.Request) {
@@ -69,6 +68,9 @@ func newMockDaemon(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/conflicts", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"groups": []interface{}{}})
 	})
+	mux.HandleFunc("/api/control/agents", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"agents": []interface{}{}})
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{})
 	})
@@ -79,16 +81,7 @@ func newTestRunningApp(t *testing.T) (App, func()) {
 	t.Helper()
 	srv := newMockDaemon(t)
 	client := api.NewClient(srv.URL, "test-token")
-	tabList := []tabs.Tab{
-		tabs.NewControlTab(),
-		tabs.NewAuditTab(),
-		tabs.NewSecurityTab(),
-		tabs.NewPipelineTab(),
-		tabs.NewConflictsTab(),
-		tabs.NewTimeTravelTab(),
-		tabs.NewSettingsTab(),
-	}
-	app := NewRunningApp(client, tabList, nil)
+	app := NewRunningApp(client, nil)
 	return app, func() {
 		client.Close()
 		srv.Close()
@@ -172,7 +165,7 @@ func TestApp_RunningMode_QuitOnCtrlC(t *testing.T) {
 
 // ── Running Mode ─ manual ─────────────────────────────────────
 
-func TestApp_RunningMode_TabSwitch_UpdatesView(t *testing.T) {
+func TestApp_RunningMode_PageSwitch_UpdatesState(t *testing.T) {
 	t.Helper()
 	app, cleanup := newTestRunningApp(t)
 	defer cleanup()
@@ -182,34 +175,12 @@ func TestApp_RunningMode_TabSwitch_UpdatesView(t *testing.T) {
 	app.running.daemonUp = true
 
 	view := app.View()
-	if !strings.Contains(view, "Overview") {
-		t.Fatalf("expected Overview in initial view")
+	if !strings.Contains(view, "Dashboard") {
+		t.Fatalf("expected Dashboard in initial view, got: %s", view[:200])
 	}
 
-	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
-	app = updated.(App)
-	if app.running.activeTab != 1 {
-		t.Fatalf("expected activeTab 1, got %d", app.running.activeTab)
-	}
-}
-
-func TestApp_RunningMode_SidebarToggle_ChangesView(t *testing.T) {
-	t.Helper()
-	app, cleanup := newTestRunningApp(t)
-	defer cleanup()
-
-	updated, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	app = updated.(App)
-	app.running.daemonUp = true
-
-	viewWithSidebar := app.View()
-
-	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'H'}})
-	app = updated.(App)
-	viewWithoutSidebar := app.View()
-
-	if viewWithSidebar == viewWithoutSidebar {
-		t.Fatal("expected view to change after sidebar toggle")
+	if app.running.state != StateDashboard {
+		t.Fatalf("expected StateDashboard, got %d", app.running.state)
 	}
 }
 
@@ -244,8 +215,8 @@ func TestApp_RunningMode_Help_ShowsKeybindings(t *testing.T) {
 	app = updated.(App)
 
 	view := app.View()
-	if !strings.Contains(view, "KEYBINDINGS") {
-		t.Fatalf("expected KEYBINDINGS in help view")
+	if !strings.Contains(view, "GLOBAL KEYS") {
+		t.Fatalf("expected GLOBAL KEYS in help view")
 	}
 	if !strings.Contains(view, "ctrl+c") {
 		t.Fatalf("expected ctrl+c in help view")
@@ -264,5 +235,55 @@ func TestApp_RunningMode_TerminalTooSmall(t *testing.T) {
 	view := app.View()
 	if !strings.Contains(view, "too small") {
 		t.Fatalf("expected 'too small' message for undersized terminal")
+	}
+}
+
+func TestApp_RunningMode_HeaderBar_ShowsNexus(t *testing.T) {
+	t.Helper()
+	app, cleanup := newTestRunningApp(t)
+	defer cleanup()
+
+	updated, _ := app.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	app = updated.(App)
+	app.running.daemonUp = true
+
+	view := app.View()
+	if !strings.Contains(view, "NEXUS") {
+		t.Fatalf("expected NEXUS in header bar")
+	}
+}
+
+func TestApp_RunningMode_TabBar_ShowsNinePages(t *testing.T) {
+	t.Helper()
+	app, cleanup := newTestRunningApp(t)
+	defer cleanup()
+
+	updated, _ := app.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	app = updated.(App)
+	app.running.daemonUp = true
+
+	view := app.View()
+	for _, name := range []string{"Dashboard", "Memory", "Retrieval", "Audit", "Agents", "Crypto", "Gov", "Dream", "Immune"} {
+		if !strings.Contains(view, name) {
+			t.Errorf("expected tab %q in tab bar", name)
+		}
+	}
+}
+
+func TestApp_RunningMode_FeatureFlags_ShowsFlags(t *testing.T) {
+	t.Helper()
+	app, cleanup := newTestRunningApp(t)
+	defer cleanup()
+
+	updated, _ := app.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	app = updated.(App)
+	app.running.daemonUp = true
+
+	view := app.View()
+	if !strings.Contains(view, "AES-256-GCM") {
+		t.Fatalf("expected AES-256-GCM in feature flags bar")
+	}
+	if !strings.Contains(view, "ENTERPRISE") {
+		t.Fatalf("expected ENTERPRISE in feature flags bar")
 	}
 }
