@@ -94,7 +94,7 @@ type SplashModel struct {
 func NewSplashModel() SplashModel {
 	s := SplashModel{
 		startTime:   time.Now(),
-		bubbleField: components.NewBubbleField(120, 40, 15),
+		bubbleField: components.NewBubbleField(120, 40, 50),
 		bubbleFade:  newAnim(3.0, 0.8),
 		fishFade:    newAnim(4.0, 0.7),
 		taglineFade: newAnim(3.5, 0.8),
@@ -227,11 +227,12 @@ func (s SplashModel) View() string {
 
 	var content []string
 
-	// Fish emblem — 0.4s onset, damping 0.7, freq 4.0.
+	// Block-letter banners: BubbleFish (line 1) + NEXUS (line 2).
 	if fp := s.fishFade.p(); fp > 0.1 {
-		fish := components.Logo{Width: s.width}
-		content = append(content, fish.View())
+		content = append(content, components.RenderSplashBanners(s.width))
 	}
+
+	content = append(content, "")
 
 	// Tool dots — ring of 12 dots, each pulses teal when its tool comes online.
 	if s.dotsOnline > 0 {
@@ -243,12 +244,6 @@ func (s SplashModel) View() string {
 	// Provenance chain — 5 hash boxes, 80ms stagger left-to-right.
 	if chain := s.viewChain(); chain != "" {
 		content = append(content, chain)
-		content = append(content, "")
-	}
-
-	// N E X U S — letter-by-letter reveal, 40ms stagger, cyan bold.
-	if letters := s.viewLetters(); letters != "" {
-		content = append(content, letters)
 		content = append(content, "")
 	}
 

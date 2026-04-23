@@ -120,6 +120,40 @@ func (l Logo) fullView() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// nexusBannerLines is the NEXUS block-letter banner (same font as BUBBLEFISH).
+var nexusBannerLines = []struct {
+	text  string
+	color lipgloss.Color
+}{
+	{`  ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗`, styles.ColorTeal},
+	{`  ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝`, styles.ColorTeal},
+	{`  ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗`, styles.ColorTeal},
+	{`  ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║`, styles.ColorCyan},
+	{`  ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║`, styles.ColorCyan},
+	{`  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝`, styles.ColorCyan},
+}
+
+// RenderSplashBanners returns the two-line block-letter splash:
+// line 1 = BUBBLEFISH, line 2 = NEXUS, centered within the given width.
+func RenderSplashBanners(width int) string {
+	if width < 1 {
+		width = 82
+	}
+	var lines []string
+
+	for _, row := range bannerLines {
+		line := lipgloss.NewStyle().Foreground(row.color).Render(row.text)
+		lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+	}
+	lines = append(lines, "")
+	for _, row := range nexusBannerLines {
+		line := lipgloss.NewStyle().Foreground(row.color).Render(row.text)
+		lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func (l Logo) compactView() string {
 	fish := lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
 		Render("><((((°>  BubbleFish NEXUS")

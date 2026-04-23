@@ -77,12 +77,12 @@ func DefaultGlobalKeyMap() GlobalKeyMap {
 			key.WithHelp("ctrl+r", "pause/resume"),
 		),
 		NextPage: key.NewBinding(
-			key.WithKeys("ctrl+n"),
-			key.WithHelp("ctrl+n", "next page"),
+			key.WithKeys("ctrl+n", "right"),
+			key.WithHelp("→/ctrl+n", "next page"),
 		),
 		PrevPage: key.NewBinding(
-			key.WithKeys("ctrl+p"),
-			key.WithHelp("ctrl+p", "prev page"),
+			key.WithKeys("ctrl+p", "left"),
+			key.WithHelp("←/ctrl+p", "prev page"),
 		),
 		Tab1: key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "Dashboard")),
 		Tab2: key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "Memory")),
