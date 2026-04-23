@@ -1928,6 +1928,12 @@
 - Final test count: 103 packages pass, 1 pre-existing flake (simulate)
 - Exit gate: Build OK | Vet OK | Full suite PASS | Zero new failures
 
+## FIX: Soak test memory measurement (f80c6ce)
+- TestSoak_24h failed consistently (3.0x–3.97x) due to PERF.1 TunedTransport idle connection buffers (~2MB)
+- Fix: call httputil.TunedTransport.CloseIdleConnections() + runtime.GC() before final alloc measurement
+- Isolates real leaks from expected connection pooling
+- Post-fix ratio: 1.74x (3/3 passes)
+
 ## TUI.OBS — TUI observability & test hardening
 - Wired DEBUG log: `cmd/nexus/tui.go`, `cmd/nexus/setup.go` — `tea.LogToFile("debug.log", "debug")` gated on `DEBUG` env var
 - Added `github.com/charmbracelet/x/exp/teatest` dependency for PTY-based integration tests
