@@ -1897,5 +1897,12 @@
 - `nexus trace`: captures runtime/trace from /debug/pprof/trace
 - TLS cipher allowlist: ECDHE+AEAD only, TLS 1.2 minimum
 - Commands wired into main.go dispatcher
+- Commit: 3553184
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## SUP.1: COMPLETE — Supervisor
+- nexus-supervisor: watchdog binary for foreground runs
+  - Exponential backoff (5s → 60s), 5 crashes in 60s = give up
+  - Captures last 2KB of stderr to .crash file
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 104 packages PASS
