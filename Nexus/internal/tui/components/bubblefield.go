@@ -76,10 +76,14 @@ func (bf *BubbleField) spawnBubble(randomY bool) Bubble {
 	}
 }
 
-// SetSize updates the field dimensions.
+// SetSize updates the field dimensions and redistributes all bubbles
+// evenly across the new area.
 func (bf *BubbleField) SetSize(w, h int) {
 	bf.Width = w
 	bf.Height = h
+	for i := range bf.Bubbles {
+		bf.Bubbles[i] = bf.spawnBubble(true)
+	}
 }
 
 // Tick advances the simulation by dt.
