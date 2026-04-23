@@ -149,9 +149,13 @@ func (d *DashboardScreen) View() string {
 func (d *DashboardScreen) viewLeftColumn(w int) string {
 	var lines []string
 
-	// Logo
-	logo := components.Logo{Width: w}
-	lines = append(lines, logo.View())
+	// Fish emblem (ANSI art for wide terminals, ASCII for narrow)
+	if w >= 70 {
+		lines = append(lines, components.RenderFishEmblem())
+	} else {
+		logo := components.Logo{Width: w}
+		lines = append(lines, logo.View())
+	}
 	lines = append(lines, "")
 
 	// Brand text
@@ -261,6 +265,15 @@ func (d *DashboardScreen) viewRightColumn(w int) string {
 	)
 
 	lines = append(lines, row1, "", row2, "")
+
+	// ── Free Energy gauge ──
+	feGauge := &components.FreeEnergyGauge{Width: w}
+	if s != nil {
+		fe := feGauge.Compute(s.Cache.HitRate, 0.95, 1.0)
+		feGauge.Push(fe)
+	}
+	lines = append(lines, feGauge.View())
+	lines = append(lines, "")
 
 	// ── Retrieval + Crypto summary ──
 	lines = append(lines, sectionHeader("RETRIEVAL", w))

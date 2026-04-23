@@ -82,6 +82,9 @@ func newTestRunningApp(t *testing.T) (App, func()) {
 	srv := newMockDaemon(t)
 	client := api.NewClient(srv.URL, "test-token")
 	app := NewRunningApp(client, nil)
+	// Advance past splash to dashboard.
+	updated, _ := app.Update(SplashDoneMsg{})
+	app = updated.(App)
 	return app, func() {
 		client.Close()
 		srv.Close()

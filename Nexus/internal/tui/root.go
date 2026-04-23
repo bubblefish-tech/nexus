@@ -76,6 +76,8 @@ type RootModel struct {
 	keys        GlobalKeyMap
 	prefs       *TUIPrefs
 	slashCmd    components.SlashCommandModel
+	splash      SplashModel
+	bubbleField *components.BubbleField
 }
 
 // NewRootModel creates the root model with the dashboard screen.
@@ -88,7 +90,7 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		StateDashboard: screens.NewDashboardScreen(),
 	}
 	return &RootModel{
-		state:        StateDashboard,
+		state:        StateSplash,
 		screens:      scr,
 		client:       client,
 		daemonUp:     true,
@@ -96,12 +98,19 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		keys:         DefaultGlobalKeyMap(),
 		prefs:        prefs,
 		slashCmd:     components.NewSlashCommandModel(allSlashCommands()),
+		splash:       NewSplashModel(),
+		bubbleField:  components.NewBubbleField(120, 40, 12),
 	}
 }
 
-// Init starts the refresh timers and initial health check.
+// Init starts the refresh timers, health check, and splash animation.
 func (r *RootModel) Init() tea.Cmd {
-	return tea.Batch(dataTickCmd(), healthCheckCmd(r.client), dotTickCmd())
+	return tea.Batch(
+		r.splash.Init(),
+		dataTickCmd(),
+		healthCheckCmd(r.client),
+		dotTickCmd(),
+	)
 }
 
 // Update handles all messages for the root model.
@@ -118,6 +127,9 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, scr := range r.screens {
 			scr.SetSize(r.width, contentH)
 		}
+		r.bubbleField.SetSize(r.width, r.height)
+		r.splash.width = r.width
+		r.splash.height = r.height
 		return r, nil
 
 	case HealthCheckResultMsg:
@@ -136,10 +148,35 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.dotFrame++
 		return r, dotTickCmd()
 
+	case splashTickMsg:
+		if r.state == StateSplash {
+			updated, cmd := r.splash.Update(msg)
+			r.splash = updated
+			return r, cmd
+		}
+		return r, nil
+
+	case SplashDoneMsg:
+		r.state = StateDashboard
+		if !r.screenInited[StateDashboard] {
+			r.screenInited[StateDashboard] = true
+			contentH := r.height - chromeHeight
+			if contentH < 1 {
+				contentH = 1
+			}
+			r.screens[StateDashboard].SetSize(r.width, contentH)
+		}
+		return r, r.screens[StateDashboard].FireRefresh(r.client)
+
 	case NavigateMsg:
 		return r.switchScreen(msg.To)
 
 	case tea.KeyMsg:
+		if r.state == StateSplash {
+			updated, cmd := r.splash.Update(msg)
+			r.splash = updated
+			return r, cmd
+		}
 		return r.handleKey(msg)
 	}
 
@@ -160,6 +197,10 @@ func (r *RootModel) View() string {
 			minWidth, minHeight, r.width, r.height)
 		return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center,
 			lipgloss.NewStyle().Foreground(styles.ColorAmber).Bold(true).Render(msg))
+	}
+
+	if r.state == StateSplash {
+		return r.splash.View()
 	}
 
 	if !r.daemonUp {

@@ -18,15 +18,25 @@
 package components
 
 import (
+	_ "embed"
 	"strings"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/lipgloss"
 )
 
+//go:embed assets/bubblefish.ansi
+var fishEmblem string
+
 // Logo renders the BubbleFish ASCII art logo with lipgloss colors.
 type Logo struct {
 	Width int
+}
+
+// RenderFishEmblem returns the embedded ANSI fish art.
+// The caller should render it directly — the ANSI escape codes are pre-baked.
+func RenderFishEmblem() string {
+	return fishEmblem
 }
 
 // fishLines is the ASCII fish with bubbles. Teal body, green bubbles (°/·).
