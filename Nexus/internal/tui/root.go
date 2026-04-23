@@ -492,7 +492,8 @@ func (r *RootModel) viewHeaderBar() string {
 		statusWord = "OFFLINE"
 	}
 
-	left := fmt.Sprintf("%s NEXUS %s  %s", dot.View(), ver, uptime)
+	mini := components.MiniLogo{}
+	left := fmt.Sprintf("%s %s NEXUS %s  %s", mini.Inline(), dot.View(), ver, uptime)
 	center := "The Governed AI Cryptographic Substrate Control Plane"
 	now := time.Now().Format("15:04:05")
 	right := fmt.Sprintf("%s · %s", statusWord, now)
