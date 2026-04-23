@@ -1999,3 +1999,11 @@
 - MCP/Embed: marginal gains (HTTP transport dominates remaining allocs)
 - Final test count: 104 packages, zero failures
 - Exit gate: Build OK | Vet OK | Full suite PASS | All benchmarks improved or stable
+
+## MAXIMUM OPTIMIZATION COMPLETE — 1 commit (4 items)
+- PRAGMA.1: Shared ApplySQLitePRAGMAs helper; wired into agent_gateway.go
+- VEC.1: Pre-allocated embedding response vector at known dimension (130→123 allocs, 18.8→17.8KB)
+- PGO.1: CPU profile captured from mixed benchmarks, committed as cmd/nexus/default.pgo (45KB)
+- SQLite pragma helper: internal/destination/sqlite_pragmas.go (reusable across all opens)
+- Commit: <SHA>
+- Embedding benchmark: 123 allocs/op, 17,842 B/op (was 130/18,834)

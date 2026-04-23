@@ -126,6 +126,12 @@ func (c *openAIClient) Embed(ctx context.Context, text string) ([]float32, error
 	}
 
 	var result openAIResponse
+	result.Data = make([]struct {
+		Embedding []float32 `json:"embedding"`
+	}, 1)
+	if c.dimensions > 0 {
+		result.Data[0].Embedding = make([]float32, 0, c.dimensions)
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("%w: decode response: %v", ErrEmbeddingUnavailable, err)
 	}
