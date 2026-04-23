@@ -222,7 +222,8 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/review/quarantine/{id}", d.handleReviewRead)
 	})
 
-	return r
+	// Global request timeout: catches rogue handlers that don't respect context cancellation.
+	return http.TimeoutHandler(r, 60*time.Second, `{"error":"request_timeout","message":"request exceeded 60s deadline"}`)
 }
 
 // BuildAdminRouter creates a chi router with all admin API routes and their

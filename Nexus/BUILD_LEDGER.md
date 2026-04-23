@@ -1824,5 +1824,14 @@
 - New package: internal/httputil/
 - Replaced HTTP clients in embedding (OpenAI, Ollama) and A2A transport
 - Tests: 7 new tests
+- Commit: bb1c32c
+- Exit gate: Build OK | Vet OK | 101 packages PASS
+
+## HARD.1: COMPLETE — Request Pipeline Hardening
+- http.TimeoutHandler wrapping main router (60s global deadline)
+- MaxBytesReader already present on write handlers
+- Slowloris defense: ReadHeaderTimeout=10s already set on all servers
+- Channel buffer audit: all daemon channels are either buffered or close-once signals
+- Tests: 4 new tests
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 101 packages PASS
