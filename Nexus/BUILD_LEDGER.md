@@ -1984,5 +1984,13 @@
 - Pooled request body buffer via pool.GetJSONBuf (reuses across calls)
 - Short: 132→130 allocs, Paragraph: 133→131 allocs
 - HTTP transport internals dominate remaining allocs (70%+)
-- Commit: <SHA>
+- Commit: 48c7219
 - Benchmark: Short 143,383 ns/op | 18,834 B/op | 130 allocs/op
+
+## OPTIMIZATION SPRINT COMPLETE — 5 commits, benchmark-driven
+- Branch: feat/optimization-sprint
+- Every commit verified with 3-run benchmark median
+- Headline wins: Projection 9.9x faster (77% fewer allocs), JWT 68x faster on cache hit
+- Queue/Drain skipped — allocs intrinsic to json.Unmarshal, batch INSERT requires arch change
+- Final test count: 104 packages, zero failures
+- Exit gate: Build OK | Vet OK | Full suite PASS | All benchmarks improved or stable
