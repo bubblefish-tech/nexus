@@ -18,8 +18,6 @@
 package projection
 
 import (
-	"encoding/json"
-
 	"github.com/bubblefish-tech/nexus/internal/destination"
 	"github.com/bubblefish-tech/nexus/internal/policy"
 )
@@ -34,20 +32,59 @@ type Response struct {
 	Nexus   *NexusMetadata   `json:"_nexus,omitempty"`
 }
 
-// payloadToMap serialises p to JSON and unmarshals it back into a
-// map[string]any. This gives a key-addressed view of every exported field,
-// including the Metadata map's entries, without bespoke reflection.
-//
-// The result uses the JSON tag names (e.g. "payload_id", "actor_type") which
-// are the same names used in policy field_visibility.include_fields.
+// payloadToMap builds a map[string]any from the struct fields directly,
+// using the same JSON tag names as the serialized form. This avoids the
+// marshal→unmarshal round-trip that dominated allocation overhead.
 func payloadToMap(p destination.TranslatedPayload) (map[string]any, error) {
-	b, err := json.Marshal(p)
-	if err != nil {
-		return nil, err
+	m := make(map[string]any, 24)
+	m["payload_id"] = p.PayloadID
+	m["request_id"] = p.RequestID
+	m["source"] = p.Source
+	m["subject"] = p.Subject
+	m["namespace"] = p.Namespace
+	m["destination"] = p.Destination
+	m["collection"] = p.Collection
+	m["content"] = p.Content
+	m["model"] = p.Model
+	m["role"] = p.Role
+	m["timestamp"] = p.Timestamp
+	m["idempotency_key"] = p.IdempotencyKey
+	m["schema_version"] = p.SchemaVersion
+	m["transform_version"] = p.TransformVersion
+	m["actor_type"] = p.ActorType
+	m["actor_id"] = p.ActorID
+	if len(p.Embedding) > 0 {
+		m["embedding"] = p.Embedding
 	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
+	if len(p.Metadata) > 0 {
+		m["metadata"] = p.Metadata
+	}
+	if len(p.SensitivityLabels) > 0 {
+		m["sensitivity_labels"] = p.SensitivityLabels
+	}
+	if p.ClassificationTier != "" {
+		m["classification_tier"] = p.ClassificationTier
+	}
+	if p.Tier != 0 {
+		m["tier"] = p.Tier
+	}
+	if p.LSHBucket != 0 {
+		m["lsh_bucket"] = p.LSHBucket
+	}
+	if p.ClusterID != "" {
+		m["cluster_id"] = p.ClusterID
+	}
+	if p.ClusterRole != "" {
+		m["cluster_role"] = p.ClusterRole
+	}
+	if p.Signature != "" {
+		m["signature"] = p.Signature
+	}
+	if p.SigningKeyID != "" {
+		m["signing_key_id"] = p.SigningKeyID
+	}
+	if p.SignatureAlg != "" {
+		m["signature_alg"] = p.SignatureAlg
 	}
 	return m, nil
 }

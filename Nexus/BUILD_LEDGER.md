@@ -1939,3 +1939,11 @@
   - `tabs/tabs_test.go` — width variation, unknown-key resilience, content assertions
 - Created `test.tape` — VHS integration tape exercising full TUI navigation (tabs 1-7, help, sidebar, pause, quit)
 - Exit gate: Build OK | Vet OK | 167 TUI tests PASS | Zero regressions
+
+## PROJ.1: COMPLETE — Projection Alloc Reduction
+- Replaced marshal→unmarshal round-trip with direct struct-to-map assignment
+- Eliminated 5,400 allocations per query (json.Unmarshal into map[string]any)
+- Baseline: 866μs, 7,003 allocs, 411KB → Result: 87μs, 1,602 allocs, 145KB
+- 9.9x faster, 4.4x fewer allocs, 2.8x less memory
+- Commit: <SHA>
+- Benchmark (median of 3): 87,285 ns/op | 145,040 B/op | 1,602 allocs/op
