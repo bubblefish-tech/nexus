@@ -1790,3 +1790,18 @@
 - [ ] Temporal bins: query "what did I say yesterday" filters to bin 2
 - [ ] Merge feat/supernexusclaw → main
 - [ ] Tag v0.1.3 + push
+
+## SAFE.1: COMPLETE — Startup Safety Net
+- Instance lock via gofrs/flock: prevents two-daemon corruption
+- Startup integrity: PRAGMA integrity_check + audit chain last-100 + key canary
+- Fsync sanity audit at install time
+- Entropy pool timing check
+- Startup jitter 0-500ms
+- Backup-on-start .lastgood snapshot (clean-shutdown gated)
+- New dep: github.com/gofrs/flock (BSD-3-Clause)
+- Tests: 16 new tests
+- Commit: <SHA>
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 100 packages PASS — zero failures

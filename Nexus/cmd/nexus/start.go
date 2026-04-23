@@ -19,12 +19,16 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"log/slog"
+	"math/big"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/crypto"
@@ -44,12 +48,37 @@ import (
 //
 // Reference: Tech Spec Section 13.1.
 func runStart() {
+	// Startup jitter: prevent thundering-herd when multiple services start at login/boot.
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(500*time.Millisecond)))
+	if n != nil {
+		time.Sleep(time.Duration(n.Int64()))
+	}
+
+	// Entropy pool check: verify crypto/rand is responsive.
+	t0 := time.Now()
+	buf := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+		slog.Error("crypto/rand failed", "err", err)
+		os.Exit(1)
+	}
+	if d := time.Since(t0); d > time.Second {
+		slog.Warn("entropy pool slow — crypto/rand took over 1s", "duration", d)
+	}
+
 	// Resolve config directory — os.UserHomeDir failure is fatal.
 	configDir, err := config.ConfigDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "nexus start: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Acquire instance lock — prevents two daemons from running simultaneously.
+	fl, err := daemon.AcquireLock(configDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nexus start: %v\n", err)
+		os.Exit(1)
+	}
+	defer fl.Unlock()
 
 	// Set up structured logger based on config (pre-load default).
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{

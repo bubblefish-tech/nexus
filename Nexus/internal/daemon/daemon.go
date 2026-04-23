@@ -588,6 +588,16 @@ func (d *Daemon) Start() error {
 		"name", destCfg.Name,
 	)
 
+	// Backup-on-start: snapshot .lastgood before opening destination (gated on clean shutdown).
+	if destCfg.Type == "sqlite" && destCfg.DBPath != "" {
+		if expandedPath, expandErr := expandPath(destCfg.DBPath); expandErr == nil {
+			if snapErr := snapshotLastGood(configDir, expandedPath); snapErr != nil {
+				d.logger.Warn("daemon: .lastgood snapshot failed (non-fatal)",
+					"component", "daemon", "error", snapErr)
+			}
+		}
+	}
+
 	openedDest, err := destfactory.OpenByType(destCfg, d.logger, configDir)
 	if err != nil {
 		return fmt.Errorf("daemon: open destination: %w", err)
@@ -595,6 +605,15 @@ func (d *Daemon) Start() error {
 	d.dest = openedDest
 	if q, ok := openedDest.(destination.Querier); ok {
 		d.querier = q
+	}
+
+	// Startup integrity check: PRAGMA integrity_check + audit chain + encryption canary.
+	if sqliteDest, ok := openedDest.(*destination.SQLiteDestination); ok {
+		if intErr := RunIntegrityCheck(sqliteDest.DB(), nil, nil); intErr != nil {
+			d.logger.Error("daemon: startup integrity check failed", "component", "daemon", "error", intErr)
+			return fmt.Errorf("daemon: startup integrity check failed: %w", intErr)
+		}
+		d.logger.Info("daemon: startup integrity check passed", "component", "daemon")
 	}
 
 	// WIRE.3: run schema migrations on startup (idempotent, records in nexus_migrations).
@@ -1511,6 +1530,14 @@ func (d *Daemon) Stop() error {
 		// Stop the goroutine heartbeat supervisor.
 		if d.supervisor != nil {
 			d.supervisor.Stop()
+		}
+
+		// Write clean-shutdown marker for next startup's snapshot logic.
+		if cd, cdErr := config.ConfigDir(); cdErr == nil {
+			if markerErr := writeCleanShutdownMarker(cd); markerErr != nil {
+				d.logger.Warn("daemon: could not write clean-shutdown marker",
+					"component", "daemon", "error", markerErr)
+			}
 		}
 
 		d.logger.Info("daemon: stage 3 complete — daemon stopped",
