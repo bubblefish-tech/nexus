@@ -89,6 +89,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/secrets"
 	"github.com/bubblefish-tech/nexus/internal/securitylog"
 	"github.com/bubblefish-tech/nexus/internal/signing"
+	"github.com/bubblefish-tech/nexus/internal/storage"
 	"github.com/bubblefish-tech/nexus/internal/subscribe"
 	"github.com/bubblefish-tech/nexus/internal/substrate"
 	"github.com/bubblefish-tech/nexus/internal/supervisor"
@@ -118,6 +119,7 @@ type Daemon struct {
 	idem            *idempotency.Store
 	dest            destination.Destination
 	querier         destination.Querier
+	backend         storage.Backend              // BP.0: unified storage interface
 	embeddingClient embedding.EmbeddingClient // nil when embedding disabled
 	exactCache      *cache.ExactCache         // Stage 1 — Phase 4
 	semanticCache   *cache.SemanticCache      // Stage 2 — Phase 6
@@ -611,9 +613,14 @@ func (d *Daemon) Start() error {
 		d.querier = q
 	}
 
-	// Startup integrity check: PRAGMA integrity_check + audit chain + encryption canary.
+	// BP.0: wrap destination in storage.Backend for unified access.
 	if sqliteDest, ok := openedDest.(*destination.SQLiteDestination); ok {
-		if intErr := RunIntegrityCheck(sqliteDest.DB(), nil, nil); intErr != nil {
+		d.backend = storage.NewSQLiteBackend(sqliteDest)
+	}
+
+	// Startup integrity check: PRAGMA integrity_check + audit chain + encryption canary.
+	if d.backend != nil {
+		if intErr := RunIntegrityCheck(d.backend.RawDB(), nil, nil); intErr != nil {
 			d.logger.Error("daemon: startup integrity check failed", "component", "daemon", "error", intErr)
 			return fmt.Errorf("daemon: startup integrity check failed: %w", intErr)
 		}
@@ -626,14 +633,16 @@ func (d *Daemon) Start() error {
 			"component", "daemon", "error", migrateErr)
 	}
 
-	// Wire BM25 searcher and start temporal bin refresh for SQLite destinations.
-	if sqliteDest, ok := openedDest.(*destination.SQLiteDestination); ok {
-		d.bm25Searcher = &query.SQLBM25Searcher{DB: sqliteDest.DB()}
-		if refreshErr := temporal.RefreshBins(context.Background(), sqliteDest.DB()); refreshErr != nil {
+	// Wire BM25 searcher and start temporal bin refresh via Backend.
+	// TODO(BP.4): Express BM25 and temporal bin refresh as Backend methods
+	// instead of using RawDB().
+	if d.backend != nil {
+		d.bm25Searcher = &query.SQLBM25Searcher{DB: d.backend.RawDB()}
+		if refreshErr := temporal.RefreshBins(context.Background(), d.backend.RawDB()); refreshErr != nil {
 			d.logger.Warn("daemon: initial temporal bin refresh failed (non-fatal)",
 				"component", "daemon", "error", refreshErr)
 		}
-		safego.Go("temporal-bin-refresher", d.logger, d.subsystemHealth, func() { d.temporalBinRefresher(sqliteDest.DB()) })
+		safego.Go("temporal-bin-refresher", d.logger, d.subsystemHealth, func() { d.temporalBinRefresher(d.backend.RawDB()) })
 		safego.Go("idle-maintenance", d.logger, d.subsystemHealth, func() { d.idleMaintenance(context.Background()) })
 		d.logger.Info("daemon: BM25 search and temporal bins enabled",
 			"component", "daemon")
@@ -657,8 +666,8 @@ func (d *Daemon) Start() error {
 				return fmt.Errorf("daemon: encryption self-test failed — refusing to start: %w", selfErr)
 			}
 			d.mkm = mkm // shared with control-plane encryption (CU.0.4)
-			if sqliteDst, ok := d.dest.(*destination.SQLiteDestination); ok {
-				sqliteDst.SetEncryption(mkm)
+			if d.backend != nil {
+				d.backend.SetEncryption(mkm)
 			}
 			if mkm.IsEnabled() {
 				d.logger.Info("daemon: memory content encryption enabled (self-test passed)",
