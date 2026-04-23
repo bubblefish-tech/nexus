@@ -548,6 +548,19 @@ INSERT OR IGNORE INTO memories (
 		return fmt.Errorf("destination: sqlite: write payload_id %q: %w", p.PayloadID, err)
 	}
 
+	if encVersion == 1 && p.Content != "" {
+		_, _ = d.db.Exec(
+			`INSERT INTO memories_fts(memories_fts, rowid, content, subject)
+			 SELECT 'delete', rowid, '', COALESCE(subject, '') FROM memories WHERE payload_id = ?`,
+			p.PayloadID,
+		)
+		_, _ = d.db.Exec(
+			`INSERT INTO memories_fts(rowid, content, subject)
+			 SELECT rowid, ?, COALESCE(subject, '') FROM memories WHERE payload_id = ?`,
+			p.Content, p.PayloadID,
+		)
+	}
+
 	d.logger.Debug("destination: sqlite: write",
 		"component", "destination",
 		"payload_id", p.PayloadID,
@@ -811,7 +824,7 @@ func (d *SQLiteDestination) Query(params QueryParams) (QueryResult, error) {
 		conditions = append(conditions, "subject = ?")
 		args = append(args, params.Subject)
 	}
-	if params.Q != "" {
+	if params.Q != "" && !d.encryptionEnabled() {
 		conditions = append(conditions, "content LIKE ?")
 		args = append(args, "%"+params.Q+"%")
 	}

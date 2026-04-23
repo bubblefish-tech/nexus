@@ -1063,7 +1063,7 @@ func TestBuildSourceTOML_MatchesInstallExamplePayload(t *testing.T) {
 	}
 
 	// This is the exact payload from the install Next Steps example.
-	payload := `{"message":{"content":"My first BubbleFish memory","role":"user"},"model":"test"}`
+	payload := `{"content":"My first BubbleFish memory","role":"user","model":"test"}`
 
 	tests := []struct {
 		field string
