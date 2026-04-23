@@ -317,6 +317,16 @@ type AgentsResponse struct {
 	Agents []AgentSummary `json:"agents"`
 }
 
+// StatusBroadcastMsg is sent by the root model to forward cached status to screens.
+type StatusBroadcastMsg struct {
+	Data *StatusResponse
+}
+
+// HealthBroadcastMsg is sent by the root model to forward health state to screens.
+type HealthBroadcastMsg struct {
+	OK bool
+}
+
 // QuarantineRecord is a quarantined memory record.
 type QuarantineRecord struct {
 	ID         string    `json:"id"`

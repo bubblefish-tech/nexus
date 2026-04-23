@@ -29,11 +29,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type retrievalStatusMsg struct {
-	data *api.StatusResponse
-	err  error
-}
-
 // RetrievalTheaterScreen is Page 3 — watch queries traverse the cascade.
 type RetrievalTheaterScreen struct {
 	width, height int
@@ -52,20 +47,14 @@ func (r *RetrievalTheaterScreen) SetSize(w, h int)         { r.width = w; r.heig
 func (r *RetrievalTheaterScreen) ShortHelp() []key.Binding { return nil }
 
 func (r *RetrievalTheaterScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
-	if m, ok := msg.(retrievalStatusMsg); ok {
-		r.err = m.err
-		if m.err == nil && m.data != nil {
-			r.status = m.data
-		}
+	if m, ok := msg.(api.StatusBroadcastMsg); ok && m.Data != nil {
+		r.status = m.Data
 	}
 	return r, nil
 }
 
-func (r *RetrievalTheaterScreen) FireRefresh(client *api.Client) tea.Cmd {
-	return func() tea.Msg {
-		data, err := client.Status()
-		return retrievalStatusMsg{data: data, err: err}
-	}
+func (r *RetrievalTheaterScreen) FireRefresh(_ *api.Client) tea.Cmd {
+	return nil
 }
 
 func (r *RetrievalTheaterScreen) View() string {

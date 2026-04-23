@@ -64,6 +64,7 @@ type DotTickMsg time.Time
 // SplashDoneMsg signals the splash animation has completed.
 type SplashDoneMsg struct{}
 
+
 // dataTickCmd returns a command that fires DataTickMsg after 5 seconds.
 func dataTickCmd() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return DataTickMsg(t) })

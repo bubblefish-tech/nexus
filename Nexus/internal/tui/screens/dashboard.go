@@ -29,16 +29,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type dashStatusMsg struct {
-	data *api.StatusResponse
-	err  error
-}
-
-type dashHealthMsg struct {
-	ok  bool
-	err error
-}
-
 type dashAgentsMsg struct {
 	data []api.AgentSummary
 	err  error
@@ -76,15 +66,14 @@ func (d *DashboardScreen) ShortHelp() []key.Binding { return nil }
 
 func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
-	case dashStatusMsg:
-		d.statusErr = m.err
-		if m.err == nil && m.data != nil {
-			d.status = m.data
-			d.writeHistory = append(d.writeHistory[1:], m.data.Writes1m)
-			d.readHistory = append(d.readHistory[1:], m.data.Reads1m)
+	case api.StatusBroadcastMsg:
+		if m.Data != nil {
+			d.status = m.Data
+			d.statusErr = nil
+			d.writeHistory = append(d.writeHistory[1:], m.Data.Writes1m)
+			d.readHistory = append(d.readHistory[1:], m.Data.Reads1m)
+			d.healthy = true
 		}
-	case dashHealthMsg:
-		d.healthy = m.ok
 	case dashAgentsMsg:
 		if m.err == nil {
 			d.agents = m.data
@@ -94,20 +83,10 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (d *DashboardScreen) FireRefresh(client *api.Client) tea.Cmd {
-	return tea.Batch(
-		func() tea.Msg {
-			data, err := client.Status()
-			return dashStatusMsg{data: data, err: err}
-		},
-		func() tea.Msg {
-			ok, err := client.Health()
-			return dashHealthMsg{ok: ok, err: err}
-		},
-		func() tea.Msg {
-			agents, err := client.Agents()
-			return dashAgentsMsg{data: agents, err: err}
-		},
-	)
+	return func() tea.Msg {
+		agents, err := client.Agents()
+		return dashAgentsMsg{data: agents, err: err}
+	}
 }
 
 func (d *DashboardScreen) View() string {

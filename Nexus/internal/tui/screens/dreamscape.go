@@ -28,11 +28,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type dreamStatusMsg struct {
-	data *api.StatusResponse
-	err  error
-}
-
 // DreamscapeScreen is Page 8 — sleep consolidation mode.
 type DreamscapeScreen struct {
 	width, height int
@@ -51,20 +46,14 @@ func (d *DreamscapeScreen) SetSize(w, h int)         { d.width = w; d.height = h
 func (d *DreamscapeScreen) ShortHelp() []key.Binding { return nil }
 
 func (d *DreamscapeScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
-	if m, ok := msg.(dreamStatusMsg); ok {
-		d.err = m.err
-		if m.err == nil && m.data != nil {
-			d.status = m.data
-		}
+	if m, ok := msg.(api.StatusBroadcastMsg); ok && m.Data != nil {
+		d.status = m.Data
 	}
 	return d, nil
 }
 
-func (d *DreamscapeScreen) FireRefresh(client *api.Client) tea.Cmd {
-	return func() tea.Msg {
-		data, err := client.Status()
-		return dreamStatusMsg{data: data, err: err}
-	}
+func (d *DreamscapeScreen) FireRefresh(_ *api.Client) tea.Cmd {
+	return nil
 }
 
 func (d *DreamscapeScreen) View() string {

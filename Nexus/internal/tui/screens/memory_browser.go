@@ -134,7 +134,10 @@ func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 
 func (m *MemoryBrowserScreen) FireRefresh(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
-		data, err := client.TimeTravel(api.TimeTravelOpts{Limit: 50})
+		data, err := client.TimeTravel(api.TimeTravelOpts{
+			AsOf:  "now",
+			Limit: 50,
+		})
 		if err != nil {
 			return memorySearchMsg{err: err}
 		}

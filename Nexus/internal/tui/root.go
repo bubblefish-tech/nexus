@@ -163,6 +163,12 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil && msg.Data != nil {
 			r.statusCache = msg.Data
 		}
+		// Forward status to active screen so it can update its display.
+		if scr, ok := r.screens[r.state]; ok {
+			updated, cmd := scr.Update(api.StatusBroadcastMsg{Data: msg.Data})
+			r.screens[r.state] = updated
+			return r, cmd
+		}
 		return r, nil
 
 	case DataTickMsg:

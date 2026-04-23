@@ -28,11 +28,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type cryptoStatusMsg struct {
-	data *api.StatusResponse
-	err  error
-}
-
 // CryptoVaultScreen is Page 6 — keys, Merkle roots, deletion certificates.
 type CryptoVaultScreen struct {
 	width, height int
@@ -51,20 +46,14 @@ func (c *CryptoVaultScreen) SetSize(w, h int)         { c.width = w; c.height = 
 func (c *CryptoVaultScreen) ShortHelp() []key.Binding { return nil }
 
 func (c *CryptoVaultScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
-	if m, ok := msg.(cryptoStatusMsg); ok {
-		c.err = m.err
-		if m.err == nil && m.data != nil {
-			c.status = m.data
-		}
+	if m, ok := msg.(api.StatusBroadcastMsg); ok && m.Data != nil {
+		c.status = m.Data
 	}
 	return c, nil
 }
 
-func (c *CryptoVaultScreen) FireRefresh(client *api.Client) tea.Cmd {
-	return func() tea.Msg {
-		data, err := client.Status()
-		return cryptoStatusMsg{data: data, err: err}
-	}
+func (c *CryptoVaultScreen) FireRefresh(_ *api.Client) tea.Cmd {
+	return nil
 }
 
 func (c *CryptoVaultScreen) View() string {

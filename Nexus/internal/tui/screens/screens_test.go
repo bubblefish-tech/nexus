@@ -82,7 +82,7 @@ func TestDashboardScreen_View_ShowsStatCards(t *testing.T) {
 	}
 }
 
-func TestDashboardScreen_Update_StatusMsg(t *testing.T) {
+func TestDashboardScreen_Update_StatusBroadcast(t *testing.T) {
 	t.Helper()
 	d := NewDashboardScreen()
 	d.SetSize(140, 40)
@@ -96,7 +96,7 @@ func TestDashboardScreen_Update_StatusMsg(t *testing.T) {
 		AuditEnabled:  true,
 	}
 
-	updated, _ := d.Update(dashStatusMsg{data: status})
+	updated, _ := d.Update(api.StatusBroadcastMsg{Data: status})
 	ds := updated.(*DashboardScreen)
 	if ds.status == nil {
 		t.Fatal("expected status to be set")
@@ -104,16 +104,8 @@ func TestDashboardScreen_Update_StatusMsg(t *testing.T) {
 	if ds.status.MemoriesTotal != 42 {
 		t.Fatalf("expected 42 memories, got %d", ds.status.MemoriesTotal)
 	}
-}
-
-func TestDashboardScreen_Update_HealthMsg(t *testing.T) {
-	t.Helper()
-	d := NewDashboardScreen()
-
-	updated, _ := d.Update(dashHealthMsg{ok: true})
-	ds := updated.(*DashboardScreen)
 	if !ds.healthy {
-		t.Fatal("expected healthy to be true")
+		t.Fatal("expected healthy to be true after status broadcast")
 	}
 }
 
@@ -164,7 +156,7 @@ func TestDashboardScreen_WriteHistoryRolling(t *testing.T) {
 		t.Fatalf("expected 60-entry write history, got %d", len(d.writeHistory))
 	}
 
-	d.Update(dashStatusMsg{data: &api.StatusResponse{Writes1m: 10}})
+	d.Update(api.StatusBroadcastMsg{Data: &api.StatusResponse{Writes1m: 10}})
 	if len(d.writeHistory) != 60 {
 		t.Fatalf("expected history to stay at 60 after update, got %d", len(d.writeHistory))
 	}
