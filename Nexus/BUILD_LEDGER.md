@@ -1913,5 +1913,17 @@
 - HTTP/2 server push: /api/dashboard/status on dashboard index load
   - Graceful no-op on non-TLS connections
 - New dep: github.com/cristalhq/hedgedhttp (MIT)
-- Commit: <SHA>
+- Commit: fff9991
 - Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## HARDENING SPRINT COMPLETE — 14 commits, 42 items, ~60 new tests
+- Branch: feat/hardening-complete
+- New deps: gofrs/flock (BSD-3-Clause), go.uber.org/automaxprocs (MIT),
+  gopkg.in/lumberjack.v2 (MIT), sony/gobreaker/v2 (MIT),
+  cristalhq/hedgedhttp (MIT)
+- New packages: internal/httputil, internal/nexuserr, internal/pool
+- New commands: nexus self-test, nexus trace
+- New binary: cmd/nexus-supervisor
+- Expanded: nexus doctor (5 new checks, --repair, auto-run at start)
+- Final test count: 103 packages pass, 1 pre-existing flake (simulate)
+- Exit gate: Build OK | Vet OK | Full suite PASS | Zero new failures
