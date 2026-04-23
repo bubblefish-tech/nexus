@@ -381,19 +381,25 @@ func (r *RootModel) handleHealthCheck(msg HealthCheckResultMsg) (tea.Model, tea.
 	}
 	wasDown := !r.daemonUp
 	r.daemonUp = true
+
+	scr, hasScreen := r.screens[r.state]
+	if !hasScreen {
+		return r, fetchStatusCmd(r.client)
+	}
+
 	if !r.screenInited[r.state] {
 		r.screenInited[r.state] = true
 		contentH := r.height - chromeHeight
 		if contentH < 1 {
 			contentH = 1
 		}
-		r.screens[r.state].SetSize(r.width, contentH)
-		cmd := r.screens[r.state].FireRefresh(r.client)
+		scr.SetSize(r.width, contentH)
+		cmd := scr.FireRefresh(r.client)
 		return r, tea.Batch(cmd, fetchStatusCmd(r.client))
 	}
 	if wasDown {
 		r.retryCount = 0
-		cmd := r.screens[r.state].FireRefresh(r.client)
+		cmd := scr.FireRefresh(r.client)
 		return r, tea.Batch(cmd, fetchStatusCmd(r.client))
 	}
 	return r, nil
@@ -406,11 +412,10 @@ func (r *RootModel) handleDataTick() (tea.Model, tea.Cmd) {
 	if r.paused {
 		return r, tea.Batch(healthCheckCmd(r.client), dataTickCmd())
 	}
-	var cmds []tea.Cmd
+	cmds := []tea.Cmd{fetchStatusCmd(r.client), healthCheckCmd(r.client), dataTickCmd()}
 	if scr, ok := r.screens[r.state]; ok {
 		cmds = append(cmds, scr.FireRefresh(r.client))
 	}
-	cmds = append(cmds, fetchStatusCmd(r.client), healthCheckCmd(r.client), dataTickCmd())
 	return r, tea.Batch(cmds...)
 }
 
