@@ -39,7 +39,6 @@ type GlobalKeyMap struct {
 	Tab6      key.Binding
 	Tab7      key.Binding
 	Tab8      key.Binding
-	Tab9      key.Binding
 }
 
 // DefaultGlobalKeyMap returns the global keybindings.
@@ -92,8 +91,7 @@ func DefaultGlobalKeyMap() GlobalKeyMap {
 		Tab5: key.NewBinding(key.WithKeys("5"), key.WithHelp("5", "Agents")),
 		Tab6: key.NewBinding(key.WithKeys("6"), key.WithHelp("6", "Crypto")),
 		Tab7: key.NewBinding(key.WithKeys("7"), key.WithHelp("7", "Governance")),
-		Tab8: key.NewBinding(key.WithKeys("8"), key.WithHelp("8", "Dream")),
-		Tab9: key.NewBinding(key.WithKeys("9"), key.WithHelp("9", "Immune")),
+		Tab8: key.NewBinding(key.WithKeys("8"), key.WithHelp("8", "Immune")),
 	}
 }
 
@@ -101,7 +99,7 @@ func DefaultGlobalKeyMap() GlobalKeyMap {
 func (k GlobalKeyMap) tabBindings() []key.Binding {
 	return []key.Binding{
 		k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5,
-		k.Tab6, k.Tab7, k.Tab8, k.Tab9,
+		k.Tab6, k.Tab7, k.Tab8,
 	}
 }
 
@@ -115,7 +113,6 @@ func tabStateForIndex(idx int) AppState {
 		StateAgentCanvas,
 		StateCryptoVault,
 		StateGovernance,
-		StateDreamscape,
 		StateImmuneTheater,
 	}
 	if idx >= 0 && idx < len(states) {
@@ -141,10 +138,8 @@ func tabIndexForState(s AppState) int {
 		return 5
 	case StateGovernance:
 		return 6
-	case StateDreamscape:
-		return 7
 	case StateImmuneTheater:
-		return 8
+		return 7
 	default:
 		return 0
 	}

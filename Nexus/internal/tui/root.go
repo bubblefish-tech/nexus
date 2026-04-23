@@ -54,7 +54,6 @@ var screenNames = []struct {
 	{StateAgentCanvas, "Agents"},
 	{StateCryptoVault, "Crypto"},
 	{StateGovernance, "Gov"},
-	{StateDreamscape, "Dream"},
 	{StateImmuneTheater, "Immune"},
 }
 
@@ -96,7 +95,6 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		StateAgentCanvas:   screens.NewAgentCanvasScreen(),
 		StateCryptoVault:   screens.NewCryptoVaultScreen(),
 		StateGovernance:    screens.NewGovernanceScreen(),
-		StateDreamscape:    screens.NewDreamscapeScreen(),
 		StateImmuneTheater: screens.NewImmuneTheaterScreen(),
 	}
 	return &RootModel{
@@ -591,7 +589,7 @@ func (r *RootModel) viewFeatureFlags() string {
 
 func (r *RootModel) viewCommandBar() string {
 	hint := lipgloss.NewStyle().Foreground(styles.TextMuted).
-		Render("  ⌘K palette · / commands · ? help · 1-9 navigate · q quit")
+		Render("  ⌘K palette · / commands · ? help · 1-8 navigate · q quit")
 	if r.paused {
 		hint += lipgloss.NewStyle().Foreground(styles.ColorAmber).Bold(true).Render("  [PAUSED]")
 	}

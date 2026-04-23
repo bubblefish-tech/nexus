@@ -266,7 +266,7 @@ func TestApp_RunningMode_TabBar_ShowsNinePages(t *testing.T) {
 	app.running.daemonUp = true
 
 	view := app.View()
-	for _, name := range []string{"Dashboard", "Memory", "Retrieval", "Audit", "Agents", "Crypto", "Gov", "Dream", "Immune"} {
+	for _, name := range []string{"Dashboard", "Memory", "Retrieval", "Audit", "Agents", "Crypto", "Gov", "Immune"} {
 		if !strings.Contains(view, name) {
 			t.Errorf("expected tab %q in tab bar", name)
 		}

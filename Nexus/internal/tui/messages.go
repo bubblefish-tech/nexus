@@ -36,7 +36,6 @@ const (
 	StateAgentCanvas              // A2A orchestration flow
 	StateCryptoVault              // Keys, Merkle roots, deletion certs
 	StateGovernance               // Grants, approvals, policy log
-	StateDreamscape               // Sleep consolidation mode
 	StateImmuneTheater            // Quarantine + threat signatures
 )
 
