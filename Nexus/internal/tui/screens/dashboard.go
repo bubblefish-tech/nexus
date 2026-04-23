@@ -62,6 +62,7 @@ type DashboardScreen struct {
 	statusErr     error
 	writeHistory  []int
 	readHistory   []int
+	pollCount     int
 }
 
 // NewDashboardScreen creates the dashboard with initial state.
@@ -91,6 +92,7 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			d.statusErr = nil
 			d.writeHistory = append(d.writeHistory[1:], m.Data.Writes1m)
 			d.readHistory = append(d.readHistory[1:], m.Data.Reads1m)
+			d.pollCount++
 			d.healthy = true
 			sdbg("StatusBroadcast received: memories=%d w1m=%d r1m=%d queue=%d uptime=%ds",
 				m.Data.MemoriesTotal, m.Data.Writes1m, m.Data.Reads1m, m.Data.QueueDepth, m.Data.UptimeSeconds)
@@ -156,8 +158,7 @@ func (d *DashboardScreen) View() string {
 func (d *DashboardScreen) viewLeftColumn(w int) string {
 	var lines []string
 
-	logo := components.Logo{Width: w}
-	lines = append(lines, logo.View())
+	lines = append(lines, components.RenderFishEmblem())
 	lines = append(lines, "")
 
 	// Brand text
@@ -299,10 +300,10 @@ func (d *DashboardScreen) viewRightColumn(w int) string {
 	// ── Throughput sparklines ──
 	lines = append(lines, "")
 	lines = append(lines, sectionHeader("WRITE THROUGHPUT (60s)", w))
-	lines = append(lines, "  "+renderSparkline(d.writeHistory, w-4, styles.ColorGreen))
+	lines = append(lines, "  "+renderSparkline(d.writeHistory, w-4, d.pollCount, styles.ColorGreen))
 	lines = append(lines, "")
 	lines = append(lines, sectionHeader("READ THROUGHPUT (60s)", w))
-	lines = append(lines, "  "+renderSparkline(d.readHistory, w-4, styles.ColorBlue))
+	lines = append(lines, "  "+renderSparkline(d.readHistory, w-4, d.pollCount, styles.ColorBlue))
 
 	// ── System info ──
 	lines = append(lines, "")
@@ -335,25 +336,38 @@ func agentDot(status string) string {
 	}
 }
 
-func renderSparkline(data []int, width int, color lipgloss.Color) string {
+func renderSparkline(data []int, width, filled int, color lipgloss.Color) string {
 	if width < 5 {
 		width = 5
 	}
 	blocks := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+	// Only render data points we've actually collected.
+	count := filled
+	if count > len(data) {
+		count = len(data)
+	}
+	if count > width {
+		count = width
+	}
+	if count < 1 {
+		count = 1
+	}
+
+	// Extract the newest `count` values from the end of the array.
+	slice := data[len(data)-count:]
+
 	maxVal := 1
-	for _, v := range data {
+	for _, v := range slice {
 		if v > maxVal {
 			maxVal = v
 		}
 	}
+
+	// Render newest on far left, oldest on right.
 	var sb strings.Builder
-	end := len(data) - 1
-	start := end - width + 1
-	if start < 0 {
-		start = 0
-	}
-	for i := end; i >= start; i-- {
-		idx := data[i] * (len(blocks) - 1) / maxVal
+	for i := len(slice) - 1; i >= 0; i-- {
+		idx := slice[i] * (len(blocks) - 1) / maxVal
 		if idx < 0 {
 			idx = 0
 		}
