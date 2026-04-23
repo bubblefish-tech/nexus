@@ -1769,6 +1769,8 @@
 - Fix 3: removed ErrNotImplemented sentinel — all watchers fully implemented
 - Commit: d76a573
 - Runtime verified: daemon survives 65+ seconds, /health returns status=ok
+- Fix 4: default source mapping changed from nested (message.content) to flat (content) keys — both internal/install/install.go and cmd/nexus/install.go
+- Commit: 66d126a
 
 ### Exit Gate
 - Build: OK
