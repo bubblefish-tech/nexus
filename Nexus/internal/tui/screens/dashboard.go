@@ -352,11 +352,12 @@ func renderSparkline(data []int, width int, color lipgloss.Color) string {
 		}
 	}
 	var sb strings.Builder
-	start := 0
-	if len(data) > width {
-		start = len(data) - width
+	end := len(data) - 1
+	start := end - width + 1
+	if start < 0 {
+		start = 0
 	}
-	for i := start; i < len(data); i++ {
+	for i := end; i >= start; i-- {
 		idx := data[i] * (len(blocks) - 1) / maxVal
 		if idx < 0 {
 			idx = 0
