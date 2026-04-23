@@ -1867,5 +1867,13 @@
 - IsSuccessful: DuplicateKey/NotFound/Quarantined do not count as failures
 - New dep: github.com/sony/gobreaker/v2 (MIT)
 - Tests: 4 new tests
-- Commit: <SHA>
+- Commit: a2dd96b
 - Exit gate: Build OK | Vet OK | 103 packages PASS
+
+## POOL.1: COMPLETE — sync.Pool
+- sync.Pool for JSON encode buffers and io.Copy buffers (non-WAL only)
+- Oversized buffer eviction (>1MiB not pooled)
+- Reset-on-Get pattern (safe against skipped Put)
+- Tests: 4 new tests
+- Commit: <SHA>
+- Exit gate: Build OK | Vet OK | 104 packages PASS
