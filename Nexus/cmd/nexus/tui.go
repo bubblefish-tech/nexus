@@ -47,11 +47,18 @@ func runTUI() {
 		bindHost = "127.0.0.1"
 	}
 	addr := fmt.Sprintf("http://%s:%d", bindHost, cfg.Daemon.Port)
+	if v := os.Getenv("NEXUS_API_URL"); v != "" {
+		addr = v
+	}
 	if cfg.Daemon.Bind != "127.0.0.1" && cfg.Daemon.Bind != "localhost" && cfg.Daemon.Bind != "0.0.0.0" && !cfg.Daemon.TLS.Enabled {
 		slog.Warn("admin key will be sent over plain HTTP (TLS not enabled, bind is not loopback)",
 			"bind", cfg.Daemon.Bind)
 	}
-	client := api.NewClient(addr, string(cfg.ResolvedAdminKey))
+	token := string(cfg.ResolvedAdminKey)
+	if v := os.Getenv("NEXUS_ADMIN_TOKEN"); v != "" {
+		token = v
+	}
+	client := api.NewClient(addr, token)
 	defer client.Close()
 
 	prefs, err := tui.LoadPrefs(configDir)
