@@ -1858,5 +1858,14 @@
 - Auto-runs at nexus start; CRITICAL blocks startup, WARN logs
 - --repair flag: creates dirs, fixes permissions
 - Tests: 11 new tests
-- Commit: <SHA>
+- Commit: 196f273
 - Exit gate: Build OK | Vet OK | 102 packages PASS
+
+## CB.1: COMPLETE — Circuit Breakers
+- BreakerWrapper on destinations (sony/gobreaker/v2, MIT)
+- Settings: 5 consecutive failures trips; 10s open timeout; 3 half-open probes
+- IsSuccessful: DuplicateKey/NotFound/Quarantined do not count as failures
+- New dep: github.com/sony/gobreaker/v2 (MIT)
+- Tests: 4 new tests
+- Commit: <SHA>
+- Exit gate: Build OK | Vet OK | 103 packages PASS

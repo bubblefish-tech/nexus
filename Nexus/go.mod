@@ -20,6 +20,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/seiflotfy/cuckoofilter v0.0.0-20240715131351-a2f2c23f1771
 	github.com/shirou/gopsutil/v3 v3.24.5
+	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/tursodatabase/libsql-client-go v0.0.0-20251219100830-236aa1ff8acc
 	go.mongodb.org/mongo-driver/v2 v2.5.1
