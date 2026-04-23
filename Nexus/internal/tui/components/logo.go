@@ -31,6 +31,9 @@ var fishEmblem string
 //go:embed assets/bubblefish_splash.ansi
 var splashEmblem string
 
+//go:embed assets/bubblefish_dash.ansi
+var dashEmblem string
+
 // Logo renders the BubbleFish ASCII art logo with lipgloss colors.
 type Logo struct {
 	Width int
@@ -41,9 +44,13 @@ func RenderSplashEmblem() string {
 	return splashEmblem
 }
 
-// RenderFishEmblem returns the embedded ANSI fish art.
-// The caller should render it directly — the ANSI escape codes are pre-baked.
+// RenderFishEmblem returns the half-height ANSI fish art for the dashboard.
 func RenderFishEmblem() string {
+	return dashEmblem
+}
+
+// RenderFishEmblemFull returns the full-size ANSI fish art.
+func RenderFishEmblemFull() string {
 	return fishEmblem
 }
 
