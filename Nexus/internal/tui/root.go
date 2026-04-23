@@ -160,15 +160,23 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handleHealthCheck(msg)
 
 	case StatusRefreshMsg:
-		if msg.Err == nil && msg.Data != nil {
+		if msg.Err != nil {
+			dbg("STATUS_REFRESH err=%v", msg.Err)
+			return r, nil
+		}
+		if msg.Data != nil {
 			r.statusCache = msg.Data
+			dbg("STATUS_REFRESH ok memories=%d writes_1m=%d reads_1m=%d queue=%d",
+				msg.Data.MemoriesTotal, msg.Data.Writes1m, msg.Data.Reads1m, msg.Data.QueueDepth)
 		}
 		// Forward status to active screen so it can update its display.
 		if scr, ok := r.screens[r.state]; ok {
+			dbg("STATUS_FORWARD to=%d(%s)", r.state, scr.Name())
 			updated, cmd := scr.Update(api.StatusBroadcastMsg{Data: msg.Data})
 			r.screens[r.state] = updated
 			return r, cmd
 		}
+		dbg("STATUS_FORWARD skipped: state=%d has no screen", r.state)
 		return r, nil
 
 	case DataTickMsg:
@@ -187,6 +195,7 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, nil
 
 	case SplashDoneMsg:
+		dbg("SPLASH_DONE → StateDashboard (cached status=%v)", r.statusCache != nil)
 		r.state = StateDashboard
 		if !r.screenInited[StateDashboard] {
 			r.screenInited[StateDashboard] = true
@@ -196,7 +205,16 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			r.screens[StateDashboard].SetSize(r.width, contentH)
 		}
-		return r, r.screens[StateDashboard].FireRefresh(r.client)
+		// Forward cached status immediately so dashboard isn't empty.
+		if r.statusCache != nil {
+			dbg("SPLASH_DONE forwarding cached status to dashboard (memories=%d)", r.statusCache.MemoriesTotal)
+			r.screens[StateDashboard].Update(api.StatusBroadcastMsg{Data: r.statusCache})
+		}
+		// Also fire a fresh fetch + screen-specific refresh.
+		return r, tea.Batch(
+			r.screens[StateDashboard].FireRefresh(r.client),
+			fetchStatusCmd(r.client),
+		)
 
 	case PaletteSelectedMsg:
 		r.palette.Close()
@@ -362,9 +380,12 @@ func (r *RootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── State transitions ──
 
 func (r *RootModel) switchScreen(target AppState) (tea.Model, tea.Cmd) {
-	if _, ok := r.screens[target]; !ok {
+	scr, ok := r.screens[target]
+	if !ok {
+		dbg("SWITCH rejected: no screen for state %d", target)
 		return r, nil
 	}
+	dbg("SWITCH %d(%s) → %d(%s)", r.state, r.screenName(r.state), target, scr.Name())
 	r.state = target
 	if !r.daemonUp {
 		return r, nil
@@ -375,13 +396,30 @@ func (r *RootModel) switchScreen(target AppState) (tea.Model, tea.Cmd) {
 		if contentH < 1 {
 			contentH = 1
 		}
-		r.screens[target].SetSize(r.width, contentH)
+		scr.SetSize(r.width, contentH)
 	}
-	return r, r.screens[target].FireRefresh(r.client)
+	// Forward cached status so the screen isn't empty while waiting for refresh.
+	if r.statusCache != nil {
+		scr.Update(api.StatusBroadcastMsg{Data: r.statusCache})
+	}
+	return r, scr.FireRefresh(r.client)
+}
+
+func (r *RootModel) screenName(s AppState) string {
+	if scr, ok := r.screens[s]; ok {
+		return scr.Name()
+	}
+	if s == StateSplash {
+		return "Splash"
+	}
+	return "?"
 }
 
 func (r *RootModel) handleHealthCheck(msg HealthCheckResultMsg) (tea.Model, tea.Cmd) {
 	if msg.Err != nil || !msg.OK {
+		if r.daemonUp {
+			dbg("HEALTH_CHECK daemon went DOWN err=%v", msg.Err)
+		}
 		r.daemonUp = false
 		return r, nil
 	}
@@ -390,10 +428,12 @@ func (r *RootModel) handleHealthCheck(msg HealthCheckResultMsg) (tea.Model, tea.
 
 	scr, hasScreen := r.screens[r.state]
 	if !hasScreen {
+		dbg("HEALTH_CHECK ok but no screen for state=%d, fetching status only", r.state)
 		return r, fetchStatusCmd(r.client)
 	}
 
 	if !r.screenInited[r.state] {
+		dbg("HEALTH_CHECK ok, first init for state=%d(%s)", r.state, scr.Name())
 		r.screenInited[r.state] = true
 		contentH := r.height - chromeHeight
 		if contentH < 1 {
@@ -404,6 +444,7 @@ func (r *RootModel) handleHealthCheck(msg HealthCheckResultMsg) (tea.Model, tea.
 		return r, tea.Batch(cmd, fetchStatusCmd(r.client))
 	}
 	if wasDown {
+		dbg("HEALTH_CHECK daemon recovered, refreshing %s", scr.Name())
 		r.retryCount = 0
 		cmd := scr.FireRefresh(r.client)
 		return r, tea.Batch(cmd, fetchStatusCmd(r.client))
@@ -413,14 +454,19 @@ func (r *RootModel) handleHealthCheck(msg HealthCheckResultMsg) (tea.Model, tea.
 
 func (r *RootModel) handleDataTick() (tea.Model, tea.Cmd) {
 	if !r.daemonUp {
+		dbg("DATA_TICK daemon down, health-check only")
 		return r, tea.Batch(healthCheckCmd(r.client), dataTickCmd())
 	}
 	if r.paused {
+		dbg("DATA_TICK paused, health-check only")
 		return r, tea.Batch(healthCheckCmd(r.client), dataTickCmd())
 	}
 	cmds := []tea.Cmd{fetchStatusCmd(r.client), healthCheckCmd(r.client), dataTickCmd()}
 	if scr, ok := r.screens[r.state]; ok {
+		dbg("DATA_TICK refreshing state=%d(%s)", r.state, scr.Name())
 		cmds = append(cmds, scr.FireRefresh(r.client))
+	} else {
+		dbg("DATA_TICK no screen for state=%d", r.state)
 	}
 	return r, tea.Batch(cmds...)
 }

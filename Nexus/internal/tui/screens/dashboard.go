@@ -19,6 +19,8 @@ package screens
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"strings"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
@@ -28,6 +30,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+var screenDebug *log.Logger
+
+func init() {
+	if os.Getenv("DEBUG") != "" {
+		f, err := os.OpenFile("tui_debug.log", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		if err == nil {
+			screenDebug = log.New(f, "", 0)
+		}
+	}
+}
+
+func sdbg(format string, args ...interface{}) {
+	if screenDebug != nil {
+		screenDebug.Printf("  DASH  "+format, args...)
+	}
+}
 
 type dashAgentsMsg struct {
 	data []api.AgentSummary
@@ -73,11 +92,20 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			d.writeHistory = append(d.writeHistory[1:], m.Data.Writes1m)
 			d.readHistory = append(d.readHistory[1:], m.Data.Reads1m)
 			d.healthy = true
+			sdbg("StatusBroadcast received: memories=%d w1m=%d r1m=%d queue=%d uptime=%ds",
+				m.Data.MemoriesTotal, m.Data.Writes1m, m.Data.Reads1m, m.Data.QueueDepth, m.Data.UptimeSeconds)
+		} else {
+			sdbg("StatusBroadcast received with nil data")
 		}
 	case dashAgentsMsg:
 		if m.err == nil {
 			d.agents = m.data
+			sdbg("AgentsMsg received: count=%d", len(m.data))
+		} else {
+			sdbg("AgentsMsg error: %v", m.err)
 		}
+	default:
+		sdbg("unhandled msg type: %T", msg)
 	}
 	return d, nil
 }
