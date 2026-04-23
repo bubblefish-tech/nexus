@@ -643,8 +643,8 @@ enabled = true
 dedup_window_seconds = 300
 
 [source.mapping]
-content = "message.content"
-role    = "message.role"
+content = "content"
+role    = "role"
 model   = "model"
 
 [source.policy]
