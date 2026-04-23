@@ -1964,5 +1964,13 @@
 - Never caches invalid or expired tokens
 - Clears cache on JWKS key rotation
 - Tests: 4 new tests
-- Commit: <SHA>
+- Commit: 0ee9fc3
 - Benchmark (median of 3): Valid 458.7 ns/op | 576 B/op | 1 allocs/op
+
+## MCP.1: COMPLETE — MCP Status Cache
+- Cached nexus_status JSON response with 5s TTL
+- Saves pipeline.Status() call + json.Marshal on cache hit
+- Status: 164→162 allocs (HTTP transport dominates remaining allocs)
+- Write/Search unchanged (no caching — stateful operations)
+- Commit: <SHA>
+- Benchmark: Status 125,607 ns/op | 13,331 B/op | 162 allocs/op

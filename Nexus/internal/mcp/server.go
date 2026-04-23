@@ -232,6 +232,11 @@ type Server struct {
 	stopOnce   sync.Once
 
 	sseReg *sseRegistry
+
+	// statusCacheJSON caches the serialized nexus_status response (5s TTL).
+	statusCacheMu  sync.RWMutex
+	statusCacheJSON []byte
+	statusCacheAt  time.Time
 }
 
 // ToolPolicyCheckerIface is the interface for tool-use policy enforcement.
@@ -956,6 +961,18 @@ func (s *Server) callNexusSearch(w http.ResponseWriter, r *http.Request, req rpc
 }
 
 func (s *Server) callNexusStatus(w http.ResponseWriter, r *http.Request, req rpcRequest) {
+	// Serve from cache if fresh (status changes slowly).
+	s.statusCacheMu.RLock()
+	if s.statusCacheJSON != nil && time.Since(s.statusCacheAt) < 5*time.Second {
+		cached := s.statusCacheJSON
+		s.statusCacheMu.RUnlock()
+		s.writeRPCResult(w, r, req.ID, toolCallResult{
+			Content: []contentBlock{{Type: "text", Text: string(cached)}},
+		})
+		return
+	}
+	s.statusCacheMu.RUnlock()
+
 	result, err := s.pipeline.Status(r.Context())
 	if err != nil {
 		s.logger.Error("mcp: nexus_status pipeline error", "component", "mcp", "error", err)
@@ -964,6 +981,12 @@ func (s *Server) callNexusStatus(w http.ResponseWriter, r *http.Request, req rpc
 	}
 
 	out, _ := json.Marshal(result)
+
+	s.statusCacheMu.Lock()
+	s.statusCacheJSON = out
+	s.statusCacheAt = time.Now()
+	s.statusCacheMu.Unlock()
+
 	s.writeRPCResult(w, r, req.ID, toolCallResult{
 		Content: []contentBlock{{Type: "text", Text: string(out)}},
 	})
