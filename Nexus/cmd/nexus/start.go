@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -37,6 +38,8 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/tray"
 	"github.com/bubblefish-tech/nexus/internal/version"
 	"github.com/bubblefish-tech/nexus/internal/web"
+	"github.com/shirou/gopsutil/v3/mem"
+	_ "go.uber.org/automaxprocs"
 	dashboardui "github.com/bubblefish-tech/nexus/web/dashboard"
 )
 
@@ -53,6 +56,10 @@ func runStart() {
 	if n != nil {
 		time.Sleep(time.Duration(n.Int64()))
 	}
+
+	// Runtime governor: GODEBUG + GOMEMLIMIT.
+	setGodebugDefaults()
+	setMemoryGovernor()
 
 	// Entropy pool check: verify crypto/rand is responsive.
 	t0 := time.Now()
@@ -301,5 +308,36 @@ func (h *teeHandler) WithGroup(name string) slog.Handler {
 	return &teeHandler{
 		primary:   h.primary.WithGroup(name),
 		secondary: h.secondary.WithGroup(name),
+	}
+}
+
+// setMemoryGovernor sets GOMEMLIMIT to 75% of system RAM, floored at 512 MiB,
+// capped at 8 GiB. Respects operator override via GOMEMLIMIT env var.
+func setMemoryGovernor() {
+	if os.Getenv("GOMEMLIMIT") != "" {
+		return
+	}
+	v, err := mem.VirtualMemory()
+	if err != nil || v.Total == 0 {
+		slog.Warn("could not read system memory; GOMEMLIMIT not set")
+		return
+	}
+	limit := int64(v.Total) * 3 / 4
+	const floor = int64(512) << 20
+	const cap_ = int64(8) << 30
+	if limit < floor {
+		limit = floor
+	}
+	if limit > cap_ {
+		limit = cap_
+	}
+	debug.SetMemoryLimit(limit)
+	slog.Info("memory governor set", "limit_gib", float64(limit)/float64(int64(1)<<30), "system_gib", float64(v.Total)/float64(int64(1)<<30))
+}
+
+// setGodebugDefaults sets GODEBUG=madvdontneed=1 to return freed memory to OS.
+func setGodebugDefaults() {
+	if os.Getenv("GODEBUG") == "" {
+		os.Setenv("GODEBUG", "madvdontneed=1")
 	}
 }

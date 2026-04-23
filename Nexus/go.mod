@@ -23,6 +23,7 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	github.com/tursodatabase/libsql-client-go v0.0.0-20251219100830-236aa1ff8acc
 	go.mongodb.org/mongo-driver/v2 v2.5.1
+	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.50.0
 	golang.org/x/sys v0.43.0
 	golang.org/x/term v0.42.0

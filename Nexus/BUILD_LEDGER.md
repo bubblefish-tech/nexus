@@ -1800,8 +1800,17 @@
 - Backup-on-start .lastgood snapshot (clean-shutdown gated)
 - New dep: github.com/gofrs/flock (BSD-3-Clause)
 - Tests: 16 new tests
-- Commit: <SHA>
+- Commit: 38f5585
 - Exit gate:
   - Build: OK
   - Vet: OK
   - 100 packages PASS — zero failures
+
+## SAFE.2: COMPLETE — Runtime Governor
+- automaxprocs: blank import, fixes GOMAXPROCS under containers/WSL2/cgroups
+- GOMEMLIMIT: 75% of system RAM, floored 512MiB, capped 8GiB, env override
+- GODEBUG=madvdontneed=1: returns freed memory to OS
+- New dep: go.uber.org/automaxprocs (MIT)
+- Tests: 3 new tests
+- Commit: <SHA>
+- Exit gate: Build OK | Vet OK | 100 packages PASS
