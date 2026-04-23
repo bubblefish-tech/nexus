@@ -2013,5 +2013,5 @@
 - Write() uses prepared stmt instead of re-parsing SQL on every call
 - Closed in SQLiteDestination.Close()
 - writeSQL extracted to package-level const
-- Commit: <SHA>
+- Commit: 2fd21cf
 - Exit gate: Build OK | Vet OK | Full suite PASS
