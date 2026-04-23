@@ -1771,6 +1771,9 @@
 - Runtime verified: daemon survives 65+ seconds, /health returns status=ok
 - Fix 4: default source mapping changed from nested (message.content) to flat (content) keys — both internal/install/install.go and cmd/nexus/install.go
 - Commit: 66d126a
+- Fix 5: FTS5 indexes plaintext before encryption zeroes the column + LIKE query skipped when encryption enabled (delegates to BM25/FTS5)
+- Commit: 43a123d
+- Verified: encrypted write + unfiltered query returns decrypted content "TPS-42" correctly
 
 ### Exit Gate
 - Build: OK
