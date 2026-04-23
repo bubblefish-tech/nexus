@@ -87,7 +87,9 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		prefs = DefaultPrefs()
 	}
 	scr := map[AppState]screens.Screen{
-		StateDashboard: screens.NewDashboardScreen(),
+		StateDashboard:  screens.NewDashboardScreen(),
+		StateAuditWalker: screens.NewAuditWalkerScreen(),
+		StateCryptoVault: screens.NewCryptoVaultScreen(),
 	}
 	return &RootModel{
 		state:        StateSplash,
@@ -509,31 +511,14 @@ func (r *RootModel) viewDaemonDown() string {
 }
 
 func (r *RootModel) viewHelp() string {
-	helpText := `
-  GLOBAL KEYS
-  1-9          Switch to page
-  ctrl+n/p     Next / previous page
-  ctrl+k       Command palette
-  /            Slash commands
-  q / ctrl+c   Quit
-  r            Force refresh
-  ctrl+r       Toggle auto-refresh (pause)
-  ?            Toggle this help
-  esc          Close overlay
-
-  SCROLLABLE PANES
-  j/k  ↑/↓     Scroll up/down
-  ctrl+d/u     Half-page down/up
-  g / G        Jump to top / bottom
-
-  Press ? or esc to close.
-`
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.ColorTeal).
-		Foreground(styles.TextPrimary).
-		Padding(1, 2).
-		Render(helpText)
-
-	return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, box)
+	var activeScreen screens.Screen
+	if scr, ok := r.screens[r.state]; ok {
+		activeScreen = scr
+	}
+	return HelpOverlay{
+		Width:  r.width,
+		Height: r.height,
+		Keys:   r.keys,
+		Screen: activeScreen,
+	}.View()
 }

@@ -218,8 +218,8 @@ func TestApp_RunningMode_Help_ShowsKeybindings(t *testing.T) {
 	app = updated.(App)
 
 	view := app.View()
-	if !strings.Contains(view, "GLOBAL KEYS") {
-		t.Fatalf("expected GLOBAL KEYS in help view")
+	if !strings.Contains(view, "KEYBINDINGS") {
+		t.Fatalf("expected KEYBINDINGS in help view")
 	}
 	if !strings.Contains(view, "ctrl+c") {
 		t.Fatalf("expected ctrl+c in help view")
