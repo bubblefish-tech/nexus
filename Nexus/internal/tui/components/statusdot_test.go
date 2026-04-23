@@ -59,9 +59,6 @@ func TestStatusDot_ContainsDot(t *testing.T) {
 
 func TestStatusDot_PulseFramesDiffer(t *testing.T) {
 	t.Helper()
-	// Verify the even/odd frame logic path is exercised without crashing.
-	// In headless environments lipgloss may not emit ANSI, so we just check
-	// that both frames produce non-empty output.
 	d0 := StatusDot{Status: DotOnline, Frame: 0}
 	d1 := StatusDot{Status: DotOnline, Frame: 1}
 	if d0.View() == "" || d1.View() == "" {
@@ -71,7 +68,6 @@ func TestStatusDot_PulseFramesDiffer(t *testing.T) {
 
 func TestStatusDot_OfflineNoPulse(t *testing.T) {
 	t.Helper()
-	// Offline dots should look the same regardless of frame.
 	d0 := StatusDot{Status: DotOffline, Frame: 0}
 	d1 := StatusDot{Status: DotOffline, Frame: 1}
 	if d0.View() != d1.View() {
@@ -96,6 +92,19 @@ func TestDotStatusFromString(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("dotStatusFromString(%q) = %d, want %d",
 				tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestStatusDot_AllStatuses_ContainDotCharacter(t *testing.T) {
+	t.Helper()
+	for _, status := range []DotStatus{DotOnline, DotDegraded, DotOffline} {
+		for frame := 0; frame < 4; frame++ {
+			d := StatusDot{Status: status, Frame: frame}
+			v := d.View()
+			if !strings.Contains(v, "●") {
+				t.Errorf("status=%d frame=%d: missing dot character", status, frame)
+			}
 		}
 	}
 }

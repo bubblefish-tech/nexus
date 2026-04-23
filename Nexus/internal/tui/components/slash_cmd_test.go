@@ -18,6 +18,7 @@
 package components
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,6 +45,10 @@ func TestSlashCmd_ActivateBecomesActive(t *testing.T) {
 	if !s.Active() {
 		t.Fatal("should be active after Activate()")
 	}
+	view := s.View()
+	if view == "" {
+		t.Fatal("active slash cmd should render non-empty view")
+	}
 }
 
 func TestSlashCmd_EscCancels(t *testing.T) {
@@ -54,16 +59,16 @@ func TestSlashCmd_EscCancels(t *testing.T) {
 	if updated.Active() {
 		t.Fatal("should be inactive after Esc")
 	}
+	view := updated.View()
+	if view != "" {
+		t.Fatal("inactive slash cmd should render empty string")
+	}
 }
 
 func TestSlashCmd_FilterByPrefix(t *testing.T) {
 	t.Helper()
 	s := NewSlashCommandModel(testCmds)
 	s.Activate(80)
-	// Type "lo" — should match only "logs".
-	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
-	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
-	// Filter is applied inside Update; rebuild manually via filter().
 	s.input = "lo"
 	s.filter()
 	if len(s.filtered) != 1 || s.filtered[0].Name != "logs" {
@@ -77,6 +82,12 @@ func TestSlashCmd_EmptyInputShowsAll(t *testing.T) {
 	s.Activate(80)
 	if len(s.filtered) != len(testCmds) {
 		t.Fatalf("expected %d filtered, got %d", len(testCmds), len(s.filtered))
+	}
+	view := s.View()
+	for _, cmd := range testCmds {
+		if !strings.Contains(view, cmd.Name) {
+			t.Errorf("expected %q in view", cmd.Name)
+		}
 	}
 }
 
@@ -102,9 +113,15 @@ func TestSlashCmd_NavigateDown(t *testing.T) {
 	t.Helper()
 	s := NewSlashCommandModel(testCmds)
 	s.Activate(80)
+	viewBefore := s.View()
+
 	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	if s.cursor != 1 {
 		t.Fatalf("expected cursor 1, got %d", s.cursor)
+	}
+	viewAfter := s.View()
+	if viewBefore == viewAfter {
+		t.Fatal("expected view to change after cursor movement")
 	}
 }
 
@@ -116,13 +133,13 @@ func TestSlashCmd_ViewInactive(t *testing.T) {
 	}
 }
 
-func TestSlashCmd_ViewActive(t *testing.T) {
+func TestSlashCmd_ViewActive_ContainsDescriptions(t *testing.T) {
 	t.Helper()
 	s := NewSlashCommandModel(testCmds)
 	s.Activate(80)
-	v := s.View()
-	if v == "" {
-		t.Fatal("active slash cmd should render non-empty")
+	view := s.View()
+	if !strings.Contains(view, "Run health check") {
+		t.Fatalf("expected command description in view")
 	}
 }
 
@@ -145,5 +162,22 @@ func TestSlashCmd_FilterNoMatch(t *testing.T) {
 	s.filter()
 	if len(s.filtered) != 0 {
 		t.Fatalf("expected no matches for 'zzz', got %d", len(s.filtered))
+	}
+}
+
+func TestSlashCmd_SelectAfterNavigate(t *testing.T) {
+	t.Helper()
+	s := NewSlashCommandModel(testCmds)
+	s.Activate(80)
+
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected Cmd after Enter")
+	}
+	msg := cmd()
+	sel := msg.(SlashCommandSelectedMsg)
+	if sel.Name != "logs" {
+		t.Fatalf("expected 'logs' after navigating down, got %q", sel.Name)
 	}
 }

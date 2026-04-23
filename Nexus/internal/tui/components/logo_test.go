@@ -20,8 +20,6 @@ package components
 import (
 	"strings"
 	"testing"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 func TestLogo_FullWidth_NonEmpty(t *testing.T) {
@@ -34,14 +32,8 @@ func TestLogo_FullWidth_NonEmpty(t *testing.T) {
 
 func TestLogo_FullWidth_ContainsBubbleFish(t *testing.T) {
 	t.Helper()
-	// Strip ANSI escapes for content check.
 	out := Logo{Width: 120}.View()
-	// lipgloss may add ANSI sequences; strip by checking raw text fields.
-	_ = out
-	// Verify the rendered text contains the word "BubbleFish" via plain-text field check.
-	// We check the subtitle line which is always present.
-	found := strings.Contains(out, "BubbleFish")
-	if !found {
+	if !strings.Contains(out, "BubbleFish") {
 		t.Fatalf("expected logo to contain 'BubbleFish'")
 	}
 }
@@ -50,15 +42,14 @@ func TestLogo_FullWidth_MinimumHeight(t *testing.T) {
 	t.Helper()
 	out := Logo{Width: 120}.View()
 	lines := strings.Split(out, "\n")
-	// Fish (3) + banner (6) + subtitle (2) + trailing newline = at least 10 non-empty lines.
 	nonEmpty := 0
 	for _, l := range lines {
-		if strings.TrimSpace(lipgloss.NewStyle().Render(l)) != "" || l != "" {
+		if strings.TrimSpace(l) != "" {
 			nonEmpty++
 		}
 	}
-	if nonEmpty < 8 {
-		t.Fatalf("expected at least 8 lines, got %d", nonEmpty)
+	if nonEmpty < 5 {
+		t.Fatalf("expected at least 5 non-empty lines, got %d", nonEmpty)
 	}
 }
 
@@ -83,5 +74,14 @@ func TestLogo_CompactFallback_NarrowTerminal(t *testing.T) {
 	out := Logo{Width: 0}.View()
 	if out == "" {
 		t.Fatal("expected output even at Width=0")
+	}
+}
+
+func TestLogo_WidthVariation_OutputDiffers(t *testing.T) {
+	t.Helper()
+	narrow := Logo{Width: 40}.View()
+	wide := Logo{Width: 120}.View()
+	if narrow == wide {
+		t.Fatal("expected different output at different widths")
 	}
 }

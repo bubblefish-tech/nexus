@@ -72,6 +72,13 @@ func runTUI() {
 
 	app := tui.NewRunningApp(client, tabList, prefs)
 
+	if os.Getenv("DEBUG") != "" {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err == nil {
+			defer f.Close()
+		}
+	}
+
 	p := tea.NewProgram(app,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),

@@ -18,6 +18,7 @@
 package pages
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/bubblefish-tech/nexus/internal/discover"
@@ -62,13 +63,31 @@ func TestWelcomePage_ViewNonEmpty(t *testing.T) {
 	}
 }
 
-func TestWelcomePage_NavigateDown(t *testing.T) {
+func TestWelcomePage_NavigateDown_ChangesView(t *testing.T) {
 	t.Helper()
 	p := NewWelcomePage()
 	state := &WizardState{}
+	viewBefore := p.View(80, 24)
+
 	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}, state)
 	if p.cursor != 1 {
 		t.Fatalf("expected cursor 1, got %d", p.cursor)
+	}
+
+	viewAfter := p.View(80, 24)
+	if viewBefore == viewAfter {
+		t.Fatal("expected view to change after cursor movement")
+	}
+}
+
+func TestWelcomePage_SelectMode_SetsState(t *testing.T) {
+	t.Helper()
+	p := NewWelcomePage()
+	state := &WizardState{}
+	p.cursor = 2
+	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}, state)
+	if state.Mode != "safe" {
+		t.Fatalf("expected mode 'safe' at cursor 2, got %q", state.Mode)
 	}
 }
 
@@ -110,6 +129,20 @@ func TestScanPage_ViewWithState(t *testing.T) {
 	}
 }
 
+func TestScanPage_ViewReflectsScanStatus(t *testing.T) {
+	t.Helper()
+	p := NewScanPage()
+	stateBefore := &WizardState{ScanComplete: false}
+	stateAfter := &WizardState{ScanComplete: true}
+
+	viewBefore := p.ViewWithState(80, 24, stateBefore)
+	viewAfter := p.ViewWithState(80, 24, stateAfter)
+
+	if viewBefore == viewAfter {
+		t.Fatal("expected view to differ between scanning and complete states")
+	}
+}
+
 // ---- FeaturesPage ----
 
 func TestFeaturesPage_Name(t *testing.T) {
@@ -136,6 +169,30 @@ func TestFeaturesPage_InitSetsDefaults(t *testing.T) {
 	_ = p.Init(state)
 	if state.Features == nil {
 		t.Fatal("expected Features map to be initialized")
+	}
+}
+
+func TestFeaturesPage_InitSetsDefaults_SafeMode(t *testing.T) {
+	t.Helper()
+	p := NewFeaturesPage()
+	state := &WizardState{Mode: "safe"}
+	_ = p.Init(state)
+	if !state.Features["audit"] {
+		t.Error("expected audit enabled in safe mode")
+	}
+	if !state.Features["mcp"] {
+		t.Error("expected mcp enabled in safe mode")
+	}
+}
+
+func TestFeaturesPage_ViewContainsFeatureInfo(t *testing.T) {
+	t.Helper()
+	p := NewFeaturesPage()
+	state := &WizardState{Mode: "simple"}
+	_ = p.Init(state)
+	v := p.ViewWithState(100, 30, state)
+	if v == "" {
+		t.Fatal("expected non-empty features view")
 	}
 }
 
@@ -237,6 +294,39 @@ func TestDatabasePage_ViewNonEmpty(t *testing.T) {
 	}
 }
 
+func TestDatabasePage_CursorNavigation_ChangesView(t *testing.T) {
+	t.Helper()
+	p := NewDatabasePage()
+	state := &WizardState{}
+	viewBefore := p.View(80, 24)
+
+	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}, state)
+	viewAfter := p.View(80, 24)
+
+	if viewBefore == viewAfter {
+		t.Fatal("expected view to change after cursor movement")
+	}
+}
+
+func TestDatabasePage_CanAdvance_AllTypes(t *testing.T) {
+	t.Helper()
+	p := NewDatabasePage()
+	needsDSN := map[string]bool{
+		"sqlite": false, "postgres": true, "mysql": true, "cockroachdb": true,
+		"mongodb": true, "firestore": true, "tidb": true, "turso": true,
+	}
+	for dbType, wantsDSN := range needsDSN {
+		state := &WizardState{DatabaseType: dbType, DatabaseDSN: ""}
+		if wantsDSN && p.CanAdvance(state) {
+			t.Errorf("%s without DSN should not advance", dbType)
+		}
+		state.DatabaseDSN = "some-dsn"
+		if !p.CanAdvance(state) {
+			t.Errorf("%s with DSN should advance", dbType)
+		}
+	}
+}
+
 // ---- SecurityPage ----
 
 func TestSecurityPage_Name(t *testing.T) {
@@ -262,6 +352,16 @@ func TestSecurityPage_ViewNonEmpty(t *testing.T) {
 	v := p.View(80, 24)
 	if v == "" {
 		t.Fatal("expected non-empty view")
+	}
+}
+
+func TestSecurityPage_ViewContainsEncryptionInfo(t *testing.T) {
+	t.Helper()
+	p := NewSecurityPage()
+	v := p.View(100, 30)
+	lower := strings.ToLower(v)
+	if !strings.Contains(lower, "encrypt") && !strings.Contains(lower, "password") {
+		t.Fatal("expected encryption-related content in security page")
 	}
 }
 
@@ -308,6 +408,20 @@ func TestTunnelPage_ViewWithState(t *testing.T) {
 	v := p.ViewWithState(80, 24, state)
 	if v == "" {
 		t.Fatal("expected non-empty view")
+	}
+}
+
+func TestTunnelPage_ViewDiffersWithEnabled(t *testing.T) {
+	t.Helper()
+	p := NewTunnelPage()
+	stateOff := &WizardState{TunnelEnabled: false}
+	stateOn := &WizardState{TunnelEnabled: true, TunnelProvider: "cloudflare"}
+
+	viewOff := p.ViewWithState(80, 24, stateOff)
+	viewOn := p.ViewWithState(80, 24, stateOn)
+
+	if viewOff == viewOn {
+		t.Fatal("expected view to differ between tunnel disabled and enabled")
 	}
 }
 
@@ -374,7 +488,7 @@ func TestSummaryPage_ViewWithState_NonEmpty(t *testing.T) {
 	}
 }
 
-func TestSummaryPage_ViewWithState_ShowsMode(t *testing.T) {
+func TestSummaryPage_ViewWithState_ContainsMode(t *testing.T) {
 	t.Helper()
 	p := NewSummaryPage()
 	state := &WizardState{
@@ -384,8 +498,8 @@ func TestSummaryPage_ViewWithState_ShowsMode(t *testing.T) {
 		InstallDir:   "/opt/nexus",
 	}
 	v := p.ViewWithState(120, 40, state)
-	if v == "" {
-		t.Fatal("expected non-empty summary view")
+	if !strings.Contains(v, "balanced") {
+		t.Fatalf("expected 'balanced' in summary view, got:\n%s", v)
 	}
 }
 
@@ -418,47 +532,21 @@ func TestSummaryPage_ViewWithState_TunnelEnabled(t *testing.T) {
 	if v == "" {
 		t.Fatal("expected non-empty view with tunnel")
 	}
-}
-
-func TestDatabasePage_CanAdvance_AllTypes(t *testing.T) {
-	t.Helper()
-	p := NewDatabasePage()
-	needsDSN := map[string]bool{
-		"sqlite": false, "postgres": true, "mysql": true, "cockroachdb": true,
-		"mongodb": true, "firestore": true, "tidb": true, "turso": true,
-	}
-	for dbType, wantsDSN := range needsDSN {
-		state := &WizardState{DatabaseType: dbType, DatabaseDSN: ""}
-		if wantsDSN && p.CanAdvance(state) {
-			t.Errorf("%s without DSN should not advance", dbType)
-		}
-		state.DatabaseDSN = "some-dsn"
-		if !p.CanAdvance(state) {
-			t.Errorf("%s with DSN should advance", dbType)
-		}
+	if !strings.Contains(v, "cloudflare") {
+		t.Fatalf("expected 'cloudflare' in tunnel summary")
 	}
 }
 
-func TestFeaturesPage_InitSetsDefaults_SafeMode(t *testing.T) {
+func TestSummaryPage_ViewWithState_ContainsDatabaseType(t *testing.T) {
 	t.Helper()
-	p := NewFeaturesPage()
-	state := &WizardState{Mode: "safe"}
-	_ = p.Init(state)
-	if !state.Features["audit"] {
-		t.Error("expected audit enabled in safe mode")
+	p := NewSummaryPage()
+	state := &WizardState{
+		Mode:         "simple",
+		DatabaseType: "sqlite",
+		InstallDir:   "/tmp/test",
 	}
-	if !state.Features["mcp"] {
-		t.Error("expected mcp enabled in safe mode")
-	}
-}
-
-func TestWelcomePage_SelectMode_SetsState(t *testing.T) {
-	t.Helper()
-	p := NewWelcomePage()
-	state := &WizardState{}
-	p.cursor = 2
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}, state)
-	if state.Mode != "safe" {
-		t.Fatalf("expected mode 'safe' at cursor 2, got %q", state.Mode)
+	v := p.ViewWithState(80, 24, state)
+	if !strings.Contains(v, "sqlite") {
+		t.Fatalf("expected 'sqlite' in summary view, got:\n%s", v)
 	}
 }

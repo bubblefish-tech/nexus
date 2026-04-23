@@ -1927,3 +1927,15 @@
 - Expanded: nexus doctor (5 new checks, --repair, auto-run at start)
 - Final test count: 103 packages pass, 1 pre-existing flake (simulate)
 - Exit gate: Build OK | Vet OK | Full suite PASS | Zero new failures
+
+## TUI.OBS — TUI observability & test hardening
+- Wired DEBUG log: `cmd/nexus/tui.go`, `cmd/nexus/setup.go` — `tea.LogToFile("debug.log", "debug")` gated on `DEBUG` env var
+- Added `github.com/charmbracelet/x/exp/teatest` dependency for PTY-based integration tests
+- Rewrote/enhanced 10 TUI test files (167 tests, 0 failures):
+  - `app_test.go` — teatest integration (setup wizard) + manual View assertions (running mode with mock HTTP daemon)
+  - `wizard_test.go` — View assertions on step progress, page names, nav hints, terminal-too-small guard
+  - `components/{checkbox,slash_cmd,textinput,logo,progress,statusdot}_test.go` — interaction → View output assertions
+  - `pages/pages_test.go` — cursor nav changes View, scan status changes View, summary content assertions
+  - `tabs/tabs_test.go` — width variation, unknown-key resilience, content assertions
+- Created `test.tape` — VHS integration tape exercising full TUI navigation (tabs 1-7, help, sidebar, pause, quit)
+- Exit gate: Build OK | Vet OK | 167 TUI tests PASS | Zero regressions

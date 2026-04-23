@@ -18,7 +18,10 @@
 package tabs
 
 import (
+	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestControlTab_Name(t *testing.T) {
@@ -109,5 +112,67 @@ func TestAllTabs_InitNoPanic(t *testing.T) {
 	}
 	for _, tab := range tabs {
 		_ = tab.Init()
+	}
+}
+
+func TestAllTabs_ViewWidthRespected(t *testing.T) {
+	t.Helper()
+	tabs := []Tab{
+		NewControlTab(),
+		NewAuditTab(),
+		NewSecurityTab(),
+		NewPipelineTab(),
+		NewConflictsTab(),
+		NewTimeTravelTab(),
+		NewSettingsTab(),
+	}
+	for _, tab := range tabs {
+		narrow := tab.View(40, 24)
+		wide := tab.View(200, 40)
+		if narrow == "" || wide == "" {
+			t.Errorf("%s: empty view at some width", tab.Name())
+		}
+	}
+}
+
+func TestAllTabs_UpdateUnknownMsg_NoPanic(t *testing.T) {
+	t.Helper()
+	tabs := []Tab{
+		NewControlTab(),
+		NewAuditTab(),
+		NewSecurityTab(),
+		NewPipelineTab(),
+		NewConflictsTab(),
+		NewTimeTravelTab(),
+		NewSettingsTab(),
+	}
+	for _, tab := range tabs {
+		updated, _ := tab.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+		view := updated.View(80, 24)
+		if view == "" {
+			t.Errorf("%s: empty view after unknown key", tab.Name())
+		}
+	}
+}
+
+func TestControlTab_ViewContainsStatusInfo(t *testing.T) {
+	t.Helper()
+	tab := NewControlTab()
+	view := tab.View(120, 40)
+	lower := strings.ToLower(view)
+	if !strings.Contains(lower, "status") && !strings.Contains(lower, "overview") &&
+		!strings.Contains(lower, "waiting") && !strings.Contains(lower, "load") {
+		t.Fatalf("expected status-related content in Overview tab view")
+	}
+}
+
+func TestTimeTravelTab_ViewContainsSearchPrompt(t *testing.T) {
+	t.Helper()
+	tab := NewTimeTravelTab()
+	view := tab.View(120, 40)
+	lower := strings.ToLower(view)
+	if !strings.Contains(lower, "subject") && !strings.Contains(lower, "search") &&
+		!strings.Contains(lower, "query") && !strings.Contains(lower, "time") {
+		t.Fatalf("expected search/query prompt in Time-Travel tab view")
 	}
 }
