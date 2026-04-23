@@ -40,6 +40,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/web"
 	"github.com/shirou/gopsutil/v3/mem"
 	_ "go.uber.org/automaxprocs"
+	"gopkg.in/lumberjack.v2"
 	dashboardui "github.com/bubblefish-tech/nexus/web/dashboard"
 )
 
@@ -265,12 +266,18 @@ func buildLogger(cfg *config.Config, configDir string) *slog.Logger {
 	}
 
 	// File handler — always JSON, for nexus logs command to parse.
+	// Uses lumberjack for automatic rotation: 100 MiB max, 5 backups, 30 day retention.
 	if configDir != "" {
 		logPath := filepath.Join(configDir, "logs", "nexus.log")
-		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
-			fileHandler := slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug})
-			return slog.New(logging.NewSanitizingHandler(newTeeHandler(stderrHandler, fileHandler)))
+		fileWriter := &lumberjack.Logger{
+			Filename:   logPath,
+			MaxSize:    100,
+			MaxBackups: 5,
+			MaxAge:     30,
+			Compress:   true,
 		}
+		fileHandler := slog.NewJSONHandler(fileWriter, &slog.HandlerOptions{Level: slog.LevelDebug})
+		return slog.New(logging.NewSanitizingHandler(newTeeHandler(stderrHandler, fileHandler)))
 	}
 
 	return slog.New(logging.NewSanitizingHandler(stderrHandler))

@@ -1833,5 +1833,15 @@
 - Slowloris defense: ReadHeaderTimeout=10s already set on all servers
 - Channel buffer audit: all daemon channels are either buffered or close-once signals
 - Tests: 4 new tests
+- Commit: cd3e206
+- Exit gate: Build OK | Vet OK | 101 packages PASS
+
+## OBS.1: COMPLETE — Logging + Observability
+- Log rotation via lumberjack: 100MiB max, 5 backups, 30 day retention, compressed
+- RequestID middleware already present in chi chain
+- pprof via chi middleware.Profiler on admin router (secure, not DefaultServeMux)
+- /health returns reasons[] array when degraded + goroutine/heap saturation metrics
+- New dep: gopkg.in/lumberjack.v2 (MIT)
+- Tests: 3 new tests
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 101 packages PASS

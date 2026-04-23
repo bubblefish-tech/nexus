@@ -308,6 +308,9 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 			d.metrics.Registry(),
 			promhttp.HandlerOpts{EnableOpenMetrics: false},
 		).ServeHTTP)
+
+		// Secure pprof — uses chi's self-contained subrouter, NOT http.DefaultServeMux.
+		r.Mount("/debug", middleware.Profiler())
 	})
 
 	// NA2A JSON-RPC endpoint — no daemon-level auth; methods authenticate
