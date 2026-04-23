@@ -88,6 +88,20 @@ func runStart() {
 	}
 	defer fl.Unlock()
 
+	// Auto-run doctor checks: CRITICAL blocks startup, WARN is logged.
+	results := RunAllChecks(configDir)
+	criticals := results.Criticals()
+	if len(criticals) > 0 {
+		for _, c := range criticals {
+			slog.Error("pre-flight check CRITICAL", "check", c.Name, "message", c.Message)
+		}
+		fmt.Fprintf(os.Stderr, "nexus doctor found %d critical issues — run `nexus doctor` for details\n", len(criticals))
+		os.Exit(1)
+	}
+	for _, w := range results.Warnings() {
+		slog.Warn("pre-flight check warning", "check", w.Name, "message", w.Message)
+	}
+
 	// Set up structured logger based on config (pre-load default).
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,

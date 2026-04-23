@@ -52,6 +52,10 @@ func runDoctor() {
 			runMemoryHealth()
 			return
 		}
+		if arg == "--repair" {
+			runDoctorRepair()
+			return
+		}
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -177,6 +181,21 @@ func runDoctor() {
 		fmt.Println()
 		fmt.Println("nexus doctor: checking destination health...")
 		checkDestinationHealth(port, cfg, &hasErrors, &proposals)
+	}
+
+	// 9. Expanded checks: cloud sync, disk space, ports, permissions, filesystem.
+	fmt.Println()
+	fmt.Println("nexus doctor: running expanded checks...")
+	expandedResults := RunAllChecks(configDir)
+	for _, r := range expandedResults {
+		switch r.Status {
+		case "OK":
+			fmt.Printf("  [ok]    %s: %s\n", r.Name, r.Message)
+		case "WARN":
+			warn(r.Name, r.Message)
+		case "CRITICAL":
+			check(false, r.Name, r.Message, "")
+		}
 	}
 
 	// Print self-heal summary.
@@ -331,4 +350,38 @@ func runMemoryHealth() {
 		}
 	}
 	fmt.Fprintln(os.Stderr)
+}
+
+// runDoctorRepair attempts to fix common configuration issues.
+func runDoctorRepair() {
+	configDir, err := config.ConfigDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nexus doctor --repair: %v\n", err)
+		os.Exit(1)
+	}
+
+	repairDirs := []string{
+		filepath.Join(configDir, "keys"),
+		filepath.Join(configDir, "logs"),
+		filepath.Join(configDir, "wal"),
+		filepath.Join(configDir, "discovery"),
+		filepath.Join(configDir, "tools"),
+	}
+
+	for _, d := range repairDirs {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			fmt.Fprintf(os.Stderr, "  [ERROR] create %s: %v\n", d, err)
+		} else {
+			fmt.Printf("  [ok]    ensured %s exists\n", d)
+		}
+	}
+
+	// Fix keys directory permissions (Unix only).
+	keysDir := filepath.Join(configDir, "keys")
+	if err := os.Chmod(keysDir, 0700); err == nil {
+		fmt.Printf("  [ok]    keys directory permissions set to 0700\n")
+	}
+
+	fmt.Println()
+	fmt.Println("nexus doctor --repair: complete")
 }

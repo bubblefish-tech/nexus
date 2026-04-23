@@ -1850,5 +1850,13 @@
 - New package: internal/nexuserr/ — 8 sentinel error types
 - IsInfrastructureError() for circuit breaker trip decisions
 - Tests: 4 new tests
+- Commit: 996e3a6
+- Exit gate: Build OK | Vet OK | 102 packages PASS
+
+## DOC.1: COMPLETE — nexus doctor Expansion
+- 5 new checks: cloud-sync, disk space, ports, permissions, filesystem type
+- Auto-runs at nexus start; CRITICAL blocks startup, WARN logs
+- --repair flag: creates dirs, fixes permissions
+- Tests: 11 new tests
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 102 packages PASS
