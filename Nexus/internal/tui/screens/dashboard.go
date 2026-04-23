@@ -60,17 +60,15 @@ type DashboardScreen struct {
 	agents        []api.AgentSummary
 	healthy       bool
 	statusErr     error
-	writeHistory  []int
-	readHistory   []int
-	pollCount     int
+	curWrites     int
+	curReads      int
+	maxWrites     int
+	maxReads      int
 }
 
 // NewDashboardScreen creates the dashboard with initial state.
 func NewDashboardScreen() *DashboardScreen {
-	return &DashboardScreen{
-		writeHistory: make([]int, 60),
-		readHistory:  make([]int, 60),
-	}
+	return &DashboardScreen{}
 }
 
 func (d *DashboardScreen) Name() string { return "Dashboard" }
@@ -90,9 +88,14 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if m.Data != nil {
 			d.status = m.Data
 			d.statusErr = nil
-			d.writeHistory = append(d.writeHistory[1:], m.Data.Writes1m)
-			d.readHistory = append(d.readHistory[1:], m.Data.Reads1m)
-			d.pollCount++
+			d.curWrites = m.Data.Writes1m
+			d.curReads = m.Data.Reads1m
+			if m.Data.Writes1m > d.maxWrites {
+				d.maxWrites = m.Data.Writes1m
+			}
+			if m.Data.Reads1m > d.maxReads {
+				d.maxReads = m.Data.Reads1m
+			}
 			d.healthy = true
 			sdbg("StatusBroadcast received: memories=%d w1m=%d r1m=%d queue=%d uptime=%ds",
 				m.Data.MemoriesTotal, m.Data.Writes1m, m.Data.Reads1m, m.Data.QueueDepth, m.Data.UptimeSeconds)
@@ -300,10 +303,10 @@ func (d *DashboardScreen) viewRightColumn(w int) string {
 	// ── Throughput sparklines ──
 	lines = append(lines, "")
 	lines = append(lines, sectionHeader("WRITE THROUGHPUT (60s)", w))
-	lines = append(lines, "  "+renderSparkline(d.writeHistory, w-4, d.pollCount, styles.ColorGreen))
+	lines = append(lines, "  "+renderThroughputGauge(d.curWrites, d.maxWrites, w-4, styles.ColorGreen))
 	lines = append(lines, "")
 	lines = append(lines, sectionHeader("READ THROUGHPUT (60s)", w))
-	lines = append(lines, "  "+renderSparkline(d.readHistory, w-4, d.pollCount, styles.ColorBlue))
+	lines = append(lines, "  "+renderThroughputGauge(d.curReads, d.maxReads, w-4, styles.ColorBlue))
 
 	// ── System info ──
 	lines = append(lines, "")
@@ -336,47 +339,26 @@ func agentDot(status string) string {
 	}
 }
 
-func renderSparkline(data []int, width, filled int, color lipgloss.Color) string {
+func renderThroughputGauge(current, peak, width int, color lipgloss.Color) string {
 	if width < 5 {
 		width = 5
 	}
-	blocks := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+	if peak < 1 {
+		peak = 1
+	}
+	filled := current * width / peak
+	if filled > width {
+		filled = width
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	empty := width - filled
 
-	// Only render data points we've actually collected.
-	count := filled
-	if count > len(data) {
-		count = len(data)
-	}
-	if count > width {
-		count = width
-	}
-	if count < 1 {
-		count = 1
-	}
-
-	// Extract the newest `count` values from the end of the array.
-	slice := data[len(data)-count:]
-
-	maxVal := 1
-	for _, v := range slice {
-		if v > maxVal {
-			maxVal = v
-		}
-	}
-
-	// Render newest on far left, oldest on right.
-	var sb strings.Builder
-	for i := len(slice) - 1; i >= 0; i-- {
-		idx := slice[i] * (len(blocks) - 1) / maxVal
-		if idx < 0 {
-			idx = 0
-		}
-		if idx >= len(blocks) {
-			idx = len(blocks) - 1
-		}
-		sb.WriteRune(blocks[idx])
-	}
-	return lipgloss.NewStyle().Foreground(color).Render(sb.String())
+	label := fmt.Sprintf(" %d/m", current)
+	bar := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", filled)) +
+		lipgloss.NewStyle().Foreground(styles.BorderBase).Render(strings.Repeat("░", empty))
+	return bar + lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(label)
 }
 
 var _ Screen = (*DashboardScreen)(nil)

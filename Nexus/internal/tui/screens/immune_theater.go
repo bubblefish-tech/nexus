@@ -123,7 +123,7 @@ func (im *ImmuneTheaterScreen) View() string {
 	body := lipgloss.JoinHorizontal(lipgloss.Top,
 		lipgloss.NewStyle().Width(leftW).Render(left),
 		lipgloss.NewStyle().Width(1).Foreground(styles.BorderBase).Render(
-			strings.Repeat("│\n", im.height)),
+			strings.Repeat("│\n", im.height-3)),
 		lipgloss.NewStyle().Width(rightW).Render(right),
 	)
 

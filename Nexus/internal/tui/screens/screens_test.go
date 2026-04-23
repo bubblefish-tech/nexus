@@ -149,15 +149,23 @@ func TestDashboardScreen_View_WithStatus(t *testing.T) {
 	}
 }
 
-func TestDashboardScreen_WriteHistoryRolling(t *testing.T) {
+func TestDashboardScreen_ThroughputGauge(t *testing.T) {
 	t.Helper()
 	d := NewDashboardScreen()
-	if len(d.writeHistory) != 60 {
-		t.Fatalf("expected 60-entry write history, got %d", len(d.writeHistory))
-	}
 
 	d.Update(api.StatusBroadcastMsg{Data: &api.StatusResponse{Writes1m: 10}})
-	if len(d.writeHistory) != 60 {
-		t.Fatalf("expected history to stay at 60 after update, got %d", len(d.writeHistory))
+	if d.curWrites != 10 {
+		t.Fatalf("expected curWrites=10, got %d", d.curWrites)
+	}
+	if d.maxWrites != 10 {
+		t.Fatalf("expected maxWrites=10, got %d", d.maxWrites)
+	}
+
+	d.Update(api.StatusBroadcastMsg{Data: &api.StatusResponse{Writes1m: 5}})
+	if d.curWrites != 5 {
+		t.Fatalf("expected curWrites=5 after decrease, got %d", d.curWrites)
+	}
+	if d.maxWrites != 10 {
+		t.Fatalf("expected maxWrites=10 (peak retained), got %d", d.maxWrites)
 	}
 }

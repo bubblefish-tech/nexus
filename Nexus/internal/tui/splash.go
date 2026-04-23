@@ -30,7 +30,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const splashDuration = 3500 * time.Millisecond
+const splashDuration = 13500 * time.Millisecond
 const splashTickInterval = 50 * time.Millisecond
 const splashCrossFade = 500 * time.Millisecond
 
@@ -227,8 +227,10 @@ func (s SplashModel) View() string {
 
 	var content []string
 
-	// Block-letter banners: BubbleFish (line 1) + NEXUS (line 2).
+	// Fish emblem centered above block-letter banners.
 	if fp := s.fishFade.p(); fp > 0.1 {
+		content = append(content, components.RenderFishEmblem())
+		content = append(content, "")
 		content = append(content, components.RenderSplashBanners(s.width))
 	}
 
