@@ -150,6 +150,7 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			scr.SetSize(r.width, contentH)
 		}
 		r.bubbleField.SetSize(r.width, r.height)
+		r.splash.bubbleField.SetSize(r.width, r.height)
 		r.splash.width = r.width
 		r.splash.height = r.height
 		return r, nil

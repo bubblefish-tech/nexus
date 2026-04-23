@@ -54,7 +54,7 @@ func (b InlineBar) View() string {
 	empty := barWidth - filled
 
 	bar := lipgloss.NewStyle().Foreground(b.Color).Render(strings.Repeat("█", filled)) +
-		lipgloss.NewStyle().Foreground(styles.TextDim).Render(strings.Repeat("░", empty))
+		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(strings.Repeat("░", empty))
 
 	return labelStr + " " + bar + " " + valueStr
 }

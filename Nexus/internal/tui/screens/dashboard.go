@@ -171,7 +171,7 @@ func (d *DashboardScreen) viewLeftColumn(w int) string {
 		artLines = artLines[:artMaxLines]
 	}
 	for i, al := range artLines {
-		artLines[i] = lipgloss.PlaceHorizontal(w, lipgloss.Center, al)
+		artLines[i] = lipgloss.PlaceHorizontal(w, lipgloss.Center, al+"\033[0m")
 	}
 	lines = append(lines, strings.Join(artLines, "\n"))
 	lines = append(lines, "")
@@ -369,7 +369,7 @@ func renderThroughputGauge(current, peak, width int, color lipgloss.Color) strin
 
 	label := fmt.Sprintf(" %d/m", current)
 	bar := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", filled)) +
-		lipgloss.NewStyle().Foreground(styles.BorderBase).Render(strings.Repeat("░", empty))
+		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(strings.Repeat("░", empty))
 	return bar + lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(label)
 }
 
