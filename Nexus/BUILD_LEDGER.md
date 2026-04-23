@@ -1957,3 +1957,12 @@
 - Payload field already json.RawMessage — deferred parsing already in place
 - Commit: <SHA>
 - Benchmark (median of 3): 9,417,238 ns/op | 13.1MB B/op | 20,068 allocs/op (unchanged)
+
+## JWT.1: COMPLETE — JWT Validation Cache
+- LRU cache (256 entries, 60s TTL or JWT exp, SHA-256 key)
+- Cache hit: 459ns, 1 alloc (68x faster than 31μs baseline)
+- Never caches invalid or expired tokens
+- Clears cache on JWKS key rotation
+- Tests: 4 new tests
+- Commit: <SHA>
+- Benchmark (median of 3): Valid 458.7 ns/op | 576 B/op | 1 allocs/op

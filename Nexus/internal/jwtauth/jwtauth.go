@@ -65,7 +65,20 @@ type Validator struct {
 	keys        map[string]crypto.PublicKey // kid -> public key
 	lastRefresh time.Time
 	client      *http.Client
+
+	// validationCache caches successful validation results by token hash.
+	// Cache hit returns the Result without any crypto or JSON parsing.
+	cacheMu sync.RWMutex
+	cache   map[[32]byte]cachedValidation
 }
+
+type cachedValidation struct {
+	result    *Result
+	expiresAt time.Time
+}
+
+const validationCacheMaxSize = 256
+const validationCacheTTL = 60 * time.Second
 
 // New creates a Validator. Call FetchJWKS() to load keys before use.
 func New(cfg Config) *Validator {
@@ -73,6 +86,7 @@ func New(cfg Config) *Validator {
 		cfg:    cfg,
 		keys:   make(map[string]crypto.PublicKey),
 		client: &http.Client{Timeout: 10 * time.Second},
+		cache:  make(map[[32]byte]cachedValidation, validationCacheMaxSize),
 	}
 }
 
@@ -141,6 +155,12 @@ func (v *Validator) refreshIfNeeded() bool {
 			"error", err,
 		)
 	}
+
+	// Clear validation cache on key rotation.
+	v.cacheMu.Lock()
+	v.cache = make(map[[32]byte]cachedValidation, validationCacheMaxSize)
+	v.cacheMu.Unlock()
+
 	return true
 }
 
@@ -156,14 +176,53 @@ type Result struct {
 // If validation fails due to an unknown key ID, it attempts a JWKS refresh
 // (at most once per minute) and retries.
 func (v *Validator) Validate(rawToken string) (*Result, error) {
+	key := sha256.Sum256([]byte(rawToken))
+
+	// Cache hit path — zero alloc.
+	v.cacheMu.RLock()
+	if cached, ok := v.cache[key]; ok && time.Now().Before(cached.expiresAt) {
+		v.cacheMu.RUnlock()
+		return cached.result, nil
+	}
+	v.cacheMu.RUnlock()
+
 	result, err := v.validateOnce(rawToken)
 	if err != nil && errors.Is(err, errUnknownKid) {
-		// Try refreshing JWKS for key rotation.
 		if v.refreshIfNeeded() {
-			return v.validateOnce(rawToken)
+			result, err = v.validateOnce(rawToken)
 		}
 	}
-	return result, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache successful validations only.
+	ttl := validationCacheTTL
+	if claims := result.Claims; claims != nil {
+		if exp, ok := claims["exp"].(float64); ok {
+			jwtExp := time.Unix(int64(exp), 0)
+			if until := time.Until(jwtExp); until < ttl {
+				ttl = until
+			}
+		}
+	}
+	v.cacheMu.Lock()
+	if len(v.cache) >= validationCacheMaxSize {
+		// Evict expired entries; if still full, clear all (simple LRU).
+		now := time.Now()
+		for k, c := range v.cache {
+			if now.After(c.expiresAt) {
+				delete(v.cache, k)
+			}
+		}
+		if len(v.cache) >= validationCacheMaxSize {
+			v.cache = make(map[[32]byte]cachedValidation, validationCacheMaxSize)
+		}
+	}
+	v.cache[key] = cachedValidation{result: result, expiresAt: time.Now().Add(ttl)}
+	v.cacheMu.Unlock()
+
+	return result, nil
 }
 
 var errUnknownKid = errors.New("unknown key ID")
