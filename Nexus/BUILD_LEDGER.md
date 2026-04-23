@@ -1843,5 +1843,12 @@
 - /health returns reasons[] array when degraded + goroutine/heap saturation metrics
 - New dep: gopkg.in/lumberjack.v2 (MIT)
 - Tests: 3 new tests
-- Commit: <SHA>
+- Commit: 50f6ec8
 - Exit gate: Build OK | Vet OK | 101 packages PASS
+
+## ERR.1: COMPLETE — Structured Error Codes
+- New package: internal/nexuserr/ — 8 sentinel error types
+- IsInfrastructureError() for circuit breaker trip decisions
+- Tests: 4 new tests
+- Commit: <SHA>
+- Exit gate: Build OK | Vet OK | 102 packages PASS
