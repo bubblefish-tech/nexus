@@ -28,9 +28,17 @@ import (
 //go:embed assets/bubblefish.ansi
 var fishEmblem string
 
+//go:embed assets/bubblefish_splash.ansi
+var splashEmblem string
+
 // Logo renders the BubbleFish ASCII art logo with lipgloss colors.
 type Logo struct {
 	Width int
+}
+
+// RenderSplashEmblem returns the small ANSI fish/shield art for the splash screen.
+func RenderSplashEmblem() string {
+	return splashEmblem
 }
 
 // RenderFishEmblem returns the embedded ANSI fish art.
