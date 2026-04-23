@@ -68,4 +68,5 @@ const (
 	ProviderOpenAI     = "openai"
 	ProviderOllama     = "ollama"
 	ProviderCompatible = "compatible"
+	ProviderBuiltin    = "builtin"
 )
