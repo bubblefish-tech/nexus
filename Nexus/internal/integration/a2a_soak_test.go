@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bubblefish-tech/nexus/internal/httputil"
 )
 
 // TestSoak_24h is a long-running soak test harness that sends tasks at a
@@ -175,10 +177,17 @@ func TestSoak_24h(t *testing.T) {
 
 	// Memory growth check: final alloc should not be more than 3x the baseline.
 	// This catches unbounded growth (leaked goroutines, growing maps, etc.).
+	// Force-close idle HTTP connections and re-GC so pooled connection buffers
+	// (from httputil.TunedTransport) don't inflate the final measurement.
+	httputil.TunedTransport.CloseIdleConnections()
+	runtime.GC()
+	var postGC runtime.MemStats
+	runtime.ReadMemStats(&postGC)
+
 	memMu.Lock()
 	defer memMu.Unlock()
 	if len(memSamples) > 0 && baselineAlloc > 0 {
-		finalAlloc := memSamples[len(memSamples)-1].alloc
+		finalAlloc := postGC.Alloc
 		ratio := float64(finalAlloc) / float64(baselineAlloc)
 		t.Logf("memory: baseline=%d KB, final=%d KB, ratio=%.2fx",
 			baselineAlloc/1024, finalAlloc/1024, ratio)
