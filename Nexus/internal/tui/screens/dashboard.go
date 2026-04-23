@@ -156,13 +156,8 @@ func (d *DashboardScreen) View() string {
 func (d *DashboardScreen) viewLeftColumn(w int) string {
 	var lines []string
 
-	// Fish emblem (ANSI art for wide terminals, ASCII for narrow)
-	if w >= 70 {
-		lines = append(lines, components.RenderFishEmblem())
-	} else {
-		logo := components.Logo{Width: w}
-		lines = append(lines, logo.View())
-	}
+	logo := components.Logo{Width: w}
+	lines = append(lines, logo.View())
 	lines = append(lines, "")
 
 	// Brand text
@@ -198,41 +193,12 @@ func (d *DashboardScreen) viewLeftColumn(w int) string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(styles.TextMuted).Render("  No agents connected"))
 	}
 
-	// Lower-left bubbles
-	lines = append(lines, "")
-	lines = append(lines, scatterBubbles(w, 4))
-
 	return strings.Join(lines, "\n")
-}
-
-func scatterBubbles(w, rows int) string {
-	bubbleStyle := lipgloss.NewStyle().Foreground(styles.ColorGreen)
-	dimStyle := lipgloss.NewStyle().Foreground(styles.ColorTealDim)
-	chars := []rune{'°', '·', '∘', '·', '°'}
-	var out []string
-	for y := 0; y < rows; y++ {
-		var line strings.Builder
-		for x := 0; x < w; x++ {
-			h := (x*7 + y*13 + x*y*3) % 41
-			if h == 0 {
-				line.WriteString(bubbleStyle.Render(string(chars[(x+y)%len(chars)])))
-			} else if h == 5 || h == 19 {
-				line.WriteString(dimStyle.Render(string(chars[(x*3+y)%len(chars)])))
-			} else {
-				line.WriteByte(' ')
-			}
-		}
-		out = append(out, line.String())
-	}
-	return strings.Join(out, "\n")
 }
 
 func (d *DashboardScreen) viewRightColumn(w int) string {
 	var lines []string
 	s := d.status
-
-	// Upper-right bubbles
-	lines = append(lines, scatterBubbles(w, 2))
 
 	// ── Stat cards row ──
 	cardW := (w - 6) / 3
@@ -349,10 +315,6 @@ func (d *DashboardScreen) viewRightColumn(w int) string {
 		sec := s.UptimeSeconds % 60
 		lines = append(lines, fmt.Sprintf("  Uptime: %dh%02dm%02ds  Errors/m: %d", h, m, sec, s.Errors1m))
 	}
-
-	// Lower-right bubbles
-	lines = append(lines, "")
-	lines = append(lines, scatterBubbles(w, 3))
 
 	return strings.Join(lines, "\n")
 }
