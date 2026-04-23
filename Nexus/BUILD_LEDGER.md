@@ -1947,3 +1947,13 @@
 - 9.9x faster, 4.4x fewer allocs, 2.8x less memory
 - Commit: <SHA>
 - Benchmark (median of 3): 87,285 ns/op | 145,040 B/op | 1,602 allocs/op
+
+## WAL.1: COMPLETE — WAL Replay Pre-Filter
+- Pre-filter skips non-PENDING and audit entries before decompression + unmarshal
+- Zero-alloc byte-level substring matching (bytes.Contains)
+- Compressed entries (zstd: prefix) bypass pre-filter correctly
+- Production benefit: skips DELIVERED entries (majority) without allocating Entry struct
+- Benchmark unchanged (synthetic bench uses 100% PENDING entries — pre-filter doesn't help)
+- Payload field already json.RawMessage — deferred parsing already in place
+- Commit: <SHA>
+- Benchmark (median of 3): 9,417,238 ns/op | 13.1MB B/op | 20,068 allocs/op (unchanged)
