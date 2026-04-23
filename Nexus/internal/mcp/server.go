@@ -928,6 +928,7 @@ func (s *Server) callNexusWrite(w http.ResponseWriter, r *http.Request, req rpcR
 func (s *Server) callNexusSearch(w http.ResponseWriter, r *http.Request, req rpcRequest, args json.RawMessage) {
 	var a struct {
 		Q           string `json:"q"`
+		Query       string `json:"query"`
 		Destination string `json:"destination"`
 		Subject     string `json:"subject"`
 		Limit       int    `json:"limit"`
@@ -939,10 +940,14 @@ func (s *Server) callNexusSearch(w http.ResponseWriter, r *http.Request, req rpc
 			return
 		}
 	}
+	q := a.Q
+	if q == "" {
+		q = a.Query
+	}
 
 	result, err := s.pipeline.Search(r.Context(), SearchParams{
 		Source:      s.sourceName,
-		Q:           a.Q,
+		Q:           q,
 		Destination: a.Destination,
 		Subject:     a.Subject,
 		Limit:       a.Limit,
