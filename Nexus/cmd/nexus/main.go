@@ -118,6 +118,10 @@ func main() {
 		runTUI()
 	case "doctor":
 		runDoctor()
+	case "self-test":
+		runSelfTest()
+	case "trace":
+		runTrace()
 	case "stop":
 		runStop(os.Args[2:])
 	case "status":

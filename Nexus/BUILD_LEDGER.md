@@ -1889,5 +1889,13 @@
 - Embedding connection pre-warmed at startup
 - Lazy-compile regexes: headingRE moved to package level in markdown_diary.go
 - bytes.Buffer in compactJSON kept (json.Compact requires *bytes.Buffer)
+- Commit: 6d88b0b
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## CMD.1: COMPLETE — Safety Commands + TLS + Build Flags
+- `nexus self-test`: non-destructive smoke test on live daemon (health + ready check)
+- `nexus trace`: captures runtime/trace from /debug/pprof/trace
+- TLS cipher allowlist: ECDHE+AEAD only, TLS 1.2 minimum
+- Commands wired into main.go dispatcher
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 104 packages PASS
