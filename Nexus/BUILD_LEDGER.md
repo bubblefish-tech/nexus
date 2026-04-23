@@ -1990,10 +1990,12 @@
 - Commit: 48c7219
 - Benchmark: Short 143,383 ns/op | 18,834 B/op | 130 allocs/op
 
-## OPTIMIZATION SPRINT COMPLETE — 5 commits, benchmark-driven
+## OPTIMIZATION SPRINT COMPLETE — 4 effective commits (1 reverted), benchmark-driven
 - Branch: feat/optimization-sprint
 - Every commit verified with 3-run benchmark median
 - Headline wins: Projection 9.9x faster (77% fewer allocs), JWT 68x faster on cache hit
+- WAL.1 pre-filter reverted — added 24% overhead on crash-recovery workloads
 - Queue/Drain skipped — allocs intrinsic to json.Unmarshal, batch INSERT requires arch change
+- MCP/Embed: marginal gains (HTTP transport dominates remaining allocs)
 - Final test count: 104 packages, zero failures
 - Exit gate: Build OK | Vet OK | Full suite PASS | All benchmarks improved or stable
