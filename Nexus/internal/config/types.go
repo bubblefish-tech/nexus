@@ -279,6 +279,7 @@ type EmbeddingConfig struct {
 	Model          string `toml:"model"`
 	Dimensions     int    `toml:"dimensions"`
 	TimeoutSeconds int    `toml:"timeout_seconds"`
+	FallbackURL    string `toml:"fallback_url"` // optional hedged fallback endpoint
 }
 
 // MCPConfig models [daemon.mcp].

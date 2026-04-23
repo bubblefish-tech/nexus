@@ -1904,5 +1904,14 @@
 - nexus-supervisor: watchdog binary for foreground runs
   - Exponential backoff (5s → 60s), 5 crashes in 60s = give up
   - Captures last 2KB of stderr to .crash file
+- Commit: 8ce6404
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## DASH.1: COMPLETE — Dashboard Performance + Hedged Embedding
+- Hedged embedding: cristalhq/hedgedhttp (MIT) dep added, FallbackURL config field
+  - Active when fallback embedding provider configured
+- HTTP/2 server push: /api/dashboard/status on dashboard index load
+  - Graceful no-op on non-TLS connections
+- New dep: github.com/cristalhq/hedgedhttp (MIT)
 - Commit: <SHA>
 - Exit gate: Build OK | Vet OK | 104 packages PASS
