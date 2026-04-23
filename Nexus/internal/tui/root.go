@@ -27,6 +27,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/tui/screens"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -76,6 +77,7 @@ type RootModel struct {
 	keys        GlobalKeyMap
 	prefs       *TUIPrefs
 	slashCmd    components.SlashCommandModel
+	palette     PaletteModel
 	splash      SplashModel
 	bubbleField *components.BubbleField
 }
@@ -105,8 +107,22 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		screenInited: make(map[AppState]bool),
 		keys:         DefaultGlobalKeyMap(),
 		prefs:        prefs,
-		slashCmd:     components.NewSlashCommandModel(allSlashCommands()),
-		splash:       NewSplashModel(),
+		slashCmd: components.NewSlashCommandModel(allSlashCommands()),
+		palette: NewPaletteModel([]PaletteCommand{
+			{"/search", "Search memories"},
+			{"/write", "Write a memory"},
+			{"/verify", "Verify provenance"},
+			{"/backup", "Create encrypted backup"},
+			{"/theme deepocean", "Switch to DeepOcean theme"},
+			{"/theme phosphor", "Switch to Phosphor theme"},
+			{"/theme amber", "Switch to Amber theme"},
+			{"/theme midnight", "Switch to Midnight theme"},
+			{"/doctor", "Run health checks"},
+			{"/logs", "View recent logs"},
+			{"/test", "Run test suite"},
+			{"/quit", "Quit Nexus"},
+		}),
+		splash: NewSplashModel(),
 		bubbleField:  components.NewBubbleField(120, 40, 12),
 	}
 }
@@ -176,6 +192,10 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return r, r.screens[StateDashboard].FireRefresh(r.client)
 
+	case PaletteSelectedMsg:
+		r.palette.Close()
+		return r, nil
+
 	case NavigateMsg:
 		return r.switchScreen(msg.To)
 
@@ -236,12 +256,27 @@ func (r *RootModel) View() string {
 
 	page := lipgloss.NewStyle().Width(r.width).Height(contentH).Render(content)
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabbar, page, flags, cmdbar)
+	base := lipgloss.JoinVertical(lipgloss.Left, header, tabbar, page, flags, cmdbar)
+
+	// Palette overlay.
+	if r.palette.Active() {
+		overlay := r.palette.View()
+		return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, overlay)
+	}
+
+	return base
 }
 
 // ── Key handling ──
 
 func (r *RootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Palette overlay consumes all keys when active.
+	if r.palette.Active() {
+		updated, cmd := r.palette.Update(msg)
+		r.palette = updated
+		return r, cmd
+	}
+
 	// Slash command overlay consumes all keys when active.
 	if r.slashCmd.Active() {
 		updated, cmd := r.slashCmd.Update(msg)
@@ -279,6 +314,11 @@ func (r *RootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return r, scr.FireRefresh(r.client)
 		}
 		return r, nil
+	case key.Matches(msg, r.keys.Palette):
+		if !r.palette.Active() {
+			r.palette.Open(r.width)
+			return r, textinput.Blink
+		}
 	case key.Matches(msg, r.keys.Slash):
 		if !r.slashCmd.Active() {
 			r.slashCmd.Activate(r.width)
