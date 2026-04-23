@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/httputil"
+	"github.com/bubblefish-tech/nexus/internal/pool"
 )
 
 // openAIRequest is the JSON body sent to /v1/embeddings (single text).
@@ -88,13 +89,14 @@ func (c *openAIClient) Embed(ctx context.Context, text string) ([]float32, error
 		Input: text,
 	}
 
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
+	buf := pool.GetJSONBuf()
+	if err := json.NewEncoder(buf).Encode(reqBody); err != nil {
+		pool.PutJSONBuf(buf)
 		return nil, fmt.Errorf("%w: marshal request: %v", ErrEmbeddingUnavailable, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.baseURL+"/v1/embeddings", bytes.NewReader(bodyBytes))
+		c.baseURL+"/v1/embeddings", buf)
 	if err != nil {
 		return nil, fmt.Errorf("%w: create request: %v", ErrEmbeddingUnavailable, err)
 	}
@@ -107,6 +109,7 @@ func (c *openAIClient) Embed(ctx context.Context, text string) ([]float32, error
 	}
 
 	resp, err := c.httpClient.Do(req)
+	pool.PutJSONBuf(buf)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbeddingUnavailable, err)
 	}

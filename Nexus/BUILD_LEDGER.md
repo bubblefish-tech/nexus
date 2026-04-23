@@ -1972,5 +1972,17 @@
 - Saves pipeline.Status() call + json.Marshal on cache hit
 - Status: 164→162 allocs (HTTP transport dominates remaining allocs)
 - Write/Search unchanged (no caching — stateful operations)
-- Commit: <SHA>
+- Commit: 756be32
 - Benchmark: Status 125,607 ns/op | 13,331 B/op | 162 allocs/op
+
+## QUEUE.1 + DRAIN.1: SKIPPED
+- Queue dequeue (5 allocs, 665ns) dominated by json.Unmarshal of TranslatedPayload — intrinsic cost
+- json.NewDecoder tested but worse (+2 allocs, +80% ns/op) — reverted
+- Drain batch INSERT would require architectural write-path restructuring — out of scope per CC Rules
+
+## EMBED.1: COMPLETE — Embedding Client Alloc Reduction
+- Pooled request body buffer via pool.GetJSONBuf (reuses across calls)
+- Short: 132→130 allocs, Paragraph: 133→131 allocs
+- HTTP transport internals dominate remaining allocs (70%+)
+- Commit: <SHA>
+- Benchmark: Short 143,383 ns/op | 18,834 B/op | 130 allocs/op
