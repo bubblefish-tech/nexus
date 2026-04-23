@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 )
 
 // Factory creates NA2A Clients by selecting the appropriate transport
@@ -87,14 +87,11 @@ func (f *Factory) NewClient(ctx context.Context, agent registry.RegisteredAgent)
 	c := NewClient(conn, agent.AgentID, f.logger)
 
 	// Verify connectivity with agent/card (preferred) or agent/ping.
-	// Non-fatal: some agents only implement a subset of methods.
-	if _, err := c.GetAgentCard(ctx); err != nil {
+	// If both fail the agent is unreachable; close the connection and return an error.
+	if _, cardErr := c.GetAgentCard(ctx); cardErr != nil {
 		if pingErr := c.Ping(ctx); pingErr != nil {
-			f.logger.Warn("client: agent health check failed (continuing anyway)",
-				"agent_id", agent.AgentID,
-				"card_error", err,
-				"ping_error", pingErr,
-			)
+			conn.Close()
+			return nil, fmt.Errorf("client: agent health check failed for %s: card: %w; ping: %v", agent.AgentID, cardErr, pingErr)
 		}
 	}
 

@@ -20,10 +20,10 @@ package daemon
 import (
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/lint"
-	"github.com/BubbleFish-Nexus/internal/web"
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/lint"
+	"github.com/bubblefish-tech/nexus/internal/web"
 )
 
 // DashboardSecurityProvider adapts Daemon to the web.SecurityProvider interface.

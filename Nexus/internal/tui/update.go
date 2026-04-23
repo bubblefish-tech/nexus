@@ -18,7 +18,7 @@
 package tui
 
 import (
-	"github.com/BubbleFish-Nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -44,11 +44,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastErr = msg.err
 			return m, nil
 		}
+		wasDown := !m.daemonUp
 		m.daemonUp = true
 		m.lastErr = nil
-		// Lazy-init the first tab on connection.
 		if !m.tabInited[m.activeTab] {
 			m.tabInited[m.activeTab] = true
+			tabCmd := m.tabs[m.activeTab].FireRefresh(m.client)
+			statusCmd := fetchStatusCache(m.client)
+			return m, tea.Batch(tabCmd, statusCmd)
+		}
+		// Daemon just came back — refresh immediately instead of waiting for next tick.
+		if wasDown {
+			m.retryCount = 0
 			tabCmd := m.tabs[m.activeTab].FireRefresh(m.client)
 			statusCmd := fetchStatusCache(m.client)
 			return m, tea.Batch(tabCmd, statusCmd)
@@ -66,11 +73,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(healthCheckCmd(m.client), tickCmd())
 		}
 		if m.paused {
-			return m, tickCmd()
+			return m, tea.Batch(healthCheckCmd(m.client), tickCmd())
 		}
 		tabCmd := m.tabs[m.activeTab].FireRefresh(m.client)
 		statusCmd := fetchStatusCache(m.client)
-		return m, tea.Batch(tabCmd, statusCmd, tickCmd())
+		return m, tea.Batch(tabCmd, statusCmd, healthCheckCmd(m.client), tickCmd())
+
+	case dotTickMsg:
+		m.dotFrame++
+		return m, dotTickCmd()
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -107,11 +118,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.retryCount++
 			return m, healthCheckCmd(m.client)
 		}
-		if m.daemonUp {
-			cmd := m.tabs[m.activeTab].FireRefresh(m.client)
-			return m, cmd
-		}
-		return m, nil
+		cmd := m.tabs[m.activeTab].FireRefresh(m.client)
+		return m, cmd
 	}
 
 	// Tab switching — only when help is not showing.
@@ -135,6 +143,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			next := (m.activeTab + 1) % len(m.tabs)
 			return m.switchTab(next)
 		case "shift+tab":
+			prev := (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
+			return m.switchTab(prev)
+		case "right":
+			next := (m.activeTab + 1) % len(m.tabs)
+			return m.switchTab(next)
+		case "left":
 			prev := (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
 			return m.switchTab(prev)
 		}
@@ -161,10 +175,10 @@ func (m Model) switchTab(idx int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.activeTab = idx
-	if !m.tabInited[idx] && m.daemonUp {
-		m.tabInited[idx] = true
-		cmd := m.tabs[idx].FireRefresh(m.client)
-		return m, cmd
+	if !m.daemonUp {
+		return m, nil
 	}
-	return m, nil
+	m.tabInited[idx] = true
+	cmd := m.tabs[idx].FireRefresh(m.client)
+	return m, cmd
 }

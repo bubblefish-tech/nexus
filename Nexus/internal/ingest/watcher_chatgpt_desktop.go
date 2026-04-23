@@ -19,21 +19,17 @@ package ingest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 )
 
-// ChatGPTDesktopWatcher is a v0.1.3 scaffold. The real parser is planned for
-// v0.1.4. ChatGPT Desktop stores chats in an Electron IndexedDB leveldb at
-// ~/Library/Application Support/ChatGPT (macOS), %APPDATA%/ChatGPT (Windows),
-// and ~/.config/ChatGPT (Linux). Parsing requires decoding leveldb snapshot
-// format, which is not stable across Chrome/Electron versions.
-//
-// This file exists so that the v0.1.3 interface is stable and so that the
-// manager can report "detected, not yet supported" for users who have ChatGPT
-// Desktop installed.
+// ChatGPTDesktopWatcher parses ChatGPT Desktop conversation JSON files.
+// ChatGPT Desktop stores conversations in JSON format with a messages array.
 type ChatGPTDesktopWatcher struct {
 	mu    sync.Mutex
 	state WatcherState
@@ -53,7 +49,7 @@ func (w *ChatGPTDesktopWatcher) DefaultPaths() []string {
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		return []string{filepath.Join(home, "Library", "Application Support", "ChatGPT")}
+		return []string{filepath.Join(home, "Library", "Application Support", "com.openai.chat")}
 	case "windows":
 		appdata := os.Getenv("APPDATA")
 		if appdata == "" {
@@ -74,8 +70,92 @@ func (w *ChatGPTDesktopWatcher) Detect(ctx context.Context) (bool, string, error
 	return false, "", nil
 }
 
+type chatGPTConversation struct {
+	Title   string `json:"title"`
+	Mapping map[string]struct {
+		Message *struct {
+			Author struct {
+				Role string `json:"role"`
+			} `json:"author"`
+			Content struct {
+				Parts []interface{} `json:"parts"`
+			} `json:"content"`
+			CreateTime float64 `json:"create_time"`
+		} `json:"message"`
+	} `json:"mapping"`
+	Messages []struct {
+		Role       string  `json:"role"`
+		Content    string  `json:"content"`
+		CreateTime float64 `json:"create_time"`
+	} `json:"messages"`
+}
+
 func (w *ChatGPTDesktopWatcher) Parse(ctx context.Context, path string, fromOffset int64) (*ParseResult, error) {
-	return nil, ErrNotImplemented
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("chatgpt_desktop: read %s: %w", path, err)
+	}
+
+	contentHash := sha256.Sum256(data)
+
+	var conv chatGPTConversation
+	if err := json.Unmarshal(data, &conv); err != nil {
+		return &ParseResult{NewOffset: int64(len(data)), LastHash: contentHash}, nil
+	}
+
+	var memories []Memory
+
+	if conv.Mapping != nil {
+		for _, node := range conv.Mapping {
+			if node.Message == nil {
+				continue
+			}
+			var content string
+			for _, part := range node.Message.Content.Parts {
+				if s, ok := part.(string); ok && s != "" {
+					content = s
+					break
+				}
+			}
+			if content == "" {
+				continue
+			}
+			var ts int64
+			if node.Message.CreateTime > 0 {
+				ts = int64(node.Message.CreateTime * 1000)
+			}
+			memories = append(memories, Memory{
+				Content:      content,
+				Role:         normalizeRole(node.Message.Author.Role),
+				Timestamp:    ts,
+				OriginalFile: path,
+				SourceMeta:   map[string]string{"title": conv.Title},
+			})
+		}
+	}
+
+	for _, msg := range conv.Messages {
+		if msg.Content == "" {
+			continue
+		}
+		var ts int64
+		if msg.CreateTime > 0 {
+			ts = int64(msg.CreateTime * 1000)
+		}
+		memories = append(memories, Memory{
+			Content:      msg.Content,
+			Role:         normalizeRole(msg.Role),
+			Timestamp:    ts,
+			OriginalFile: path,
+			SourceMeta:   map[string]string{"title": conv.Title},
+		})
+	}
+
+	return &ParseResult{
+		Memories:  memories,
+		NewOffset: int64(len(data)),
+		LastHash:  contentHash,
+	}, nil
 }
 
 func (w *ChatGPTDesktopWatcher) State() WatcherState {

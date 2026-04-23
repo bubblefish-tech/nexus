@@ -22,12 +22,12 @@ import (
 	"encoding/json"
 	"path/filepath"
 
-	"github.com/BubbleFish-Nexus/internal/agent"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/coordination"
-	"github.com/BubbleFish-Nexus/internal/credentials"
-	"github.com/BubbleFish-Nexus/internal/mcp"
-	"github.com/BubbleFish-Nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/agent"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/coordination"
+	"github.com/bubblefish-tech/nexus/internal/credentials"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/policy"
 
 	_ "modernc.org/sqlite"
 )

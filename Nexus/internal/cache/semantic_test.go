@@ -21,8 +21,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/cache"
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/cache"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // ---------------------------------------------------------------------------

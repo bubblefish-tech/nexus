@@ -33,7 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/fsutil"
+	"github.com/bubblefish-tech/nexus/internal/fsutil"
 )
 
 // SecurityEventFunc is a callback invoked when a signature verification

@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
 
 // -----------------------------------------------------------------------
@@ -377,33 +377,31 @@ func TestHTTPSSEStream(t *testing.T) {
 	}
 	defer listener.Close()
 
-	hl := listener.(*httpListener)
-	// Override the stream handler to send multiple SSE events.
-	hl.router.Post("/a2a/stream", func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "no flusher", 500)
+	// Use Accept mode: a goroutine accepts the stream conn and pushes 4 SSE events.
+	go func() {
+		sconn, err := listener.Accept(ctx)
+		if err != nil {
+			t.Errorf("accept: %v", err)
 			return
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-
+		sc := sconn.(*serverConn)
 		for i := 0; i < 3; i++ {
-			data, _ := json.Marshal(map[string]interface{}{
+			payload, _ := json.Marshal(map[string]interface{}{
 				"taskId": "task-1",
 				"index":  i,
 			})
-			fmt.Fprintf(w, "event: status-update\ndata: %s\n\n", data)
-			flusher.Flush()
+			if err := sc.SendEvent(Event{Kind: "status-update", TaskID: "task-1", Payload: json.RawMessage(payload)}); err != nil {
+				t.Errorf("send event %d: %v", i, err)
+				return
+			}
 		}
-		// Final event.
-		finalData, _ := json.Marshal(map[string]interface{}{
+		finalPayload, _ := json.Marshal(map[string]interface{}{
 			"taskId": "task-1",
 			"result": "done",
 		})
-		fmt.Fprintf(w, "event: final\ndata: %s\n\n", finalData)
-		flusher.Flush()
-	})
+		sc.SendEvent(Event{Kind: "final", Payload: json.RawMessage(finalPayload)}) //nolint:errcheck
+		sc.CloseStream()
+	}()
 
 	conn, err := httpT.Dial(ctx, TransportConfig{Kind: "http", URL: "http://" + listener.Addr()})
 	if err != nil {

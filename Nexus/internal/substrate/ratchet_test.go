@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 	_ "modernc.org/sqlite"
 )
 
@@ -43,13 +43,15 @@ func newRatchetTestDB(t *testing.T) *sql.DB {
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS substrate_ratchet_states (
-			state_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-			created_at     INTEGER NOT NULL,
-			shredded_at    INTEGER,
-			state_bytes    BLOB NOT NULL,
-			canonical_dim  INTEGER NOT NULL,
-			sketch_bits    INTEGER NOT NULL,
-			signature      BLOB NOT NULL
+			state_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at              INTEGER NOT NULL,
+			shredded_at             INTEGER,
+			state_bytes             BLOB NOT NULL,
+			canonical_dim           INTEGER NOT NULL,
+			sketch_bits             INTEGER NOT NULL,
+			signature               BLOB NOT NULL,
+			state_bytes_encrypted   BLOB,
+			state_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)
 	`)
 	if err != nil {
@@ -65,7 +67,7 @@ func newTestRatchetManager(t *testing.T) (*RatchetManager, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	m, err := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,14 +112,14 @@ func TestRatchetLoadsExistingState(t *testing.T) {
 	sd, _ := secrets.Open(t.TempDir())
 
 	// Create first manager (initializes)
-	m1, err := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	m1, err := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
 	s1 := m1.Current()
 
 	// Create second manager (should load, not re-initialize)
-	m2, err := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	m2, err := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +231,7 @@ func TestRatchetAdvanceUpdatesSecretFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	sd, _ := secrets.Open(tmpDir)
 
-	m, err := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	m, err := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +420,7 @@ func TestRatchetWithSigning(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := NewRatchetManager(db, sd, priv, 1024, 1, slog.Default())
+	m, err := NewRatchetManager(db, sd, priv, 1024, 1, nil, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +454,7 @@ func TestRatchetShutdownPersists(t *testing.T) {
 	db := newRatchetTestDB(t)
 	sd, _ := secrets.Open(t.TempDir())
 
-	m, _ := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	m, _ := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	state := m.Current()
 
 	if err := m.Shutdown(); err != nil {

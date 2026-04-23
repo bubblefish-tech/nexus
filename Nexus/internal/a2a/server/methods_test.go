@@ -23,8 +23,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
 
 // helper to dispatch a JSON-RPC request against the test server.

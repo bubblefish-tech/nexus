@@ -49,7 +49,7 @@ const (
 
 // ConfigDir returns the canonical configuration directory for BubbleFish Nexus.
 // If the BUBBLEFISH_HOME environment variable is set and non-empty, its value is
-// used (resolved to an absolute path). Otherwise falls back to ~/.bubblefish/Nexus.
+// used (resolved to an absolute path). Otherwise falls back to ~/.nexus/Nexus.
 // Returns an error if path resolution fails; callers must treat this as fatal.
 func ConfigDir() (string, error) {
 	if env := os.Getenv("BUBBLEFISH_HOME"); env != "" {
@@ -59,7 +59,7 @@ func ConfigDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config: resolve home directory: %w", err)
 	}
-	return filepath.Join(home, ".bubblefish", "Nexus"), nil
+	return filepath.Join(home, ".nexus", "Nexus"), nil
 }
 
 // Load reads daemon.toml, sources/*.toml, and destinations/*.toml from
@@ -331,13 +331,14 @@ func loadDestinationFile(path string, logger *slog.Logger) (*Destination, error)
 	}
 
 	dst := &Destination{
-		Name:   b.Name,
-		Type:   b.Type,
-		DBPath: b.DBPath,
-		DSN:    b.DSN,
-		URL:    b.URL,
-		APIKey: b.APIKey,
-		Decay:  b.Decay,
+		Name:             b.Name,
+		Type:             b.Type,
+		DBPath:           b.DBPath,
+		DSN:              b.DSN,
+		URL:              b.URL,
+		APIKey:           b.APIKey,
+		ConnectionString: b.ConnectionString,
+		Decay:            b.Decay,
 	}
 
 	if logger != nil {
@@ -419,6 +420,17 @@ func resolveAndValidate(cfg *Config, configDir string, logger *slog.Logger) erro
 		}
 		if mcpKey != "" {
 			cfg.ResolvedMCPKey = []byte(mcpKey)
+		}
+	}
+
+	// Resolve A2A registration token if configured.
+	if cfg.A2A.Enabled && cfg.A2A.RegistrationToken != "" {
+		regToken, err := ResolveEnv(cfg.A2A.RegistrationToken, logger)
+		if err != nil {
+			return fmt.Errorf("SCHEMA_ERROR: a2a.registration_token: %w", err)
+		}
+		if regToken != "" {
+			cfg.ResolvedA2ARegToken = []byte(regToken)
 		}
 	}
 

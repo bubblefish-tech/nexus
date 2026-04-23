@@ -14,7 +14,7 @@ if (-not $ApiKey) {
 $ErrorActionPreference = "Stop"
 $RunId = (Get-Date).ToString("yyyyMMdd-HHmmss")
 $Headers = @{ "Authorization" = "Bearer $ApiKey"; "Content-Type" = "application/json" }
-$NexusProc = Get-Process -Name "bubblefish" -ErrorAction SilentlyContinue | Select-Object -First 1
+$NexusProc = Get-Process -Name "nexus" -ErrorAction SilentlyContinue | Select-Object -First 1
 
 Write-Host ""
 Write-Host "=================================================================" -ForegroundColor Cyan

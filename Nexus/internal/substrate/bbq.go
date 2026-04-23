@@ -30,7 +30,7 @@ import (
 	"errors"
 	"math"
 
-	"github.com/BubbleFish-Nexus/internal/canonical"
+	"github.com/bubblefish-tech/nexus/internal/canonical"
 )
 
 // Sketch format constants.

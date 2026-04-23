@@ -31,7 +31,7 @@ import (
 // wire-format break and requires a version bump.
 const (
 	// domainEmbeddingKeyV1 derives per-memory embedding encryption keys.
-	domainEmbeddingKeyV1 = "bubblefish-embedding-key-v1"
+	domainEmbeddingKeyV1 = "nexus-embedding-key-v1"
 )
 
 // DeriveEmbeddingKey derives a 32-byte AES-256 key from the current ratchet
@@ -42,7 +42,7 @@ const (
 //	key = HKDF-SHA-256(
 //	    secret = stateBytes,
 //	    salt   = memoryID bytes,
-//	    info   = "bubblefish-embedding-key-v1",
+//	    info   = "nexus-embedding-key-v1",
 //	    L      = 32,
 //	)
 //

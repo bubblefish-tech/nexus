@@ -23,7 +23,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // toTOMLPath converts a filesystem path to a forward-slash path safe for
@@ -341,7 +341,7 @@ func TestConfigDir_HonorsEnvVar(t *testing.T) {
 			t.Fatalf("ConfigDir: %v", err)
 		}
 		home, _ := os.UserHomeDir()
-		want := filepath.Join(home, ".bubblefish", "Nexus")
+		want := filepath.Join(home, ".nexus", "Nexus")
 		if got != want {
 			t.Errorf("expected default %q, got %q", want, got)
 		}
@@ -372,8 +372,8 @@ func TestLoader_WALDefaultsRelativeToConfigDir(t *testing.T) {
 	if cfg.Daemon.WAL.Path != want {
 		t.Errorf("WAL.Path = %q, want %q", cfg.Daemon.WAL.Path, want)
 	}
-	if strings.Contains(cfg.Daemon.WAL.Path, ".bubblefish/Nexus") && !strings.Contains(dir, ".bubblefish/Nexus") {
-		t.Error("WAL path should not contain hardcoded .bubblefish/Nexus when configDir differs")
+	if strings.Contains(cfg.Daemon.WAL.Path, ".nexus/Nexus") && !strings.Contains(dir, ".nexus/Nexus") {
+		t.Error("WAL path should not contain hardcoded .nexus/Nexus when configDir differs")
 	}
 }
 
@@ -454,7 +454,7 @@ func TestLoader_AuditLogDefaultsToConfigDir(t *testing.T) {
 	if cfg.Daemon.Audit.LogFile != want {
 		t.Errorf("Audit.LogFile = %q, want %q", cfg.Daemon.Audit.LogFile, want)
 	}
-	if strings.Contains(cfg.Daemon.Audit.LogFile, ".bubblefish/Nexus") && !strings.Contains(dir, ".bubblefish/Nexus") {
-		t.Error("Audit log path should not contain hardcoded .bubblefish/Nexus when configDir differs")
+	if strings.Contains(cfg.Daemon.Audit.LogFile, ".nexus/Nexus") && !strings.Contains(dir, ".nexus/Nexus") {
+		t.Error("Audit log path should not contain hardcoded .nexus/Nexus when configDir differs")
 	}
 }

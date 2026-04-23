@@ -41,7 +41,7 @@ When `[substrate] enabled = true`, `[canonical]` is automatically enabled.
 ### Status
 
 ```
-bubblefish substrate status [--json]
+nexus substrate status [--json]
 ```
 
 Shows whether substrate is enabled, ratchet state, sketch count, and cuckoo filter statistics.
@@ -49,7 +49,7 @@ Shows whether substrate is enabled, ratchet state, sketch count, and cuckoo filt
 ### Manual Ratchet Rotation
 
 ```
-bubblefish substrate rotate-ratchet
+nexus substrate rotate-ratchet
 ```
 
 Manually advances the ratchet to a new state. The old state is shredded (zeroed in the database and on disk).
@@ -57,7 +57,7 @@ Manually advances the ratchet to a new state. The old state is shredded (zeroed 
 ### Deletion Proof
 
 ```
-bubblefish substrate prove-deletion <memory_id>
+nexus substrate prove-deletion <memory_id>
 ```
 
 Produces a signed proof bundle demonstrating that a memory has been cryptographically shredded. The proof contains evidence from four sources: cuckoo filter, canonical store, ratchet state, and audit chain.
@@ -65,7 +65,7 @@ Produces a signed proof bundle demonstrating that a memory has been cryptographi
 ### Forward-Secure Delete
 
 ```
-bubblefish memory delete --shred-seed <memory_id>
+nexus memory delete --shred-seed <memory_id>
 ```
 
 Deletes a memory and advances the ratchet, ensuring the sketch projection and encryption key used for that memory cannot be reconstructed.

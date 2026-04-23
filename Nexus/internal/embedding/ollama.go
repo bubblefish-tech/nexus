@@ -118,6 +118,23 @@ func (c *ollamaClient) Embed(ctx context.Context, text string) ([]float32, error
 	return result.Embedding, nil
 }
 
+// BatchEmbed calls Embed sequentially for each text since Ollama does not
+// support native batch embedding. Stops on first error.
+func (c *ollamaClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	results := make([][]float32, len(texts))
+	for i, text := range texts {
+		vec, err := c.Embed(ctx, text)
+		if err != nil {
+			return nil, fmt.Errorf("batch item %d: %w", i, err)
+		}
+		results[i] = vec
+	}
+	return results, nil
+}
+
 // Dimensions returns the configured embedding dimension count.
 func (c *ollamaClient) Dimensions() int { return c.dimensions }
 

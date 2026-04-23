@@ -7,7 +7,7 @@ This demo shows BubbleFish Nexus's Phase 4 provenance layer in action:
 1. **Agent A** writes a memory with Ed25519 signing enabled
 2. **Agent B** reads the memory (different vendor, different key)
 3. Export a **proof bundle** containing the memory, signature, and audit chain
-4. **Verify with Go** — `bubblefish verify proof.json`
+4. **Verify with Go** — `nexus verify proof.json`
 5. **Verify with Python** — independent implementation, same result
 6. **Tamper** with the proof — verification correctly fails
 

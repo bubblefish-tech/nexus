@@ -18,12 +18,12 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **Truncation detection** — SHA-256 hash of last 64 bytes detects file replacement or truncation, triggers full re-parse
 - **Path allowlist policy** — enterprise deployments can restrict which paths Ingest reads
 - **Security** — symlinks never followed, MaxFileSize (100MB) and MaxLineLength (4MB) enforced, read-only file handles only
-- **`bubblefish ingest status|pause|resume|reset`** CLI commands
+- **`nexus ingest status|pause|resume|reset`** CLI commands
 - **Prometheus metrics** — `nexus_ingest_ingestions_total`, `nexus_ingest_parse_errors_total`, `nexus_ingest_parse_duration_seconds`, `nexus_ingest_active_files`, `nexus_ingest_watchers_total`
 - **Config** — `[ingest]` TOML section with `enabled`, `kill_switch`, per-watcher toggles, `generic_jsonl_paths`
 
 ### Importer (Bulk Historical Ingest)
-- **`bubblefish import <path>`** with auto-format detection
+- **`nexus import <path>`** with auto-format detection
 - Supports Claude export ZIP, ChatGPT export ZIP, Claude Code project directories, Cursor directories, generic JSONL
 - Idempotent via existing content hash layer
 - `--dry-run`, `--source-name`, `--format` flags
@@ -33,9 +33,9 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **Group commit ring buffer** — single-consumer goroutine batches WAL writes with one fsync per batch. Configurable max_batch (256) and max_delay (500us)
 - **Dual integrity sentinels** — 8-byte start/end sentinels (BF/FB) on every WAL entry for torn-sector-write detection, in addition to CRC32. Backward compatible with v0.1.2 entries. Fail-closed on corrupt sentinel. `SentinelFailures()` Prometheus counter
 - **Incremental replay with consistent checkpoints** — checkpoint validation (CRC32 + state_hash + applied_count); any failure triggers full genesis replay
-- **Audit log as WAL entry type** — `EntryTypeAudit` with group commit durability. `bubblefish audit export --format jsonl --since --until`
+- **Audit log as WAL entry type** — `EntryTypeAudit` with group commit durability. `nexus audit export --format jsonl --since --until`
 - **Bytes/sec rate limiting** — per-source token bucket with distinct 429 code `bytes_rate_limit_exceeded`
-- **fsync verification on startup** — write/fsync/read-back test detects broken fsync (network storage, consumer SSDs). `bubblefish doctor --fsync-test`
+- **fsync verification on startup** — write/fsync/read-back test detects broken fsync (network storage, consumer SSDs). `nexus doctor --fsync-test`
 - **Disk-full pre-batch reservation** — verifies (batch_size x max_entry_size) bytes available before every group commit. Pre-allocates next segment at 80% fill
 - **Goroutine heartbeat supervisor** — `internal/supervisor` package. 30s stall detection, stack dump to `logs/deadlock-*.log`, exit code 3. Graceful shutdown suppresses stall detection during drain
 - **Monotonic sequence counter** — `internal/seq` package. Atomic int64 ordering independent of wall-clock time. Persisted to `$BUBBLEFISH_HOME/seq.state` on shutdown
@@ -57,16 +57,16 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **Cluster-aware retrieval** — `cluster-aware` profile with `_nexus.conflict` and `_nexus.cluster_expanded` metadata fields
 
 ### Phase 4 — Cryptographic Provenance
-- **Per-source Ed25519 keys** — `[source.signing] mode = "local"`, key rotation chain. CLIs: `bubblefish source rotate-key`, `bubblefish source pubkey`
+- **Per-source Ed25519 keys** — `[source.signing] mode = "local"`, key rotation chain. CLIs: `nexus source rotate-key`, `nexus source pubkey`
 - **Signed write envelopes** — Ed25519 signature over `{source_name, timestamp, idempotency_key, content_hash}`. Daemon signs on write path
 - **Hash-chained audit log** — genesis entry with daemon identity, `prev_audit_hash` chain, fail-closed on mismatch (exit code 2)
-- **`bubblefish audit recover`** — forensic inspection of corrupted chain, truncate-or-abort operator choice
+- **`nexus audit recover`** — forensic inspection of corrupted chain, truncate-or-abort operator choice
 - **Automatic MCP idempotency** — `SHA-256(session_id || content || timestamp_second)` auto-generated for `nexus_write` calls without explicit key
-- **Verify endpoint + CLI** — `GET /verify/{memory_id}` returns proof bundle. `bubblefish verify <proof.json>` with parallel chain verification
+- **Verify endpoint + CLI** — `GET /verify/{memory_id}` returns proof bundle. `nexus verify <proof.json>` with parallel chain verification
 - **Python verifier** — `tools/verify-python/verify.py`, independent implementation proving the proof format is spec, not trick
-- **Daily Merkle root** — midnight UTC computation, daemon-signed, persisted to `data/merkle-roots/`. `bubblefish anchor setup --gist` for external anchoring
+- **Daily Merkle root** — midnight UTC computation, daemon-signed, persisted to `data/merkle-roots/`. `nexus anchor setup --gist` for external anchoring
 - **Query attestation** — `POST /api/prove` returns daemon-signed proof of query result set
-- **Timeline command** — `bubblefish timeline <memory_id>` for forensic audit history
+- **Timeline command** — `nexus timeline <memory_id>` for forensic audit history
 - **Dashboard Proofs tab** — live chain status, verification, proof export
 - **60-second cross-vendor demo** — `examples/cryptographic-provenance/` with demo.sh, demo.ps1, agent configs
 
@@ -81,21 +81,21 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **Bidirectional `agent/invoke`** — chain-depth limiting (max 4) prevents infinite callback loops between agents
 - **Web UI: A2A Permissions page** — registered agents, editable grant table, live pending approvals, audit feed with filters
 - **Web UI: OpenClaw Agent Control page** — connection panel, skill catalog with grant state, channel-aware grants, two-step ALL consent flow with reading-time delay and re-authentication
-- **`bubblefish a2a` CLI** — `agent add|list|show|test|suspend|retire|pin`, `grant add|list|revoke|elevate`, `task get|cancel|list`, `audit tail|verify`
+- **`nexus a2a` CLI** — `agent add|list|show|test|suspend|retire|pin`, `grant add|list|revoke|elevate`, `task get|cancel|list`, `audit tail|verify`
 - **End-to-end integration tests** — Claude Desktop fixture, multi-transport roundtrip, chain callback, governance deny/escalate/resume paths
 - **Chaos and soak tests** — 20 chaos tests (agent kill/recovery, transport faults, flood, concurrent grant mutations), 4 soak tests (24-hour sustained load, burst recovery, memory stability, mixed workload)
 - **Cross-platform CI** — GitHub Actions workflow running A2A tests on Ubuntu, Windows, and macOS
 - Disabled by default. Enable with `[a2a] enabled = true` in `daemon.toml`
 
 ### Agent Gateway (AG.1–AG.8)
-- **Agent identity and registration** — `agents` SQLite table, UUID-based identity, `bubblefish agent register|list|suspend|retire|show` CLI
+- **Agent identity and registration** — `agents` SQLite table, UUID-based identity, `nexus agent register|list|suspend|retire|show` CLI
 - **Agent session management** — in-memory session tracking per agent, idle timeout, `GET /api/agents/{id}/sessions`, Prometheus gauge
 - **Credential gateway** — synthetic API keys (`bfn_sk_`) route to real provider keys. OpenAI-compatible `/v1/chat/completions` and Anthropic-compatible `/v1/messages` proxy endpoints. Model allowlist, per-key rate limiting, streaming passthrough. Real keys never in logs
 - **Tool-use policy enforcement** — per-agent tool allowlist/denylist in agent TOML, parameter limits (max_content_bytes, max_limit, allowed_profiles), hot-reloadable
 - **Agent-to-agent coordination** — `agent_broadcast`, `agent_pull_signals`, `agent_status_query` MCP tools. Ephemeral signal queue (max 1000) with optional persistent signals via WAL
 - **Per-agent rate limiting and quotas** — requests/min, bytes/sec, writes/day, tool_calls/day per agent TOML. Quota state persisted hourly, resets at UTC midnight
 - **Agent activity telemetry** — `EntryTypeAgentActivity` WAL entry, `GET /api/agents/{id}/activity`, dashboard Agents tab, 7-day retention with background pruning
-- **Agent health and lifecycle** — heartbeat tracking (inferred from requests), stale/inactive/dormant state transitions, `bubblefish agent health` CLI, dashboard color-coded status
+- **Agent health and lifecycle** — heartbeat tracking (inferred from requests), stale/inactive/dormant state transitions, `nexus agent health` CLI, dashboard color-coded status
 
 ### Chaos A+B Verification
 - Two complementary verification paths: direct SQLite DB read (ground truth) + admin API cursor walk
@@ -105,12 +105,12 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - Required `-db` flag pointing at memories.db; removes old `-destination` flag
 
 ### Testing Infrastructure
-- **`bubblefish chaos`** — fault injection tool. Concurrent writers + random faults (network timeout, connection reset, write burst). Machine-readable JSON report with A+B cross-check
-- **`bubblefish simulate`** — FoundationDB-style deterministic testing. Real WAL + real SQLite in temp dirs. Seeded fault injection. `--seed N` for reproduction
-- **`bubblefish sentinel`** — continuous drift detection. Samples delivered entries, verifies existence in destination. Prometheus metrics
+- **`nexus chaos`** — fault injection tool. Concurrent writers + random faults (network timeout, connection reset, write burst). Machine-readable JSON report with A+B cross-check
+- **`nexus simulate`** — FoundationDB-style deterministic testing. Real WAL + real SQLite in temp dirs. Seeded fault injection. `--seed N` for reproduction
+- **`nexus drift`** — continuous drift detection. Samples delivered entries, verifies existence in destination. Prometheus metrics
 - **Pluggable audit sinks** — syslog (RFC 5424), Fluent Bit (JSON forward), OpenTelemetry (OTLP/HTTP JSON). No new dependencies
-- **`bubblefish backup verify`** — full checksum verification against manifest
-- **`bubblefish destination rebuild`** — replays WAL into fresh destination
+- **`nexus backup verify`** — full checksum verification against manifest
+- **`nexus destination rebuild`** — replays WAL into fresh destination
 
 ### Substrate (BF-Sketch, experimental, disabled by default)
 - **Sketch-based compact embedding representation** alongside full-precision storage. Binary quantization with 1-bit signs and a small set of correction factors per sketch, producing approximately 160 bytes per memory at canonical_d=1024. Sketches participate in the retrieval cascade as a prefilter stage on corpora above 200 memories
@@ -119,7 +119,7 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **Forward-secure deletion via seed shredding** — sketch projection seeded by a forward-secure HMAC-SHA-256 hash ratchet. When a memory is deleted with `--shred-seed`, the ratchet advances and the prior state is zeroed on disk and in memory. Sketch-based retrieval for memories under the shredded state becomes mathematically impossible
 - **Cuckoo filter deletion oracle** — live memories tracked in a cuckoo filter for defense-in-depth set membership. Deletion removes entries in O(1)
 - **Audit log composition** — every substrate operation (sketch write, ratchet advance, shred, cuckoo rebuild) logged via the hash-chained audit log
-- `bubblefish substrate status`, `bubblefish substrate rotate-ratchet`, `bubblefish substrate prove-deletion <id>` CLI commands
+- `nexus substrate status`, `nexus substrate rotate-ratchet`, `nexus substrate prove-deletion <id>` CLI commands
 - New SQLite columns: `sketch`, `embedding_ciphertext`, `embedding_nonce` on `memories` table
 - New SQLite tables: `substrate_ratchet_states`, `substrate_memory_state`, `substrate_canonical_whitening`, `substrate_cuckoo_filter`
 - All substrate functionality behind `[substrate] enabled` feature flag. When disabled, the daemon is bit-for-bit identical to a pre-substrate build
@@ -165,7 +165,7 @@ One memory pool for all your AI apps. Proactive ingestion, cryptographic provena
 - **In-memory auth code store** — thread-safe, 5-minute TTL, single-use, automatic purge
 - **MCP authenticate() extension** — JWT acceptance alongside existing `bfn_mcp_` static keys (backward compatible)
 - **`[daemon.oauth]` config block** — full configuration in daemon.toml with client registration
-- **`bubblefish install --oauth-issuer`** — install flag for OAuth setup
+- **`nexus install --oauth-issuer`** — install flag for OAuth setup
 - **Doctor OAuth checks** — issuer_url, key file, client registration, HTTPS validation
 
 ### Security
@@ -197,7 +197,7 @@ Initial public release.
 - **Projection engine** — field allowlists, metadata stripping, pagination with cursors
 - **Destination adapters** — SQLite, PostgreSQL, Supabase
 - **Policy engine** — compiled policies with zero-allocation runtime lookup
-- **Config signing** — HMAC-SHA256 signatures for signed-mode deployments (`bubblefish sign-config`)
+- **Config signing** — HMAC-SHA256 signatures for signed-mode deployments (`nexus sign-config`)
 - **Constant-time auth** — `subtle.ConstantTimeCompare` for all token validation
 - **Admin vs data token separation** — wrong token class returns 401
 - **JWT/JWKS authentication** — advanced auth pattern with claim mapping and audience validation
@@ -207,11 +207,11 @@ Initial public release.
 - **Structured security events** — dedicated security event log for SIEM integration
 - **Prometheus metrics** — daemon up, queue depth, request duration, cache hit/miss rates
 - **Health doctor** — disk space, database connectivity, embedding provider checks
-- **Simple mode install** — `bubblefish install --mode simple` for zero-friction setup
-- **`bubblefish dev`** — daemon with debug logging and auto-reload
-- **`bubblefish backup`** — create and restore backups of config, WAL, and database
-- **`bubblefish bench`** — throughput, latency, and retrieval evaluation benchmarks
-- **`bubblefish demo`** — reliability demo with 50-memory crash-recovery scenario
+- **Simple mode install** — `nexus install --mode simple` for zero-friction setup
+- **`nexus dev`** — daemon with debug logging and auto-reload
+- **`nexus backup`** — create and restore backups of config, WAL, and database
+- **`nexus bench`** — throughput, latency, and retrieval evaluation benchmarks
+- **`nexus demo`** — reliability demo with 50-memory crash-recovery scenario
 - **Hot reload** — source config changes applied without restart
 - **Consistency assertions** — background WAL-to-destination consistency checks
 - **WAL health watchdog** — background disk/permissions/latency monitoring

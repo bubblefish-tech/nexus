@@ -19,20 +19,17 @@ package ingest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 )
 
-// PerplexityCometWatcher is a v0.1.3 scaffold. The real parser is planned for
-// v0.1.5. Perplexity Comet stores conversation data in the browser profile
-// cache, which varies by OS and browser. Parsing requires decoding browser
-// cache format, which is high-risk and not stable across versions.
-//
-// This file exists so that the v0.1.3 interface is stable and so that the
-// manager can report "detected, not yet supported" for users who have
-// Perplexity Comet installed.
+// PerplexityCometWatcher parses Perplexity Comet local conversation files.
+// Perplexity stores query/response pairs as JSON in platform-specific paths.
 type PerplexityCometWatcher struct {
 	mu    sync.Mutex
 	state WatcherState
@@ -73,8 +70,90 @@ func (w *PerplexityCometWatcher) Detect(ctx context.Context) (bool, string, erro
 	return false, "", nil
 }
 
+type perplexityThread struct {
+	Title    string `json:"title"`
+	Messages []struct {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		Query     string `json:"query"`
+		Answer    string `json:"answer"`
+		Timestamp string `json:"timestamp"`
+	} `json:"messages"`
+	Entries []struct {
+		Query     string `json:"query"`
+		Answer    string `json:"answer"`
+		Timestamp string `json:"timestamp"`
+	} `json:"entries"`
+}
+
 func (w *PerplexityCometWatcher) Parse(ctx context.Context, path string, fromOffset int64) (*ParseResult, error) {
-	return nil, ErrNotImplemented
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("perplexity_comet: read %s: %w", path, err)
+	}
+
+	contentHash := sha256.Sum256(data)
+
+	var thread perplexityThread
+	if err := json.Unmarshal(data, &thread); err != nil {
+		return &ParseResult{NewOffset: int64(len(data)), LastHash: contentHash}, nil
+	}
+
+	var memories []Memory
+
+	for _, msg := range thread.Messages {
+		content := msg.Content
+		if content == "" {
+			content = msg.Query
+		}
+		if content == "" {
+			content = msg.Answer
+		}
+		if content == "" {
+			continue
+		}
+		role := normalizeRole(msg.Role)
+		if role == "" && msg.Query != "" {
+			role = "user"
+		}
+		if role == "" && msg.Answer != "" {
+			role = "assistant"
+		}
+		memories = append(memories, Memory{
+			Content:      content,
+			Role:         role,
+			Timestamp:    parseTimestampMulti(msg.Timestamp),
+			OriginalFile: path,
+			SourceMeta:   map[string]string{"title": thread.Title},
+		})
+	}
+
+	for _, entry := range thread.Entries {
+		if entry.Query != "" {
+			memories = append(memories, Memory{
+				Content:      entry.Query,
+				Role:         "user",
+				Timestamp:    parseTimestampMulti(entry.Timestamp),
+				OriginalFile: path,
+				SourceMeta:   map[string]string{"title": thread.Title},
+			})
+		}
+		if entry.Answer != "" {
+			memories = append(memories, Memory{
+				Content:      entry.Answer,
+				Role:         "assistant",
+				Timestamp:    parseTimestampMulti(entry.Timestamp),
+				OriginalFile: path,
+				SourceMeta:   map[string]string{"title": thread.Title},
+			})
+		}
+	}
+
+	return &ParseResult{
+		Memories:  memories,
+		NewOffset: int64(len(data)),
+		LastHash:  contentHash,
+	}, nil
 }
 
 func (w *PerplexityCometWatcher) State() WatcherState {

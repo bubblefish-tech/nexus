@@ -34,9 +34,9 @@ import (
 	"log/slog"
 	"math"
 
-	"github.com/BubbleFish-Nexus/internal/canonical"
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/canonical"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // Substrate is the top-level coordinator for the BF-Sketch substrate.
@@ -51,6 +51,10 @@ type Substrate struct {
 	auditLog   *SubstrateAuditLog
 	signingKey ed25519.PrivateKey
 	logger     *slog.Logger
+
+	// encryptor is set via WithEncryptor and provides AES-256-GCM encryption
+	// for substrate state tables. Nil when encryption is disabled.
+	encryptor *SubstrateEncryptor
 
 	// Dependency-injection seams. Defaults are wired in New(). Callers
 	// may override via WithAuthProvider, WithAuditSink, and
@@ -109,6 +113,17 @@ func New(
 		return nil, fmt.Errorf("substrate requires a database connection")
 	}
 
+	// Pre-scan options to extract encryptor before component initialization.
+	// This is required because the ratchet and cuckoo are loaded from the DB
+	// during New() and must have the encryptor available for decryption.
+	preS := &Substrate{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(preS)
+		}
+	}
+	enc := preS.encryptor
+
 	var signingKey ed25519.PrivateKey
 	if daemonKP != nil {
 		signingKey = daemonKP.PrivateKey
@@ -119,6 +134,7 @@ func New(
 		db, sd, signingKey,
 		uint32(cfg.CanonicalDim(canonicalMgr)),
 		uint32(cfg.SketchBits),
+		enc,
 		logger,
 	)
 	if err != nil {
@@ -126,11 +142,11 @@ func New(
 	}
 
 	// Initialize cuckoo oracle: load persisted, or rebuild from DB
-	cuckooOracle, err := LoadCuckooOracle(db, cfg.CuckooCapacity)
+	cuckooOracle, err := LoadCuckooOracle(db, cfg.CuckooCapacity, enc)
 	if err != nil {
 		logger.Warn("substrate: cuckoo load failed, rebuilding from DB",
 			"component", "substrate", "error", err)
-		cuckooOracle, err = RebuildFromDB(db, cfg.CuckooCapacity, logger)
+		cuckooOracle, err = RebuildFromDB(db, cfg.CuckooCapacity, logger, enc)
 		if err != nil {
 			return nil, fmt.Errorf("substrate: init cuckoo: %w", err)
 		}
@@ -146,6 +162,7 @@ func New(
 		cuckoo:     cuckooOracle,
 		auditLog:   auditLog,
 		signingKey: signingKey,
+		encryptor:  enc,
 		logger:     logger,
 	}
 
@@ -179,9 +196,9 @@ func applyDefaultInterfaces(s *Substrate, adminToken string, logger *slog.Logger
 // or 1024 as default.
 func (c Config) CanonicalDim(mgr *canonical.Manager) int {
 	if mgr != nil && mgr.Enabled() {
-		// The canonical manager's config holds the dim.
-		// For now, return the default since we can't access the config.
-		// TODO(shawn): expose CanonicalDim() on canonical.Manager.
+		if d := mgr.Dim(); d > 0 {
+			return d
+		}
 	}
 	return 1024
 }
@@ -305,7 +322,7 @@ func (s *Substrate) ComputeAndStoreSketch(memoryID string, rawEmbedding []float6
 		if err == ErrCuckooNeedsRebuild {
 			s.logger.Warn("substrate: cuckoo full, rebuilding",
 				"component", "substrate", "memory_id", memoryID)
-			rebuilt, rebuildErr := RebuildFromDB(s.db, s.cfg.CuckooCapacity*2, s.logger)
+			rebuilt, rebuildErr := RebuildFromDB(s.db, s.cfg.CuckooCapacity*2, s.logger, s.encryptor)
 			if rebuildErr != nil {
 				return fmt.Errorf("substrate: cuckoo rebuild: %w", rebuildErr)
 			}

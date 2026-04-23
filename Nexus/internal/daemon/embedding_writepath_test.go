@@ -36,6 +36,13 @@ func (f *fakeEmbedClient) Embed(_ context.Context, _ string) ([]float32, error) 
 	return f.vec, f.err
 }
 
+func (f *fakeEmbedClient) BatchEmbed(_ context.Context, texts []string) ([][]float32, error) {
+	results := make([][]float32, len(texts))
+	for i := range texts {
+		results[i] = f.vec
+	}
+	return results, f.err
+}
 func (f *fakeEmbedClient) Dimensions() int { return len(f.vec) }
 func (f *fakeEmbedClient) Close() error    { return nil }
 

@@ -50,3 +50,8 @@ BUILD_LEDGER.md
 .claude/settings.local.json
 .a2a-debug/
 *.bak
+
+# --- Credential artifacts (never commit) ---
+jwt_token.txt
+oauth_audit_bundle.txt
+oauth_remediation_test_output.txt

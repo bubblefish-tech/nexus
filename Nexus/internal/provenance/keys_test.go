@@ -26,7 +26,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 func testSecretsDir(t *testing.T) *secrets.Dir {

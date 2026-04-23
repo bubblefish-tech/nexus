@@ -27,7 +27,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
 )
 
 // Substrate audit event types. Added to the Phase 4 audit event taxonomy.

@@ -23,8 +23,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/securitylog"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/securitylog"
 )
 
 // contextKey is used for type-safe context values within the daemon package.

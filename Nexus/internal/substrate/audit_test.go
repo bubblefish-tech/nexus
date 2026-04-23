@@ -26,8 +26,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 	_ "modernc.org/sqlite"
 )
 
@@ -155,7 +155,9 @@ func newDeletionProofTestDB(t *testing.T) *sql.DB {
 			state_bytes BLOB NOT NULL,
 			canonical_dim INTEGER NOT NULL,
 			sketch_bits INTEGER NOT NULL,
-			signature BLOB NOT NULL
+			signature BLOB NOT NULL,
+			state_bytes_encrypted BLOB,
+			state_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE substrate_memory_state (
 			memory_id TEXT PRIMARY KEY,
@@ -164,7 +166,9 @@ func newDeletionProofTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE substrate_cuckoo_filter (
 			filter_id INTEGER PRIMARY KEY,
 			filter_bytes BLOB NOT NULL,
-			last_persisted INTEGER NOT NULL
+			last_persisted INTEGER NOT NULL,
+			filter_bytes_encrypted BLOB,
+			filter_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)`,
 	}
 	for _, s := range stmts {
@@ -180,7 +184,7 @@ func TestProveDeletionShreddedMemory(t *testing.T) {
 	sd, _ := secrets.Open(t.TempDir())
 
 	// Setup: create ratchet, write a memory, delete + shred
-	ratchetMgr, _ := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	ratchetMgr, _ := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	cuckooOracle := NewCuckooOracle(1024)
 	auditLog := NewSubstrateAuditLog(provenance.NewChainState())
 
@@ -225,7 +229,7 @@ func TestProveDeletionShreddedMemory(t *testing.T) {
 func TestProveDeletionMemoryStillExists(t *testing.T) {
 	db := newDeletionProofTestDB(t)
 	sd, _ := secrets.Open(t.TempDir())
-	ratchetMgr, _ := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	ratchetMgr, _ := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	cuckooOracle := NewCuckooOracle(1024)
 	auditLog := NewSubstrateAuditLog(nil)
 
@@ -248,7 +252,7 @@ func TestProveDeletionWithSigning(t *testing.T) {
 	sd, _ := secrets.Open(t.TempDir())
 
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	ratchetMgr, _ := NewRatchetManager(db, sd, priv, 1024, 1, slog.Default())
+	ratchetMgr, _ := NewRatchetManager(db, sd, priv, 1024, 1, nil, slog.Default())
 	cuckooOracle := NewCuckooOracle(1024)
 	auditLog := NewSubstrateAuditLog(provenance.NewChainState())
 
@@ -271,7 +275,7 @@ func TestVerifyDeletionProofTampered(t *testing.T) {
 	sd, _ := secrets.Open(t.TempDir())
 
 	pub, priv, _ := ed25519.GenerateKey(nil)
-	ratchetMgr, _ := NewRatchetManager(db, sd, priv, 1024, 1, slog.Default())
+	ratchetMgr, _ := NewRatchetManager(db, sd, priv, 1024, 1, nil, slog.Default())
 	cuckooOracle := NewCuckooOracle(1024)
 	auditLog := NewSubstrateAuditLog(nil)
 
@@ -307,7 +311,7 @@ func TestVerifyDeletionProofNil(t *testing.T) {
 func TestProveDeletionNoSubstrateMemoryState(t *testing.T) {
 	db := newDeletionProofTestDB(t)
 	sd, _ := secrets.Open(t.TempDir())
-	ratchetMgr, _ := NewRatchetManager(db, sd, nil, 1024, 1, slog.Default())
+	ratchetMgr, _ := NewRatchetManager(db, sd, nil, 1024, 1, nil, slog.Default())
 	cuckooOracle := NewCuckooOracle(1024)
 	auditLog := NewSubstrateAuditLog(nil)
 

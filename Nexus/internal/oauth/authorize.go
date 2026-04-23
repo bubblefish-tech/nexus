@@ -24,7 +24,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // consentPageTemplate is the self-contained HTML/template-escaped consent page.

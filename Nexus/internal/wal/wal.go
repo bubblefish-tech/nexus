@@ -158,9 +158,9 @@ func WithIntegrity(mode string, key []byte) Option {
 // Reference: Tech Spec Section 6.4.2.
 func WithEncryption(key []byte) Option {
 	return func(w *WAL) {
-		// Encryption implementation deferred to a future phase.
-		// Accepting the option now allows the daemon startup code to be
-		// written ahead of the WAL encryption implementation.
+		// TODO(v0.1.4): implement WAL-at-rest encryption.
+		// This option is accepted for config forward-compatibility but does NOT
+		// encrypt WAL data in v0.1.3. The daemon logs a WARN at startup.
 		_ = key
 	}
 }
@@ -651,14 +651,14 @@ func (w *WAL) PendingCount() int64 {
 
 // CRCFailures returns the total number of CRC32 mismatches encountered during
 // Replay calls. This counter is exposed to Prometheus in Phase 0D via
-// bubblefish_wal_crc_failures_total.
+// nexus_wal_crc_failures_total.
 func (w *WAL) CRCFailures() int64 {
 	return w.crcFailures.Load()
 }
 
 // IntegrityFailures returns the total number of HMAC mismatches encountered
 // during Replay calls. Only non-zero when integrity=mac. Exposed to
-// Prometheus via bubblefish_wal_integrity_failures_total.
+// Prometheus via nexus_wal_integrity_failures_total.
 func (w *WAL) IntegrityFailures() int64 {
 	return w.integrityFailures.Load()
 }
@@ -723,7 +723,7 @@ func (w *WAL) scanHighestSeq(path string) (int64, error) {
 // detected during Replay calls. A sentinel failure indicates the start
 // sentinel was present but the end sentinel was missing or corrupt,
 // suggesting a torn sector write. Exposed to Prometheus via
-// bubblefish_wal_sentinel_failures_total.
+// nexus_wal_sentinel_failures_total.
 func (w *WAL) SentinelFailures() int64 {
 	return w.sentinelFailures.Load()
 }

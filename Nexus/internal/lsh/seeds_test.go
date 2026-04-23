@@ -20,8 +20,8 @@ package lsh_test
 import (
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/lsh"
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/lsh"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 func newSeeds(t *testing.T) *lsh.TierSeeds {

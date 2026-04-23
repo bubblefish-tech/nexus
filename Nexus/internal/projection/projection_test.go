@@ -23,9 +23,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/policy"
-	"github.com/BubbleFish-Nexus/internal/projection"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/projection"
 )
 
 // ---------------------------------------------------------------------------

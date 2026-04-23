@@ -20,7 +20,7 @@ visible expiration countdown.
 
 Nexus A2A is disabled by default in v0.1.3. Enable it by setting
 `[a2a] enabled = true` in `daemon.toml` and registering your first agent with
-`bubblefish a2a agent add`.
+`nexus a2a agent add`.
 
 ## How It Works
 
@@ -67,7 +67,7 @@ approved-and-cached.
 
 **Audit chain** records every governance decision, task dispatch, and task
 completion. Audit entries are linked to the Phase-4 cryptographic provenance
-chain and can be verified with `bubblefish a2a audit verify`.
+chain and can be verified with `nexus a2a audit verify`.
 
 ## Next Steps
 

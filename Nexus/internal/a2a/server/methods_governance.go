@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
 
 // requireAdmin checks that the context has the admin key set.

@@ -88,6 +88,13 @@ type InteractionRecord struct {
 	// marshaling to ensure the chain extension is durable in the same fsync.
 	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.3.
 	PrevAuditHash string `json:"prev_audit_hash,omitempty"`
+
+	// CU.0.5 — Selective disclosure: when EncryptionVersion=1, PayloadEncrypted
+	// holds the AES-256-GCM encrypted JSON of all sensitive operational fields
+	// above. Chain fields (RecordID, Timestamp, PrevAuditHash) remain plaintext
+	// so the hash chain can be verified without the decryption key.
+	PayloadEncrypted  []byte `json:"payload_encrypted,omitempty"`
+	EncryptionVersion int    `json:"encryption_version,omitempty"`
 }
 
 // NewRecordID generates a cryptographically random UUID for use as record_id.

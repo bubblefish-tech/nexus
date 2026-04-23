@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Graph — BubbleFish Nexus</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0a0e17; color: #e0e6ed; overflow: hidden; height: 100vh; }
+  .header { background: #131a2b; padding: 0.75rem 2rem; border-bottom: 1px solid #1e2a42; display: flex; align-items: center; gap: 2rem; height: 48px; }
+  .header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+  .nav a { color: #6b7fa3; text-decoration: none; font-size: 0.85rem; margin-right: 1rem; }
+  .nav a.active, .nav a:hover { color: #e0e6ed; }
+  .nav a.active { color: #38bdf8; }
+  #graph-area { position: absolute; top: 48px; left: 0; right: 0; bottom: 48px; }
+  svg { width: 100%; height: 100%; }
+  .legend { position: absolute; bottom: 60px; left: 1.5rem; display: flex; gap: 1.2rem; font-size: 0.78rem; color: #94a3b8; }
+  .legend-item { display: flex; align-items: center; gap: 0.4rem; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .status { position: absolute; bottom: 60px; right: 1.5rem; font-size: 0.78rem; color: #6b7fa3; }
+  .tooltip { position: absolute; background: #131a2b; border: 1px solid #1e2a42; border-radius: 6px; padding: 0.6rem 0.85rem; font-size: 0.8rem; pointer-events: none; display: none; max-width: 220px; z-index: 10; }
+  .tooltip-title { font-weight: 600; color: #e0e6ed; margin-bottom: 0.3rem; }
+  .tooltip-type { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7fa3; }
+  .footer { position: absolute; bottom: 0; left: 0; right: 0; height: 48px; background: #131a2b; border-top: 1px solid #1e2a42; display: flex; align-items: center; padding: 0 1.5rem; font-size: 0.78rem; color: #6b7fa3; gap: 2rem; }
+  .footer span { display: flex; align-items: center; gap: 0.4rem; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>BubbleFish Nexus</h1>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/dashboard/agents">Agents</a>
+    <a href="/dashboard/grants">Grants</a>
+    <a href="/dashboard/approvals">Approvals</a>
+    <a href="/dashboard/tasks">Tasks</a>
+    <a href="/dashboard/actions">Actions</a>
+    <a href="/dashboard/memgraph" class="active">Memory Graph</a>
+  </nav>
+</div>
+<div id="graph-area">
+  <svg id="svg"></svg>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Nexus</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#22d3ee"></div>AI Tool</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>A2A Agent</div>
+  </div>
+  <div class="status" id="status">Loading…</div>
+  <div class="tooltip" id="tooltip">
+    <div class="tooltip-type" id="tt-type"></div>
+    <div class="tooltip-title" id="tt-name"></div>
+    <div id="tt-detail" style="color:#94a3b8;font-size:0.75rem;margin-top:0.2rem"></div>
+  </div>
+</div>
+<div class="footer">
+  <span id="footer-nodes">Nodes: —</span>
+  <span id="footer-edges">Edges: —</span>
+  <span id="footer-scanned">Updated: —</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+(function() {
+  "use strict";
+  // INVARIANT: All dynamic content uses textContent. NEVER use innerHTML.
+  var CONFIG = { ADMIN_TOKEN: '', };
+
+  function getToken() {
+    if (CONFIG.ADMIN_TOKEN) { sessionStorage.setItem("nexus_admin_token", CONFIG.ADMIN_TOKEN); return CONFIG.ADMIN_TOKEN; }
+    return sessionStorage.getItem("nexus_admin_token") || "";
+  }
+
+  var svg = d3.select("#svg");
+  var width = window.innerWidth;
+  var height = window.innerHeight - 96;
+  var tooltip = document.getElementById("tooltip");
+
+  var colorMap = {
+    nexus: "#f59e0b",
+    tool: "#22d3ee",
+    agent: "#a78bfa",
+    source: "#34d399"
+  };
+
+  function showTooltip(event, d) {
+    var tt = document.getElementById("tt-type");
+    var tn = document.getElementById("tt-name");
+    var td = document.getElementById("tt-detail");
+    tt.textContent = d.type;
+    tn.textContent = d.label;
+    td.textContent = d.count ? d.count + " interactions" : d.endpoint || "";
+    tooltip.style.display = "block";
+    tooltip.style.left = (event.pageX + 12) + "px";
+    tooltip.style.top = (event.pageY - 10) + "px";
+  }
+
+  function hideTooltip() {
+    tooltip.style.display = "none";
+  }
+
+  function render(data) {
+    var nodes = data.nodes || [];
+    var edges = data.edges || [];
+
+    document.getElementById("footer-nodes").textContent = "Nodes: " + nodes.length;
+    document.getElementById("footer-edges").textContent = "Edges: " + edges.length;
+    if (data.generated_at) {
+      document.getElementById("footer-scanned").textContent =
+        "Updated: " + new Date(data.generated_at).toLocaleTimeString();
+    }
+    document.getElementById("status").textContent = "";
+
+    var container = svg.append("g");
+
+    var simulation = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(edges).id(function(d) { return d.id; }).distance(function(l) {
+        return l.source.type === "nexus" || l.target.type === "nexus" ? 140 : 200;
+      }).strength(0.6))
+      .force("charge", d3.forceManyBody().strength(-320))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collision", d3.forceCollide(40));
+
+    var link = container.append("g")
+      .selectAll("line")
+      .data(edges)
+      .enter().append("line")
+        .attr("stroke", "#1e3a5f")
+        .attr("stroke-width", function(d) { return Math.max(1, Math.sqrt(d.weight || 1)); })
+        .attr("stroke-opacity", 0.7);
+
+    var node = container.append("g")
+      .selectAll("g")
+      .data(nodes)
+      .enter().append("g")
+        .call(d3.drag()
+          .on("start", function(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x; d.fy = d.y;
+          })
+          .on("drag", function(event, d) { d.fx = event.x; d.fy = event.y; })
+          .on("end", function(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null; d.fy = null;
+          }));
+
+    node.append("circle")
+      .attr("r", function(d) {
+        if (d.type === "nexus") return 28;
+        return 14 + Math.min(10, Math.sqrt(d.count || 1) * 2);
+      })
+      .attr("fill", function(d) { return colorMap[d.type] || "#6b7fa3"; })
+      .attr("fill-opacity", 0.2)
+      .attr("stroke", function(d) { return colorMap[d.type] || "#6b7fa3"; })
+      .attr("stroke-width", function(d) { return d.type === "nexus" ? 2.5 : 1.5; });
+
+    node.append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", "0.35em")
+      .attr("font-size", function(d) { return d.type === "nexus" ? "11px" : "9px"; })
+      .attr("fill", function(d) { return colorMap[d.type] || "#94a3b8"; })
+      .attr("font-weight", function(d) { return d.type === "nexus" ? "700" : "400"; })
+      .text(function(d) {
+        var label = d.label || d.id;
+        return label.length > 14 ? label.substring(0, 13) + "…" : label;
+      });
+
+    node
+      .on("mouseover", showTooltip)
+      .on("mousemove", showTooltip)
+      .on("mouseout", hideTooltip);
+
+    simulation.on("tick", function() {
+      link
+        .attr("x1", function(d) { return d.source.x; })
+        .attr("y1", function(d) { return d.source.y; })
+        .attr("x2", function(d) { return d.target.x; })
+        .attr("y2", function(d) { return d.target.y; });
+      node.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+    });
+
+    // Zoom + pan
+    svg.call(d3.zoom()
+      .scaleExtent([0.2, 4])
+      .on("zoom", function(event) { container.attr("transform", event.transform); }));
+  }
+
+  function load() {
+    document.getElementById("status").textContent = "Scanning…";
+    fetch("/api/viz/memory-graph", { headers: { "Authorization": "Bearer " + getToken() } })
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        render(data);
+      })
+      .catch(function(err) {
+        document.getElementById("status").textContent = "Error: " + err.message;
+      });
+  }
+
+  window.addEventListener("resize", function() {
+    width = window.innerWidth;
+    height = window.innerHeight - 96;
+  });
+
+  load();
+  // Refresh every 60s.
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>

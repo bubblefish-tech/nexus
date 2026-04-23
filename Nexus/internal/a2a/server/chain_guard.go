@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
 )
 
 // DefaultMaxChainDepth is the maximum number of hops allowed in an

@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/tui/api"
-	"github.com/BubbleFish-Nexus/internal/tui/components"
-	"github.com/BubbleFish-Nexus/internal/tui/styles"
+	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
+	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -77,22 +77,18 @@ func (t *SettingsTab) FireRefresh(client *api.Client) tea.Cmd {
 func (t *SettingsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
 	case settingsStatusMsg:
-		if msg.err != nil {
-			t.err = msg.err
-		}
+		t.err = msg.err
 		t.status = msg.data
 		return t, nil
 
 	case settingsConfigMsg:
-		if msg.err != nil {
-			t.err = msg.err
-		}
+		t.err = msg.err
 		t.config = msg.data
 		return t, nil
 
 	case tea.KeyMsg:
 		if msg.String() == "e" {
-			t.editMsg = "To edit settings, modify ~/.bubblefish/nexus.toml and restart the daemon."
+			t.editMsg = "To edit settings, modify ~/.nexus/nexus.toml and restart the daemon."
 		}
 		return t, nil
 	}

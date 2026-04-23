@@ -32,9 +32,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/mcp"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // ---------------------------------------------------------------------------
@@ -474,11 +474,11 @@ func TestMCPTools_List_Returns6Tools(t *testing.T) {
 
 	result, _ := resp["result"].(map[string]interface{})
 	tools, _ := result["tools"].([]interface{})
-	if len(tools) != 6 {
-		t.Fatalf("CHECK MCP-6 FAIL: got %d tools, want 6", len(tools))
+	if len(tools) != 9 {
+		t.Fatalf("CHECK MCP-6 FAIL: got %d tools, want 9", len(tools))
 	}
 
-	names := make([]string, 0, 6)
+	names := make([]string, 0, 9)
 	for _, tool := range tools {
 		m, _ := tool.(map[string]interface{})
 		name, _ := m["name"].(string)
@@ -486,12 +486,15 @@ func TestMCPTools_List_Returns6Tools(t *testing.T) {
 	}
 
 	wantNames := map[string]bool{
-		"nexus_write":        true,
-		"nexus_search":       true,
-		"nexus_status":       true,
-		"agent_broadcast":    true,
-		"agent_pull_signals": true,
-		"agent_status_query": true,
+		"nexus_write":         true,
+		"nexus_search":        true,
+		"nexus_status":        true,
+		"agent_broadcast":     true,
+		"agent_pull_signals":  true,
+		"agent_status_query":  true,
+		"nexus_subscribe":     true,
+		"nexus_unsubscribe":   true,
+		"nexus_subscriptions": true,
 	}
 	for _, name := range names {
 		if !wantNames[name] {
@@ -503,7 +506,7 @@ func TestMCPTools_List_Returns6Tools(t *testing.T) {
 		t.Errorf("CHECK MCP-6 FAIL: missing tool %q", missing)
 	}
 
-	t.Logf("CHECK MCP-6 PASS: tools/list returned 6 tools: %v", names)
+	t.Logf("CHECK MCP-6 PASS: tools/list returned 9 tools: %v", names)
 }
 
 // ---------------------------------------------------------------------------
@@ -534,8 +537,8 @@ func TestMCPTools_Initialize_Handshake(t *testing.T) {
 
 	serverInfo, _ := result["serverInfo"].(map[string]interface{})
 	name, _ := serverInfo["name"].(string)
-	if name != "bubblefish-nexus" {
-		t.Fatalf("CHECK MCP-7 FAIL: serverInfo.name=%q want bubblefish-nexus", name)
+	if name != "nexus-nexus" {
+		t.Fatalf("CHECK MCP-7 FAIL: serverInfo.name=%q want nexus-nexus", name)
 	}
 
 	t.Logf("CHECK MCP-7 PASS: initialize → protocolVersion=%q serverInfo.name=%q", version, name)
@@ -597,7 +600,7 @@ func TestMCPServer_PortConflict_ReturnsError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CHECK MCP-10: Self-test — equivalent of `bubblefish mcp test`
+// CHECK MCP-10: Self-test — equivalent of `nexus mcp test`
 // ---------------------------------------------------------------------------
 
 func TestMCPSelfTest_NexusStatus_ExitsSuccessWithin5Seconds(t *testing.T) {
@@ -622,7 +625,7 @@ func TestMCPSelfTest_NexusStatus_ExitsSuccessWithin5Seconds(t *testing.T) {
 
 // runSelfTest starts a temporary MCP server with TestPipeline, calls
 // nexus_status, and returns nil on success. This mirrors the logic of
-// `bubblefish mcp test`.
+// `nexus mcp test`.
 func runSelfTest() error {
 	// Find a free port.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

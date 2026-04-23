@@ -23,10 +23,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/safego"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // initProvenance loads or generates the daemon Ed25519 key, source signing keys,
@@ -44,7 +45,7 @@ func (d *Daemon) initProvenance(cfg *config.Config) {
 		return
 	}
 
-	basePath := filepath.Join(home, ".bubblefish", "Nexus")
+	basePath := filepath.Join(home, ".nexus", "Nexus")
 	sd, err := secrets.Open(basePath)
 	if err != nil {
 		d.logger.Warn("daemon: provenance disabled — cannot open secrets directory",
@@ -131,9 +132,9 @@ func (d *Daemon) initProvenance(cfg *config.Config) {
 	}
 	d.chainState = cs
 
-	// Start daily Merkle root ticker if daemon key is available.
+	// Start Merkle root ticker if daemon key is available.
 	if d.daemonKeyPair != nil {
-		go d.merkleRootTicker(dataDir)
+		safego.Go("merkle-root-ticker", d.logger, d.subsystemHealth, func() { d.merkleRootTicker(dataDir, cfg.Provenance) })
 	}
 }
 
@@ -170,28 +171,56 @@ func (d *Daemon) signWriteEnvelope(tp *destination.TranslatedPayload) {
 	tp.SignatureAlg = provenance.SignatureAlgEd25519
 }
 
-// merkleRootTicker computes a daily Merkle root at midnight UTC and persists it.
-// If external anchoring is configured, it will auto-publish to the configured
-// GitHub Gist.
-//
-// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.8.
-func (d *Daemon) merkleRootTicker(dataDir string) {
-	// Compute time until next midnight UTC.
-	now := time.Now().UTC()
-	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-	timer := time.NewTimer(time.Until(next))
-	defer timer.Stop()
+// merkleRootTicker computes Merkle roots based on configurable triggers:
+// - Time interval (merkle_interval, default "24h" = midnight fallback)
+// - Entry count threshold (merkle_every_n, default 0 = disabled)
+// Whichever fires first wins; both counters reset after each computation.
+func (d *Daemon) merkleRootTicker(dataDir string, prov config.ProvenanceConfig) {
+	interval := 24 * time.Hour
+	if prov.MerkleInterval != "" {
+		if parsed, err := time.ParseDuration(prov.MerkleInterval); err == nil && parsed > 0 {
+			interval = parsed
+		}
+	}
+	entryThreshold := prov.MerkleEveryN
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var entryCheck *time.Ticker
+	if entryThreshold > 0 {
+		entryCheck = time.NewTicker(5 * time.Second)
+		defer entryCheck.Stop()
+	}
+
+	lastCount := d.chainState.EntryCount()
+
+	fire := func() {
+		d.computeDailyMerkleRoot(dataDir)
+		lastCount = d.chainState.EntryCount()
+		ticker.Reset(interval)
+	}
 
 	for {
-		select {
-		case <-d.stopped:
-			return
-		case <-timer.C:
-			d.computeDailyMerkleRoot(dataDir)
-			// Reset timer for next midnight.
-			now := time.Now().UTC()
-			next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-			timer.Reset(time.Until(next))
+		if entryCheck != nil {
+			select {
+			case <-d.stopped:
+				return
+			case <-ticker.C:
+				fire()
+			case <-entryCheck.C:
+				current := d.chainState.EntryCount()
+				if current-lastCount >= int64(entryThreshold) {
+					fire()
+				}
+			}
+		} else {
+			select {
+			case <-d.stopped:
+				return
+			case <-ticker.C:
+				fire()
+			}
 		}
 	}
 }

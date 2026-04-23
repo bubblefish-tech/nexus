@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/tui/api"
-	"github.com/BubbleFish-Nexus/internal/tui/components"
-	"github.com/BubbleFish-Nexus/internal/tui/styles"
+	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
+	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -113,10 +113,10 @@ func (t *SecurityTab) View(width, height int) string {
 	features := []feature{
 		{"WAL integrity", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.WALTamperDetected == 0 })},
 		{"Config signature", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.ConfigSignatureInvalid == 0 })},
-		{"Retrieval firewall", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.RetrievalFirewallFiltered >= 0 })},
-		{"Rate limiting", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.RateLimitHits >= 0 })},
+		{"Retrieval firewall", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return true })},
+		{"Rate limiting", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return true })},
 		{"Auth enforcement", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return true })},
-		{"Admin audit", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.AdminAccess >= 0 })},
+		{"Admin audit", boolStatus(t.summary, func(s *api.SecuritySummaryResponse) bool { return s.AdminAccess > 0 })},
 	}
 
 	colWidth := (width - 4) / 2

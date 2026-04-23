@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // baseConfig returns a minimal valid config with no lint issues.

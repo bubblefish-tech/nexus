@@ -74,3 +74,11 @@ func TestRunExitsOnQuit(t *testing.T) {
 		t.Fatal("Run did not exit after Quit within 2 seconds")
 	}
 }
+
+func TestMenuItemCount(t *testing.T) {
+	t.Helper()
+	count := MenuItemCount()
+	if count != 4 {
+		t.Fatalf("expected 4 menu items (Status, Open Dashboard, Stop Nexus, Quit), got %d", count)
+	}
+}

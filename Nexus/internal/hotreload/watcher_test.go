@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/hotreload"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/hotreload"
 )
 
 // makeTestConfig builds a minimal *config.Config with one source and one

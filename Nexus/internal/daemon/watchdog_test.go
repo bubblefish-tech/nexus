@@ -24,8 +24,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
 )
 
 // ---------------------------------------------------------------------------

@@ -90,7 +90,7 @@ curl -s http://$NEXUS_HOST:18080/health
 Expected: `{"status":"ok"}` or similar health response.
 
 If this fails:
-- Make sure Nexus is running on Windows: `.\bubblefish start --home D:\Test\BubbleFish\v010-dogfood\home`
+- Make sure Nexus is running on Windows: `.\nexus start --home D:\Test\BubbleFish\v010-dogfood\home`
 - Check the port proxy was created: `netsh interface portproxy show all`
 - Check Windows Firewall isn't blocking port 18080
 
@@ -146,7 +146,7 @@ Copy these three files into `~/.openclaw/plugins/bubblefish-nexus/`:
 
 Or if the plugin is published to npm/ClawHub:
 ```bash
-openclaw plugins install @bubblefish/openclaw-nexus
+openclaw plugins install @nexus/openclaw-nexus
 ```
 
 ### Step 3.2: Install Plugin Dependencies
@@ -218,7 +218,7 @@ openclaw restart
 openclaw plugins list
 ```
 
-Expected: `bubblefish-nexus` appears in the list.
+Expected: `nexus-nexus` appears in the list.
 
 ### Step 4.2: Test via OpenClaw Dashboard
 
@@ -359,7 +359,7 @@ curl -v http://$NEXUS_HOST:18080/health
 
 # Check Nexus is running on Windows
 # (run in Windows PowerShell)
-# .\bubblefish status
+# .\nexus status
 ```
 
 ### Port proxy not working after reboot

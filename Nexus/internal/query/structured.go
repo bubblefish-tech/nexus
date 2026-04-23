@@ -20,7 +20,7 @@ package query
 import (
 	"context"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // runStage3 executes Stage 3 (Structured Lookup) of the retrieval cascade.
@@ -57,6 +57,8 @@ func runStage3(
 		Cursor:      cursor,
 		Profile:     cq.Profile,
 		ActorType:   cq.ActorType,
+		TemporalBinFilter: cq.TemporalBin >= 0,
+		TemporalBin:       cq.TemporalBin,
 	}
 
 	result, err := q.Query(params)

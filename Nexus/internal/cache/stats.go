@@ -27,8 +27,8 @@ import (
 // Register counters on the daemon's private registry by passing it to NewStats.
 //
 // Metric names:
-//   - bubblefish_cache_exact_hits_total
-//   - bubblefish_cache_exact_misses_total
+//   - nexus_cache_exact_hits_total
+//   - nexus_cache_exact_misses_total
 //
 // Reference: Tech Spec Section 11.3.
 type Stats struct {
@@ -46,11 +46,11 @@ type Stats struct {
 // programming error that cannot occur with the daemon's private registry.
 func NewStats(reg prometheus.Registerer) *Stats {
 	hits := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_cache_exact_hits_total",
+		Name: "nexus_cache_exact_hits_total",
 		Help: "Total number of Stage 1 exact-cache hits.",
 	})
 	misses := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_cache_exact_misses_total",
+		Name: "nexus_cache_exact_misses_total",
 		Help: "Total number of Stage 1 exact-cache misses.",
 	})
 	reg.MustRegister(hits, misses)

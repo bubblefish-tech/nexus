@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
 
 // ClientPool resolves a remote agent by ID and dispatches a message/send to it.

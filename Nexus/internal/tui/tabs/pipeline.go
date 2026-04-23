@@ -19,39 +19,33 @@ package tabs
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/tui/api"
-	"github.com/BubbleFish-Nexus/internal/tui/components"
-	"github.com/BubbleFish-Nexus/internal/tui/styles"
+	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
+	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// pipelineStatusMsg carries the result of a status API call for the pipeline tab.
 type pipelineStatusMsg struct {
 	data *api.StatusResponse
 	err  error
 }
 
-// PipelineTab shows the 6-stage retrieval cascade and throughput gauges.
 type PipelineTab struct {
 	status   *api.StatusResponse
 	err      error
-	blackBox bool
 }
 
-// NewPipelineTab returns an initialised PipelineTab.
 func NewPipelineTab() *PipelineTab {
 	return &PipelineTab{}
 }
 
-// Name returns the tab display name.
 func (t *PipelineTab) Name() string { return "Pipeline" }
 
-// Init returns the first command (none needed).
 func (t *PipelineTab) Init() tea.Cmd { return nil }
 
-// FireRefresh fetches fresh status data from the daemon.
 func (t *PipelineTab) FireRefresh(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		data, err := client.Status()
@@ -59,91 +53,95 @@ func (t *PipelineTab) FireRefresh(client *api.Client) tea.Cmd {
 	}
 }
 
-// Update handles incoming messages.
 func (t *PipelineTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
 	case pipelineStatusMsg:
 		t.err = msg.err
 		t.status = msg.data
-		return t, nil
-
-	case tea.KeyMsg:
-		if msg.String() == "b" {
-			t.blackBox = !t.blackBox
-		}
-		return t, nil
 	}
 	return t, nil
 }
 
-// View renders the pipeline visualisation.
 func (t *PipelineTab) View(width, height int) string {
 	var sections []string
+	s := t.status
 
-	// Title.
-	sections = append(sections, components.SectionTitle("Retrieval Pipeline", width))
+	sections = append(sections, components.SectionTitle("Retrieval Cascade (live)", width))
 
-	// Error state.
 	if t.err != nil {
 		sections = append(sections, styles.ErrorStyle.Render(fmt.Sprintf("Error: %v", t.err)))
 		return lipgloss.JoinVertical(lipgloss.Left, sections...)
 	}
 
-	// Determine stage statuses from live data.
-	queueOK := "OK"
-	if t.status != nil && t.status.QueueDepth > 100 {
-		queueOK = "MISS"
+	// 6 retrieval stages with LIVE data
+	cascadeNames := []struct{ key, label string }{
+		{"policy", "policy"},
+		{"exact_cache", "exact_cache"},
+		{"semantic_cache", "sem_cache"},
+		{"structured", "structured"},
+		{"semantic", "semantic"},
+		{"hybrid_merge", "hybrid"},
 	}
 
-	if t.blackBox {
-		// Black-box mode: single summary panel.
-		sections = append(sections, "")
-		sections = append(sections, styles.MutedStyle.Render("[black-box mode]  6 stages collapsed"))
-		sections = append(sections, "")
-
-		status := "idle"
-		version := "-"
-		if t.status != nil {
-			status = t.status.Status
-			version = t.status.Version
+	var stages []components.Stage
+	for i, cs := range cascadeNames {
+		status := "SKIP"
+		latency := "—"
+		if s != nil {
+			if sm, ok := s.CascadeStages[cs.key]; ok {
+				status = sm.Status
+				if sm.Hits > 0 {
+					latency = fmt.Sprintf("%.1fms (%d)", sm.AvgMs, sm.Hits)
+				}
+			}
 		}
+		stages = append(stages, components.Stage{Number: i + 1, Name: cs.label, Status: status, Latency: latency})
+	}
 
-		card := components.StatCard{
-			Label:    "Pipeline Summary",
-			Value:    components.PillStatus(status),
-			Subtitle: "version " + version,
-			Color:    styles.ColorTeal,
-			Width:    width / 2,
+	flow := components.StageFlow{Stages: stages, Width: width}
+	sections = append(sections, flow.View())
+
+	// Live stats
+	sections = append(sections, "")
+	sections = append(sections, components.SectionTitle("Live Stats", width))
+	sections = append(sections, "")
+
+	if s != nil {
+		statLine := lipgloss.NewStyle().Foreground(styles.TextPrimary)
+		memMB := float64(s.MemoryResidentBytes) / (1024 * 1024)
+		uptimeH := s.UptimeSeconds / 3600
+		uptimeM := (s.UptimeSeconds % 3600) / 60
+
+		sections = append(sections, statLine.Render(fmt.Sprintf(
+			"  Memories: %d    Sources: %d    Queue: %d    WAL pending: %d",
+			s.MemoriesTotal, s.SourcesTotal, s.QueueDepth, s.WAL.PendingEntries)))
+		sections = append(sections, statLine.Render(fmt.Sprintf(
+			"  Uptime: %dh%02dm    Goroutines: %d    RSS: %.1f MB    PID: %d",
+			uptimeH, uptimeM, s.Goroutines, memMB, s.PID)))
+		sections = append(sections, statLine.Render(fmt.Sprintf(
+			"  Writes: %d total (%d/m)    Reads: %d total (%d/m)    Errors: %d/m",
+			s.WritesTotal, s.Writes1m, s.ReadsTotal, s.Reads1m, s.Errors1m)))
+
+		destStatus := "—"
+		for _, d := range s.Destinations {
+			health := lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("healthy")
+			if !d.Healthy {
+				health = lipgloss.NewStyle().Foreground(styles.ColorRed).Render("UNHEALTHY")
+			}
+			destStatus = fmt.Sprintf("%s (%s)", d.Name, health)
 		}
-		sections = append(sections, card.View())
-		sections = append(sections, "")
-		sections = append(sections, styles.MutedStyle.Render("Press 'b' to expand stages"))
+		walHealth := lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("healthy")
+		if !s.WAL.Healthy {
+			walHealth = lipgloss.NewStyle().Foreground(styles.ColorRed).Render("UNHEALTHY")
+		}
+		sections = append(sections, statLine.Render(fmt.Sprintf(
+			"  Destination: %s    WAL: %s    Integrity: %s",
+			destStatus, walHealth, s.WAL.IntegrityMode)))
 	} else {
-		// Full 6-stage cascade. Status derived from live daemon state.
-		stageStatus := "SKIP"
-		if t.status != nil {
-			stageStatus = "OK"
-		}
-		stageList := []components.Stage{
-			{Number: 1, Name: "policy", Status: stageStatus, Latency: "—"},
-			{Number: 2, Name: "exact_cache", Status: stageStatus, Latency: "—"},
-			{Number: 3, Name: "semantic_cache", Status: stageStatus, Latency: "—"},
-			{Number: 4, Name: "temporal_decay", Status: stageStatus, Latency: "—"},
-			{Number: 5, Name: "embedding", Status: queueOK, Latency: "—"},
-			{Number: 6, Name: "projection", Status: stageStatus, Latency: "—"},
-		}
-
-		flow := components.StageFlow{
-			Stages: stageList,
-			Width:  width,
-		}
-		sections = append(sections, "")
-		sections = append(sections, flow.View())
-		sections = append(sections, "")
-		sections = append(sections, styles.MutedStyle.Render("Press 'b' for black-box mode"))
+		sections = append(sections, styles.MutedStyle.Render("  Waiting for status data..."))
 	}
 
-	// Throughput gauges.
+	// Throughput bars
 	sections = append(sections, "")
 	sections = append(sections, components.SectionTitle("Throughput", width))
 	sections = append(sections, "")
@@ -153,45 +151,26 @@ func (t *PipelineTab) View(width, height int) string {
 		barWidth = 20
 	}
 
-	queuePct := 0.0
+	queuePct, cacheRate := 0.0, 0.0
 	consistency := 0.0
-	if t.status != nil {
-		// Queue depth normalised to 0-1 (100 is full).
-		queuePct = float64(t.status.QueueDepth) / 100.0
+	if s != nil {
+		queuePct = float64(s.QueueDepth) / 100.0
 		if queuePct > 1.0 {
 			queuePct = 1.0
 		}
-		consistency = t.status.ConsistencyScore
+		consistency = s.ConsistencyScore
+		if consistency < 0 {
+			consistency = 0
+		}
+		cacheRate = s.Cache.HitRate
 	}
 
-	sections = append(sections, components.InlineBar{
-		Label: "Queue pressure",
-		Value: queuePct,
-		Width: barWidth,
-		Color: styles.ColorAmber,
-	}.View())
+	sections = append(sections, components.InlineBar{Label: "Queue pressure", Value: queuePct, Width: barWidth, Color: styles.ColorAmber}.View())
+	sections = append(sections, components.InlineBar{Label: "Consistency", Value: consistency, Width: barWidth, Color: styles.ColorGreen}.View())
+	sections = append(sections, components.InlineBar{Label: "Cache hit rate", Value: cacheRate, Width: barWidth, Color: styles.ColorTeal}.View())
 
-	sections = append(sections, components.InlineBar{
-		Label: "Consistency",
-		Value: consistency,
-		Width: barWidth,
-		Color: styles.ColorGreen,
-	}.View())
-
-	cacheRate := 0.0
-	cacheLabel := "Cache hit rate"
-	if t.status == nil {
-		cacheLabel = "Cache hit rate (no data)"
-	}
-	sections = append(sections, components.InlineBar{
-		Label: cacheLabel,
-		Value: cacheRate,
-		Width: barWidth,
-		Color: styles.ColorTeal,
-	}.View())
-
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	content := strings.Join(sections, "\n")
+	return lipgloss.NewStyle().Width(width).Height(height).Render(content)
 }
 
-// Compile-time interface check.
 var _ Tab = (*PipelineTab)(nil)

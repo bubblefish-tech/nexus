@@ -31,7 +31,7 @@ import (
 )
 
 // Metrics holds the private Prometheus registry and all registered counters,
-// gauges, and histograms. All metric names use the "bubblefish_" prefix.
+// gauges, and histograms. All metric names use the "nexus_" prefix.
 //
 // Initialize with New(). Never embed or copy — pass by pointer.
 type Metrics struct {
@@ -245,7 +245,7 @@ func New() *Metrics {
 	// ── Write path ──────────────────────────────────────────────────────────
 	m.PayloadProcessingLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "bubblefish_payload_processing_latency_seconds",
+			Name:    "nexus_payload_processing_latency_seconds",
 			Help:    "Full write path latency by source.",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -253,14 +253,14 @@ func New() *Metrics {
 	)
 	m.ThroughputPerSource = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_throughput_per_source_total",
+			Name: "nexus_throughput_per_source_total",
 			Help: "Successful writes by source.",
 		},
 		[]string{"source"},
 	)
 	m.ErrorsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_errors_total",
+			Name: "nexus_errors_total",
 			Help: "Errors by type label.",
 		},
 		[]string{"type"},
@@ -269,7 +269,7 @@ func New() *Metrics {
 	// ── Read path ────────────────────────────────────────────────────────────
 	m.ReadLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "bubblefish_read_latency_seconds",
+			Name:    "nexus_read_latency_seconds",
 			Help:    "Full read path latency by source and endpoint.",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -278,55 +278,55 @@ func New() *Metrics {
 
 	// ── Queue ────────────────────────────────────────────────────────────────
 	m.QueueDepth = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_queue_depth",
+		Name: "nexus_queue_depth",
 		Help: "Current queue depth.",
 	})
 	m.QueueProcessingRate = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_queue_processing_rate_total",
+		Name: "nexus_queue_processing_rate_total",
 		Help: "Payloads dequeued and successfully written.",
 	})
 
 	// ── WAL ──────────────────────────────────────────────────────────────────
 	m.WALPendingEntries = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_wal_pending_entries",
+		Name: "nexus_wal_pending_entries",
 		Help: "WAL entries not yet DELIVERED.",
 	})
 	m.WALDiskBytesFree = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_wal_disk_bytes_free",
+		Name: "nexus_wal_disk_bytes_free",
 		Help: "Free disk on WAL partition.",
 	})
 	m.WALHealthy = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_wal_healthy",
+		Name: "nexus_wal_healthy",
 		Help: "1 if WAL watchdog healthy, 0 if not.",
 	})
 	m.WALAppendLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "bubblefish_wal_append_latency_seconds",
+		Name:    "nexus_wal_append_latency_seconds",
 		Help:    "WAL append + fsync latency.",
 		Buckets: prometheus.DefBuckets,
 	})
 	m.WALCRCFailures = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_wal_crc_failures_total",
+		Name: "nexus_wal_crc_failures_total",
 		Help: "CRC32 mismatches on replay.",
 	})
 	m.WALIntegrityFailures = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_wal_integrity_failures_total",
+		Name: "nexus_wal_integrity_failures_total",
 		Help: "HMAC mismatches on replay (integrity=mac).",
 	})
 
 	// ── Replay ───────────────────────────────────────────────────────────────
 	m.ReplayEntriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_replay_entries_total",
+		Name: "nexus_replay_entries_total",
 		Help: "WAL entries processed during replay.",
 	})
 	m.ReplayDurationSeconds = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_replay_duration_seconds",
+		Name: "nexus_replay_duration_seconds",
 		Help: "Time spent on WAL replay at startup.",
 	})
 
 	// ── Auth ─────────────────────────────────────────────────────────────────
 	m.AuthFailuresTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_auth_failures_total",
+			Name: "nexus_auth_failures_total",
 			Help: "Auth failures by source label.",
 		},
 		[]string{"source"},
@@ -335,7 +335,7 @@ func New() *Metrics {
 	// ── Policy ──────────────────────────────────────────────────────────────
 	m.PolicyDenialsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_policy_denials_total",
+			Name: "nexus_policy_denials_total",
 			Help: "Policy gate rejections by source and reason.",
 		},
 		[]string{"source", "reason"},
@@ -344,21 +344,21 @@ func New() *Metrics {
 	// ── Rate limit ───────────────────────────────────────────────────────────
 	m.RateLimitHitsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_rate_limit_hits_total",
+			Name: "nexus_rate_limit_hits_total",
 			Help: "Rate limit hits by source label.",
 		},
 		[]string{"source"},
 	)
 	m.RateLimitBytesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_rate_limit_bytes_total",
+			Name: "nexus_rate_limit_bytes_total",
 			Help: "Total bytes accepted through the bytes/sec rate limiter.",
 		},
 		[]string{"source"},
 	)
 	m.RateLimitBytesRejectedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_rate_limit_bytes_rejected_total",
+			Name: "nexus_rate_limit_bytes_rejected_total",
 			Help: "Bytes/sec rate limit rejections by source.",
 		},
 		[]string{"source"},
@@ -367,7 +367,7 @@ func New() *Metrics {
 	// ── Admin ────────────────────────────────────────────────────────────────
 	m.AdminCallsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_admin_calls_total",
+			Name: "nexus_admin_calls_total",
 			Help: "Admin endpoint calls by endpoint label.",
 		},
 		[]string{"endpoint"},
@@ -375,88 +375,88 @@ func New() *Metrics {
 
 	// ── Config ───────────────────────────────────────────────────────────────
 	m.ConfigLintWarnings = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_config_lint_warnings",
+		Name: "nexus_config_lint_warnings",
 		Help: "Number of config lint warnings.",
 	})
 
 	// ── Embedding ────────────────────────────────────────────────────────────
 	m.EmbeddingLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "bubblefish_embedding_latency_seconds",
+		Name:    "nexus_embedding_latency_seconds",
 		Help:    "Embedding provider call duration.",
 		Buckets: prometheus.DefBuckets,
 	})
 
 	// ── Temporal Decay ───────────────────────────────────────────────────────
 	m.TemporalDecayApplied = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_temporal_decay_applied_total",
+		Name: "nexus_temporal_decay_applied_total",
 		Help: "Number of times temporal decay reranking was applied in Stage 5.",
 	})
 
 	// ── Visualization ───────────────────────────────────────────────────────
 	m.VizEventsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_visualization_events_dropped_total",
+		Name: "nexus_visualization_events_dropped_total",
 		Help: "Pipeline visualization events dropped (channel full).",
 	})
 
 	// ── Event Sink ──────────────────────────────────────────────────────────
 	m.EventsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_events_dropped_total",
+		Name: "nexus_events_dropped_total",
 		Help: "Event sink events dropped (channel full).",
 	})
 	m.EventsDeliveredTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_events_delivered_total",
+		Name: "nexus_events_delivered_total",
 		Help: "Event sink events successfully delivered.",
 	})
 	m.EventsFailedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_events_failed_total",
+		Name: "nexus_events_failed_total",
 		Help: "Event sink delivery failures.",
 	})
 
 	// ── Consistency ──────────────────────────────────────────────────────────
 	m.ConsistencyScore = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_consistency_score",
+		Name: "nexus_consistency_score",
 		Help: "WAL-to-destination consistency score (0.0-1.0).",
 	})
 
 	// ── Audit (Interaction Log) ─────────────────────────────────────────────
 	m.AuditLogErrorsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_audit_log_errors_total",
+			Name: "nexus_audit_log_errors_total",
 			Help: "Audit log write failures by file label.",
 		},
 		[]string{"file"},
 	)
 	m.AuditShadowErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_audit_shadow_errors_total",
+		Name: "nexus_audit_shadow_errors_total",
 		Help: "Shadow file write failures.",
 	})
 	m.AuditCRCFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_audit_crc_failures_total",
+		Name: "nexus_audit_crc_failures_total",
 		Help: "Records with CRC32 mismatch (both primary and shadow corrupt).",
 	})
 	m.AuditShadowRecoveriesTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_audit_shadow_recoveries_total",
+		Name: "nexus_audit_shadow_recoveries_total",
 		Help: "Records recovered from shadow after primary corruption.",
 	})
 
 	// ── Audit (Interaction Log) — API & Emission ───────────────────────────
 	m.AuditRecordsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_audit_records_total",
+			Name: "nexus_audit_records_total",
 			Help: "Interaction records written by operation_type and policy_decision.",
 		},
 		[]string{"operation_type", "policy_decision"},
 	)
 	m.AuditLogBytes = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "bubblefish_audit_log_bytes",
+		Name: "nexus_audit_log_bytes",
 		Help: "Current interaction log file size in bytes.",
 	})
 	m.AuditLogRotationTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "bubblefish_audit_log_rotation_total",
+		Name: "nexus_audit_log_rotation_total",
 		Help: "Interaction log file rotations.",
 	})
 	m.AuditQueryLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "bubblefish_audit_query_latency_seconds",
+		Name:    "nexus_audit_query_latency_seconds",
 		Help:    "/api/audit/log query latency.",
 		Buckets: prometheus.DefBuckets,
 	})
@@ -464,21 +464,21 @@ func New() *Metrics {
 	// ── Retrieval Firewall ──────────────────────────────────────────────────
 	m.FirewallFilteredTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_retrieval_firewall_filtered_total",
+			Name: "nexus_retrieval_firewall_filtered_total",
 			Help: "Memories filtered by retrieval firewall.",
 		},
 		[]string{"source", "label"},
 	)
 	m.FirewallDeniedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "bubblefish_retrieval_firewall_denied_total",
+			Name: "nexus_retrieval_firewall_denied_total",
 			Help: "Queries fully denied by retrieval firewall.",
 		},
 		[]string{"source"},
 	)
 	m.FirewallLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "bubblefish_retrieval_firewall_latency_seconds",
+			Name:    "nexus_retrieval_firewall_latency_seconds",
 			Help:    "Retrieval firewall filtering duration.",
 			Buckets: []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005},
 		},

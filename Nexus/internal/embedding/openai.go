@@ -28,10 +28,16 @@ import (
 	"time"
 )
 
-// openAIRequest is the JSON body sent to /v1/embeddings.
+// openAIRequest is the JSON body sent to /v1/embeddings (single text).
 type openAIRequest struct {
 	Model string `json:"model"`
 	Input string `json:"input"`
+}
+
+// openAIBatchRequest is the JSON body sent to /v1/embeddings (batch).
+type openAIBatchRequest struct {
+	Model string   `json:"model"`
+	Input []string `json:"input"`
 }
 
 // openAIResponse is the JSON response from /v1/embeddings.
@@ -126,6 +132,52 @@ func (c *openAIClient) Embed(ctx context.Context, text string) ([]float32, error
 	}
 
 	return result.Data[0].Embedding, nil
+}
+
+// BatchEmbed sends multiple texts in a single /v1/embeddings request.
+// The OpenAI API natively supports array input.
+func (c *openAIClient) BatchEmbed(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+
+	reqBody := openAIBatchRequest{Model: c.model, Input: texts}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal batch request: %v", ErrEmbeddingUnavailable, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/v1/embeddings", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("%w: create request: %v", ErrEmbeddingUnavailable, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.resolvedKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.resolvedKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEmbeddingUnavailable, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("%w: HTTP %d", ErrEmbeddingUnavailable, resp.StatusCode)
+	}
+
+	var result openAIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("%w: decode batch response: %v", ErrEmbeddingUnavailable, err)
+	}
+
+	vectors := make([][]float32, len(result.Data))
+	for i, d := range result.Data {
+		vectors[i] = d.Embedding
+	}
+	return vectors, nil
 }
 
 // Dimensions returns the configured embedding dimension count.

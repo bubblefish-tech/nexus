@@ -20,7 +20,7 @@ package query
 import (
 	"math"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // DecayMode constants for temporal decay reranking.

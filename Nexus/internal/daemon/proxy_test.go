@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 func TestParseTrustedProxies_ValidCIDRs(t *testing.T) {

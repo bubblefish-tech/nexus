@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
-// Package doctor implements the "bubblefish doctor" health check subsystem.
+// Package doctor implements the "nexus doctor" health check subsystem.
 // It tests whether the daemon, WAL, destinations, and disk are healthy without
 // modifying any persistent state.
 //

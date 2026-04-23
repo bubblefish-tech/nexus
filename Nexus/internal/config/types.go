@@ -16,7 +16,7 @@
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
 // Package config provides config loading, resolution, and validation for
-// BubbleFish Nexus. All structs model the TOML files in ~/.bubblefish/Nexus/.
+// BubbleFish Nexus. All structs model the TOML files in ~/.nexus/Nexus/.
 //
 // Config is loaded once at startup and treated as immutable. Hot-reload
 // (Phase 0D) replaces the pointer atomically; in-flight requests always
@@ -42,6 +42,18 @@ type Config struct {
 	// Canonical holds the [canonical] section for embedding canonicalization.
 	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
 	Canonical CanonicalConfig `toml:"canonical"`
+
+	// Provenance holds the [provenance] section for configurable Merkle tree
+	// computation intervals and entry count triggers.
+	Provenance ProvenanceConfig `toml:"provenance"`
+
+	// Control holds the [control] section for the Nexus-native policy engine.
+	// Reference: v0.1.3 Moat-Takeover Build Plan, MT.3.
+	Control ControlConfig `toml:"control"`
+
+	// Tunnels holds [[tunnels]] sections for external tunnel providers.
+	// Reference: Tech Spec WIRE.7.
+	Tunnels []TunnelConfig `toml:"tunnels"`
 
 	// Sources and Destinations are populated by scanning the sources/ and
 	// destinations/ sub-directories. Not decoded from daemon.toml itself.
@@ -71,6 +83,10 @@ type Config struct {
 	// Nil if not configured. NEVER log.
 	// Reference: v0.1.3 Build Plan Phase 2 Subtask 2.3.
 	ResolvedReviewReadKey []byte
+
+	// ResolvedA2ARegToken is the resolved a2a.registration_token bytes.
+	// Nil when self-registration is disabled (empty or not configured). NEVER log.
+	ResolvedA2ARegToken []byte
 }
 
 // SourceByName returns the Source with the given name, or nil if not found.
@@ -147,7 +163,8 @@ type OAuthClientConfig struct {
 
 // A2AConfig models the top-level [a2a] section. Defaults to disabled.
 type A2AConfig struct {
-	Enabled bool `toml:"enabled"`
+	Enabled           bool   `toml:"enabled"`
+	RegistrationToken string `toml:"registration_token"` // env:/file:/literal; empty = self-registration disabled
 }
 
 // AuditConfig models [daemon.audit].
@@ -271,12 +288,25 @@ type MCPConfig struct {
 	Bind       string `toml:"bind"`
 	SourceName string `toml:"source_name"`
 	APIKey     string `toml:"api_key"` // env:/file:/literal reference
+
+	// TLS support (CU.0.7). Default off; set tls_enabled = true to enable.
+	// When operator cert/key are absent the daemon auto-generates ~/.nexus/keys/tls.crt.
+	TLSEnabled  bool   `toml:"tls_enabled"`
+	TLSCertFile string `toml:"tls_cert_file"` // env:/file:/literal reference
+	TLSKeyFile  string `toml:"tls_key_file"`  // env:/file:/literal reference
 }
 
 // WebConfig models [daemon.web].
 type WebConfig struct {
 	Port        int  `toml:"port"`
 	RequireAuth bool `toml:"require_auth"`
+
+	// TLS support (CU.0.7). Dashboard serves HTTPS by default.
+	// Set tls_disabled = true to revert to HTTP.
+	// When operator cert/key are absent the daemon auto-generates ~/.nexus/keys/tls.crt.
+	TLSDisabled bool   `toml:"tls_disabled"`
+	TLSCertFile string `toml:"tls_cert_file"` // env:/file:/literal reference
+	TLSKeyFile  string `toml:"tls_key_file"`  // env:/file:/literal reference
 }
 
 // TLSConfig models [daemon.tls].
@@ -347,6 +377,12 @@ type ConsistencyConfig struct {
 	SampleSize      int  `toml:"sample_size"`
 }
 
+// ProvenanceConfig models the [provenance] section.
+type ProvenanceConfig struct {
+	MerkleInterval string `toml:"merkle_interval"`
+	MerkleEveryN   int    `toml:"merkle_every_n"`
+}
+
 // SecurityEventsConfig models the [security_events] section.
 type SecurityEventsConfig struct {
 	Enabled bool   `toml:"enabled"`
@@ -397,7 +433,7 @@ type IngestConfig struct {
 }
 
 // ---------------------------------------------------------------------------
-// Source TOML — ~/.bubblefish/Nexus/sources/*.toml
+// Source TOML — ~/.nexus/Nexus/sources/*.toml
 // ---------------------------------------------------------------------------
 
 // sourceFile is used exclusively for TOML decoding of a source file.
@@ -544,7 +580,7 @@ type PolicyDecayConfig struct {
 }
 
 // ---------------------------------------------------------------------------
-// Destination TOML — ~/.bubblefish/Nexus/destinations/*.toml
+// Destination TOML — ~/.nexus/Nexus/destinations/*.toml
 // ---------------------------------------------------------------------------
 
 // destinationFile is used exclusively for TOML decoding of a destination file.
@@ -555,23 +591,28 @@ type destinationFile struct {
 // destinationBody models the [destination] section in a destination TOML file.
 type destinationBody struct {
 	Name   string                    `toml:"name"`
-	Type   string                    `toml:"type"` // "sqlite", "postgres", "openbrain"
-	DBPath string                    `toml:"db_path"` // sqlite only; env:/file:/literal
-	DSN    string                    `toml:"dsn"`     // postgres only; env:/file:/literal
-	URL    string                    `toml:"url"`     // openbrain only; env:/file:/literal
-	APIKey string                    `toml:"api_key"` // openbrain only; env:/file:/literal
+	// Type selects the memory backend. One of:
+	//   "sqlite", "postgres", "supabase",
+	//   "mysql", "cockroachdb", "mongodb", "firestore", "tidb", "turso"
+	Type   string                    `toml:"type"`
+	DBPath           string          `toml:"db_path"`           // sqlite: env:/file:/literal path
+	DSN              string          `toml:"dsn"`               // postgres/mysql/cockroachdb/tidb: env:/file:/literal
+	URL              string          `toml:"url"`               // supabase base URL; env:/file:/literal
+	APIKey           string          `toml:"api_key"`           // supabase/firestore credentials; env:/file:/literal
+	ConnectionString string          `toml:"connection_string"` // mongodb URI, turso URL, firestore project ID; env:/file:/literal
 	Decay  DestinationDecayConfig    `toml:"decay"`
 }
 
 // Destination is the fully decoded, validated destination configuration.
 type Destination struct {
-	Name   string
-	Type   string
-	DBPath string
-	DSN    string
-	URL    string
-	APIKey string
-	Decay  DestinationDecayConfig
+	Name             string
+	Type             string
+	DBPath           string
+	DSN              string
+	URL              string
+	APIKey           string
+	ConnectionString string
+	Decay            DestinationDecayConfig
 }
 
 // DestinationDecayConfig models [destination.decay].
@@ -644,4 +685,49 @@ type CanonicalConfig struct {
 	CanonicalDim         int  `toml:"canonical_dim"`
 	WhiteningWarmup      int  `toml:"whitening_warmup"`
 	QueryCacheTTLSeconds int  `toml:"query_cache_ttl_seconds"`
+}
+
+// ControlConfig models the [control] TOML section for the MT.3 policy engine.
+// Defaults to disabled — set enabled = true to activate control-plane stores
+// and policy evaluation.
+type ControlConfig struct {
+	Enabled      bool                      `toml:"enabled"`
+	Capabilities ControlCapabilitiesConfig `toml:"capabilities"`
+}
+
+// ControlCapabilitiesConfig models [control.capabilities].
+type ControlCapabilitiesConfig struct {
+	// RequireApproval is a list of capability names that require an approved
+	// approval request before the policy engine will allow the action.
+	RequireApproval []string `toml:"require_approval"`
+}
+
+// TunnelConfig models one [[tunnels]] TOML entry.
+//
+// All providers share Provider, LocalPort, and Enabled. Additional fields are
+// provider-specific (AuthToken for Cloudflare/ngrok, Hostname for Cloudflare,
+// Domain for Tailscale, Address for Bore, Command for custom).
+//
+// Reference: Tech Spec WIRE.7.
+type TunnelConfig struct {
+	Provider  string `toml:"provider"`  // cloudflare, ngrok, tailscale, bore, custom
+	LocalPort int    `toml:"local_port"` // local daemon port to tunnel
+	Enabled   bool   `toml:"enabled"`
+
+	// Cloudflare Tunnel fields.
+	AuthToken string `toml:"auth_token"` // env:VAR or ENC:v1:... or plaintext (NEVER log)
+	Hostname  string `toml:"hostname"`   // e.g. nexus.example.com
+
+	// ngrok fields (reuse AuthToken; add Region).
+	Region string `toml:"region"` // e.g. "us", "eu"
+
+	// Tailscale Funnel fields.
+	Domain string `toml:"domain"` // Tailscale domain for HTTPS Funnel
+
+	// Bore fields.
+	Address string `toml:"address"` // bore server address, e.g. bore.pub:7835
+
+	// Custom tunnel — arbitrary shell command.
+	// Placeholders: {port} is replaced with LocalPort.
+	Command string `toml:"command"`
 }

@@ -20,6 +20,7 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -39,17 +40,22 @@ import (
 	"github.com/tidwall/gjson"
 	"golang.org/x/time/rate"
 
-	"github.com/BubbleFish-Nexus/internal/audit"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/demo"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/eventsink"
-	"github.com/BubbleFish-Nexus/internal/lint"
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/vizpipe"
-	"github.com/BubbleFish-Nexus/internal/query"
-	"github.com/BubbleFish-Nexus/internal/version"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/health"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/demo"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/eventsink"
+	"github.com/bubblefish-tech/nexus/internal/immune"
+	"github.com/bubblefish-tech/nexus/internal/lint"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/quarantine"
+	"github.com/bubblefish-tech/nexus/internal/subscribe"
+	"github.com/bubblefish-tech/nexus/internal/vizpipe"
+	"github.com/bubblefish-tech/nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/temporal"
+	"github.com/bubblefish-tech/nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 // embedContent computes a vector embedding for the given content string.
@@ -98,8 +104,30 @@ type writeResponse struct {
 
 // queryResponse is the success response for the read handler.
 type queryResponse struct {
-	Results []destination.TranslatedPayload `json:"results"`
-	Nexus   nexusMetadata                   `json:"_nexus"`
+	Results []enrichedRecord `json:"results"`
+	Nexus   nexusMetadata    `json:"_nexus"`
+}
+
+type enrichedRecord struct {
+	destination.TranslatedPayload
+	TemporalBin   int    `json:"temporal_bin"`
+	TemporalLabel string `json:"temporal_label"`
+	AgeHuman      string `json:"age_human"`
+}
+
+func enrichRecords(records []destination.TranslatedPayload) []enrichedRecord {
+	now := time.Now().UTC()
+	out := make([]enrichedRecord, len(records))
+	for i, r := range records {
+		bin := temporal.ComputeBin(r.Timestamp, now)
+		out[i] = enrichedRecord{
+			TranslatedPayload: r,
+			TemporalBin:       bin,
+			TemporalLabel:     temporal.BinLabel(bin),
+			AgeHuman:          temporal.HumanRelativeTime(r.Timestamp, now),
+		}
+	}
+	return out
 }
 
 // openAIMessage is a single entry in the OpenAI chat messages array.
@@ -135,13 +163,22 @@ type nexusMetadata struct {
 	RetrievalFirewallFiltered  bool             `json:"retrieval_firewall_filtered,omitempty"`
 	ClusterExpanded            bool             `json:"cluster_expanded,omitempty"`
 	Conflict                   bool             `json:"conflict,omitempty"`
+	TemporalAwareness          bool             `json:"temporal_awareness"`
+	SearchModes                []string         `json:"search_modes"`
 	Debug                      *query.DebugInfo `json:"debug,omitempty"`
+}
+
+// healthSubsystem is a single subsystem entry in the structured health response.
+type healthSubsystem struct {
+	Status  string `json:"status"`            // "ok", "degraded", "disabled", "enabled"
+	Details string `json:"details,omitempty"` // human-readable qualifier
 }
 
 // healthResponse is returned by /health and /ready.
 type healthResponse struct {
-	Status  string `json:"status"`
-	Version string `json:"version"`
+	Status     string                     `json:"status"`
+	Version    string                     `json:"version"`
+	Subsystems map[string]healthSubsystem `json:"subsystems,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +369,7 @@ func newID() string {
 // 13. Return 200 + payload_id
 func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	writeStart := time.Now()
+	stageStart := writeStart
 
 	// Admin tokens are not permitted on write endpoints.
 	if isAdminFromContext(r.Context()) {
@@ -449,6 +487,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyStr := string(rawBody)
 
+	d.pipeMetrics.writeStages["auth"].record(time.Since(stageStart))
+	d.pipeMetrics.writeStages["policy"].record(time.Since(stageStart))
+	stageStart = time.Now()
+
 	// Step 5 — Idempotency check BEFORE rate limiting.
 	// Reference: Phase 0C Behavioral Contract item 9, Invariant 4.
 	idempotencyKey := r.Header.Get("Idempotency-Key")
@@ -544,6 +586,10 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		}
 		d.metrics.RateLimitBytesTotal.WithLabelValues(src.Name).Add(float64(len(bodyStr)))
 	}
+
+	d.pipeMetrics.writeStages["idempotency"].record(time.Since(stageStart))
+	d.pipeMetrics.writeStages["rate_limit"].record(time.Since(stageStart))
+	stageStart = time.Now()
 
 	// Step 7 — Field mapping via gjson dot-path.
 	// Each entry in src.Mapping is "output_field" → "gjson_path".
@@ -666,11 +712,39 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		ClassificationTier: classificationTier,
 		Tier:               writeTier,
 	}
+	embedStart := time.Now()
 	tp.Embedding = d.embedContent(r.Context(), payloadID, tp.Content)
+	d.pipeMetrics.writeStages["embedding"].record(time.Since(embedStart))
 
 	// Sign write envelope if source has signing enabled.
 	// Reference: v0.1.3 Build Plan Phase 4 Subtask 4.2.
 	d.signWriteEnvelope(&tp)
+
+	// DEF.2 — Tier-0 immune scan. If the scanner intercepts the write,
+	// store it in the quarantine table and return an indistinguishable 200
+	// response. The caller cannot determine which path was taken.
+	if d.immuneScanner != nil {
+		immuneStart := time.Now()
+		metaAny := make(map[string]any, len(tp.Metadata))
+		for k, v := range tp.Metadata {
+			metaAny[k] = v
+		}
+		scan := d.immuneScanner.ScanWrite(tp.Content, metaAny, tp.Embedding)
+		d.pipeMetrics.writeStages["immune_scan"].record(time.Since(immuneStart))
+		d.pipeMetrics.immuneScans.Add(1)
+		switch scan.Action {
+		case "quarantine", "reject":
+			d.pipeMetrics.quarantineTotal.Add(1)
+			metaBytes, _ := json.Marshal(tp.Metadata)
+			d.interceptWrite(w, r, payloadID, requestID, src.Name, actorType, actorID,
+				dest, subject, tp.Content, string(metaBytes), scan, writeStart)
+			return
+		case "normalize":
+			if scan.NormalizedContent != "" {
+				tp.Content = scan.NormalizedContent
+			}
+		}
+	}
 
 	// Build WAL entry payload.
 	payloadBytes, err := json.Marshal(tp)
@@ -713,6 +787,7 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.metrics.WALAppendLatency.Observe(time.Since(walStart).Seconds())
+	d.pipeMetrics.writeStages["wal_append"].record(time.Since(walStart))
 
 	// Emit event to webhook sinks — non-blocking.
 	// Reference: Tech Spec Section 10.1 — emission after WAL append.
@@ -740,6 +815,9 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 			"queue full; data is durable in WAL and will be replayed on restart", 5)
 		return
 	}
+
+	d.pipeMetrics.writeStages["queue_send"].record(time.Since(walStart))
+	d.pipeMetrics.recordWrite()
 
 	d.logger.Info("daemon: write accepted",
 		"component", "daemon",
@@ -797,8 +875,105 @@ func (d *Daemon) handleWrite(w http.ResponseWriter, r *http.Request) {
 		TotalMs:     float64(time.Since(writeStart).Microseconds()) / 1000.0,
 		Stages:      nil,
 	})
+	d.liteBus.Emit("memory_written", map[string]any{"source": src.Name, "payload_id": payloadID})
+
+	if d.subscribeMatcher != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			matches, err := d.subscribeMatcher.Match(ctx, tp.Content)
+			if err == nil {
+				for _, sub := range matches {
+					d.subscribeStore.IncrementMatch(sub.ID)
+					d.liteBus.Emit("subscription.matched", map[string]any{
+						"subscription_id": sub.ID,
+						"agent_id":        sub.AgentID,
+						"filter":          sub.Filter,
+						"memory_id":       payloadID,
+					})
+					d.emitAuditRecord(audit.InteractionRecord{
+						RecordID:      audit.NewRecordID(),
+						Timestamp:     time.Now(),
+						Source:        sub.AgentID,
+						OperationType: "subscription.matched",
+						PolicyDecision: "allowed",
+					})
+				}
+			}
+		}()
+	}
 
 	// Step 13 — Return 200 + payload_id.
+	d.writeJSON(w, http.StatusOK, writeResponse{
+		PayloadID: payloadID,
+		Status:    "accepted",
+	})
+}
+
+// interceptWrite stores an immune-scanner interception in the quarantine table,
+// emits a memory.quarantined audit event, and returns an indistinguishable
+// writeResponse so the caller cannot determine the write was quarantined.
+func (d *Daemon) interceptWrite(
+	w http.ResponseWriter, r *http.Request,
+	payloadID, requestID, sourceName, actorType, actorID, dest, subject,
+	content, metadataJSON string,
+	scan immune.ScanResult,
+	writeStart time.Time,
+) {
+	d.logger.Info("daemon: write quarantined by Tier-0 immune scanner",
+		"component", "immune",
+		"payload_id", payloadID,
+		"rule", scan.Rule,
+		"action", scan.Action,
+	)
+	if d.quarantineStore != nil {
+		rec := quarantine.Record{
+			ID:                quarantine.NewID(),
+			OriginalPayloadID: payloadID,
+			Content:           content,
+			MetadataJSON:      metadataJSON,
+			SourceName:        sourceName,
+			AgentID:           actorID,
+			QuarantineReason:  scan.Details,
+			RuleID:            scan.Rule,
+			QuarantinedAtMs:   time.Now().UnixMilli(),
+		}
+		if err := d.quarantineStore.Insert(rec); err != nil {
+			d.logger.Error("daemon: quarantine store insert failed",
+				"component", "quarantine",
+				"error", err,
+			)
+		}
+	}
+	d.emitControlEvent(
+		audit.ControlEventMemoryQuarantined,
+		actorID, payloadID, "memory",
+		actorID, scan.Rule,
+		"quarantined", scan.Details,
+		map[string]string{"source": sourceName, "scan_action": scan.Action},
+	)
+	d.emitAuditRecord(audit.InteractionRecord{
+		RecordID:       audit.NewRecordID(),
+		RequestID:      requestID,
+		Timestamp:      writeStart,
+		Source:         sourceName,
+		ActorType:      actorType,
+		ActorID:        actorID,
+		EffectiveIP:    effectiveClientIPFromContext(r.Context()),
+		OperationType:  "write",
+		Endpoint:       r.URL.Path,
+		HTTPMethod:     r.Method,
+		HTTPStatusCode: http.StatusOK,
+		PayloadID:      payloadID,
+		Destination:    dest,
+		Subject:        subject,
+		PolicyDecision: "quarantined",
+		PolicyReason:   scan.Rule,
+		LatencyMs:      float64(time.Since(writeStart).Microseconds()) / 1000.0,
+	})
+	d.liteBus.Emit("quarantine_event", map[string]any{"source": sourceName, "rule": scan.Rule, "action": scan.Action, "payload_id": payloadID})
+	d.liteBus.Emit("immune_detection", map[string]any{"source": sourceName, "rule": scan.Rule, "action": scan.Action, "payload_id": payloadID})
+	// Identical shape to a successful write — response-shape indistinguishability.
 	d.writeJSON(w, http.StatusOK, writeResponse{
 		PayloadID: payloadID,
 		Status:    "accepted",
@@ -972,7 +1147,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		WithRetrievalConfig(qcfg.Retrieval).
 		WithDecayCounter(d.metrics.TemporalDecayApplied).
 		WithDebug(debugStages).
-		WithFirewall(d.retrievalFirewall)
+		WithFirewall(d.retrievalFirewall).
+		WithBM25Searcher(d.bm25Searcher)
 
 	// Wire cluster querier for cluster-aware retrieval profile.
 	// Reference: v0.1.3 Build Plan Phase 3 Subtask 3.4.
@@ -1022,6 +1198,17 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if d.subscribeStore != nil && d.subscribeMatcher != nil {
+		agentID := r.Header.Get("X-Agent-ID")
+		if agentID == "" {
+			agentID = src.Name
+		}
+		agentSubs := d.subscribeStore.ListForAgent(agentID)
+		if len(agentSubs) > 0 && len(cascResult.Records) > 1 {
+			d.boostSubscribedResults(r.Context(), cascResult.Records, agentSubs)
+		}
+	}
+
 	queryDuration := time.Since(queryStart)
 	d.metrics.ReadLatency.WithLabelValues(src.Name, "/query").Observe(queryDuration.Seconds())
 
@@ -1066,7 +1253,10 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		TotalMs:     float64(queryDuration.Microseconds()) / 1000.0,
 		Stages:      stages,
 	})
+	d.liteBus.Emit("memory_queried", map[string]any{"source": src.Name, "result_count": len(cascResult.Records)})
+	d.pipeMetrics.recordRead()
 
+	searchModes := []string{"semantic", "keyword", "hybrid"}
 	meta := nexusMetadata{
 		ResultCount:               len(cascResult.Records),
 		HasMore:                   cascResult.HasMore,
@@ -1078,6 +1268,8 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 		SemanticUnavailableReason: cascResult.SemanticUnavailableReason,
 		ClusterExpanded:           cascResult.ClusterExpanded,
 		Conflict:                  cascResult.Conflict,
+		TemporalAwareness:         true,
+		SearchModes:               searchModes,
 		Debug:                     cascResult.Debug,
 	}
 
@@ -1127,12 +1319,12 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// SSE streaming — when client sends Accept: text/event-stream.
 	// Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 8.
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		d.streamQuerySSE(w, cascResult.Records, meta)
+		d.streamQuerySSE(w, enrichRecords(cascResult.Records), meta)
 		return
 	}
 
 	d.writeJSON(w, http.StatusOK, queryResponse{
-		Results: cascResult.Records,
+		Results: enrichRecords(cascResult.Records),
 		Nexus:   meta,
 	})
 }
@@ -1142,12 +1334,81 @@ func (d *Daemon) handleQuery(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 // handleHealth is the liveness probe. Always returns 200 while the process
-// is alive. No authentication required.
+// is alive. Returns structured JSON with all subsystem statuses.
+// No authentication required.
 // Reference: Tech Spec Section 11.4, Phase 0C Behavioral Contract item 13.
 func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
+	subs := make(map[string]healthSubsystem, 7)
+
+	// WAL — in-memory flag set by watchdog; no I/O.
+	if d.walHealthy.Load() == 1 {
+		subs["wal"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["wal"] = healthSubsystem{Status: "degraded", Details: "WAL unhealthy"}
+	}
+
+	// Database — presence check only (no ping here; that lives in /ready).
+	if d.dest != nil {
+		subs["database"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["database"] = healthSubsystem{Status: "degraded", Details: "no destination"}
+	}
+
+	// Audit WAL.
+	if d.auditWAL != nil {
+		subs["audit"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["audit"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// BF-Sketch substrate.
+	if d.substrate != nil && d.substrate.Enabled() {
+		subs["substrate"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["substrate"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// At-rest encryption.
+	if d.mkm != nil && d.mkm.IsEnabled() {
+		subs["encryption"] = healthSubsystem{Status: "enabled"}
+	} else {
+		subs["encryption"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// MCP server.
+	if d.mcpServer != nil {
+		subs["mcp"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["mcp"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// Event bus.
+	if d.eventBus != nil {
+		subs["eventbus"] = healthSubsystem{Status: "ok"}
+	} else {
+		subs["eventbus"] = healthSubsystem{Status: "disabled"}
+	}
+
+	// Subsystem goroutine health — report any recovered panics.
+	if d.subsystemHealth != nil {
+		for name, reason := range d.subsystemHealth.Degraded() {
+			subs[name] = healthSubsystem{Status: "degraded", Details: "panic recovered: " + reason}
+		}
+	}
+
+	// Overall: degraded if any subsystem is degraded.
+	overall := "ok"
+	for _, s := range subs {
+		if s.Status == "degraded" {
+			overall = "degraded"
+			break
+		}
+	}
+
 	d.writeJSON(w, http.StatusOK, healthResponse{
-		Status:  "ok",
-		Version: version.Version,
+		Status:     overall,
+		Version:    version.Version,
+		Subsystems: subs,
 	})
 }
 
@@ -1165,14 +1426,16 @@ func (d *Daemon) handleReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.dest.Ping(); err != nil {
-		d.logger.Warn("daemon: readiness probe: destination unhealthy",
-			"component", "daemon",
-			"error", err,
-		)
-		d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "destination_unavailable",
-			"destination is not reachable", 0)
-		return
+	if pinger, ok := d.dest.(interface{ Ping() error }); ok {
+		if err := pinger.Ping(); err != nil {
+			d.logger.Warn("daemon: readiness probe: destination unhealthy",
+				"component", "daemon",
+				"error", err,
+			)
+			d.writeErrorResponse(w, r, http.StatusServiceUnavailable, "destination_unavailable",
+				"destination is not reachable", 0)
+			return
+		}
 	}
 	d.writeJSON(w, http.StatusOK, healthResponse{
 		Status:  "ready",
@@ -1246,9 +1509,11 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	destHealthy := true
 	var destLastError interface{} = nil
 	if d.dest != nil {
-		if err := d.dest.Ping(); err != nil {
-			destHealthy = false
-			destLastError = err.Error()
+		if pinger, ok := d.dest.(interface{ Ping() error }); ok {
+			if err := pinger.Ping(); err != nil {
+				destHealthy = false
+				destLastError = err.Error()
+			}
 		}
 	}
 
@@ -1260,7 +1525,20 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Source health.
+	sourceHealth := make([]map[string]interface{}, 0, len(cfg.Sources))
+	for _, s := range cfg.Sources {
+		sourceHealth = append(sourceHealth, map[string]interface{}{
+			"name":   s.Name,
+			"status": "active",
+		})
+	}
+
+	// Audit status.
+	auditEnabled := d.auditLogger != nil
+
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":               "ok",
 		"version":              version.Version,
 		"uptime_seconds":       int(time.Since(d.startedAt).Seconds()),
 		"pid":                  os.Getpid(),
@@ -1289,8 +1567,19 @@ func (d *Daemon) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 			"exact_rate":    exactRate,
 			"semantic_rate": semanticRate,
 		},
-		"sources_total":  len(cfg.Sources),
-		"memories_total": memoriesTotal,
+		"sources_total":    len(cfg.Sources),
+		"memories_total":   memoriesTotal,
+		"writes_total":     d.pipeMetrics.writesTotal.Load(),
+		"writes_1m":        d.pipeMetrics.writes1m(),
+		"reads_total":      d.pipeMetrics.readsTotal.Load(),
+		"reads_1m":         d.pipeMetrics.reads1m(),
+		"errors_1m":        d.pipeMetrics.errors1m(),
+		"immune_scans":     d.pipeMetrics.immuneScans.Load(),
+		"quarantine_total": d.pipeMetrics.quarantineTotal.Load(),
+		"audit_enabled":    auditEnabled,
+		"cascade_stages":   d.pipeMetrics.stageSnapshot(d.pipeMetrics.cascadeStages),
+		"write_stages":     d.pipeMetrics.stageSnapshot(d.pipeMetrics.writeStages),
+		"source_health":    sourceHealth,
 	})
 }
 
@@ -1423,10 +1712,9 @@ func (d *Daemon) handleLint(w http.ResponseWriter, r *http.Request) {
 // httptest.ResponseRecorder), this method falls back to regular JSON.
 //
 // Reference: Tech Spec Section 12, Phase 7 Behavioral Contract 8.
-func (d *Daemon) streamQuerySSE(w http.ResponseWriter, records []destination.TranslatedPayload, meta nexusMetadata) {
+func (d *Daemon) streamQuerySSE(w http.ResponseWriter, records []enrichedRecord, meta nexusMetadata) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		// Fall back to regular JSON when the writer cannot flush.
 		d.writeJSON(w, http.StatusOK, queryResponse{Results: records, Nexus: meta})
 		return
 	}
@@ -2269,4 +2557,49 @@ func (d *Daemon) handleProve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.writeJSON(w, http.StatusOK, att)
+}
+
+func (d *Daemon) handleMemoryHealth(w http.ResponseWriter, r *http.Request) {
+	var db *sql.DB
+	if d.registryStore != nil {
+		db = d.registryStore.DB()
+	}
+	h, err := health.CalculateMemoryHealth(db)
+	if err != nil {
+		d.writeErrorResponse(w, r, http.StatusInternalServerError, "internal_error",
+			"failed to calculate memory health: "+err.Error(), 0)
+		return
+	}
+	d.writeJSON(w, http.StatusOK, h)
+}
+
+func (d *Daemon) boostSubscribedResults(ctx context.Context, records []destination.TranslatedPayload, subs []*subscribe.Subscription) {
+	if d.subscribeMatcher == nil || len(subs) == 0 || len(records) <= 1 {
+		return
+	}
+
+	boosted := make([]bool, len(records))
+	for i, rec := range records {
+		for _, sub := range subs {
+			filterVec, err := d.subscribeMatcher.GetFilterEmbedding(ctx, sub)
+			if err != nil || len(filterVec) == 0 || len(rec.Embedding) == 0 {
+				continue
+			}
+			sim := subscribe.CosineSimilarity(filterVec, rec.Embedding)
+			if sim >= 0.65 {
+				boosted[i] = true
+				break
+			}
+		}
+	}
+
+	var top, rest []destination.TranslatedPayload
+	for i, rec := range records {
+		if boosted[i] {
+			top = append(top, rec)
+		} else {
+			rest = append(rest, rec)
+		}
+	}
+	copy(records, append(top, rest...))
 }

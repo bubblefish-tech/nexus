@@ -23,11 +23,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/cache"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/embedding"
-	"github.com/BubbleFish-Nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/cache"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/embedding"
+	"github.com/bubblefish-tech/nexus/internal/query"
 )
 
 // ---------------------------------------------------------------------------
@@ -513,6 +513,11 @@ func (m *mockEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	return []float32{0.1, 0.2, 0.3}, nil
 }
 
+func (m *mockEmbedder) BatchEmbed(_ context.Context, texts []string) ([][]float32, error) {
+	r := make([][]float32, len(texts))
+	for i := range texts { r[i] = []float32{0.1, 0.2, 0.3} }
+	return r, nil
+}
 func (m *mockEmbedder) Dimensions() int { return 3 }
 func (m *mockEmbedder) Close() error    { return nil }
 

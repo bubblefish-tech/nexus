@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-// DeletionProof is the signed bundle produced by `bubblefish substrate
+// DeletionProof is the signed bundle produced by `nexus substrate
 // prove-deletion <memory_id>`. It demonstrates that a memory has been
 // cryptographically shredded.
 type DeletionProof struct {

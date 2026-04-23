@@ -42,6 +42,7 @@ const (
 	CodeExtensionRequired     = -32010
 	CodeIncompatibleVersion   = -32011
 	CodeAgentOffline          = -32012
+	CodeAlreadyExists         = -32013
 )
 
 // errorName maps error codes to their canonical names.
@@ -63,6 +64,7 @@ var errorName = map[int]string{
 	CodeExtensionRequired:     "EXTENSION_REQUIRED",
 	CodeIncompatibleVersion:   "INCOMPATIBLE_VERSION",
 	CodeAgentOffline:          "AGENT_OFFLINE",
+	CodeAlreadyExists:         "ALREADY_EXISTS",
 }
 
 // AllErrorCodes returns every defined error code for enumeration and testing.

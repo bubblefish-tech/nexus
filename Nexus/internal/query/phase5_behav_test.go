@@ -41,10 +41,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/embedding"
-	"github.com/BubbleFish-Nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/embedding"
+	"github.com/bubblefish-tech/nexus/internal/query"
 )
 
 // ---------------------------------------------------------------------------
@@ -237,6 +237,11 @@ type mockEmbedClient struct {
 
 func (m *mockEmbedClient) Embed(_ context.Context, _ string) ([]float32, error) {
 	return m.vec, nil
+}
+func (m *mockEmbedClient) BatchEmbed(_ context.Context, texts []string) ([][]float32, error) {
+	r := make([][]float32, len(texts))
+	for i := range texts { r[i] = m.vec }
+	return r, nil
 }
 func (m *mockEmbedClient) Dimensions() int { return len(m.vec) }
 func (m *mockEmbedClient) Close() error    { return nil }

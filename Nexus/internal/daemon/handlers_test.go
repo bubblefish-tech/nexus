@@ -25,8 +25,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
 )
 
 // buildWriteSource returns a Source with CanWrite=true and an idempotency window.
@@ -347,7 +347,6 @@ func TestHandleHealth(t *testing.T) {
 	src := buildWriteSource()
 	d := buildTestDaemonWithSource(t, src, "src-key-abc")
 
-	// Build a minimal router for /health.
 	router := d.BuildRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -356,6 +355,60 @@ func TestHandleHealth(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", rr.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Status     string                     `json:"status"`
+		Version    string                     `json:"version"`
+		Subsystems map[string]json.RawMessage `json:"subsystems"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode /health: %v", err)
+	}
+	if resp.Status != "ok" && resp.Status != "degraded" {
+		t.Errorf("status = %q; want ok or degraded", resp.Status)
+	}
+	if resp.Version == "" {
+		t.Error("version must not be empty")
+	}
+	for _, key := range []string{"wal", "database", "audit", "substrate", "encryption", "mcp", "eventbus"} {
+		if _, ok := resp.Subsystems[key]; !ok {
+			t.Errorf("subsystems missing key %q", key)
+		}
+	}
+}
+
+func TestHandleHealth_SubsystemStatus(t *testing.T) {
+	t.Helper()
+	src := buildWriteSource()
+	d := buildTestDaemonWithSource(t, src, "src-key-abc")
+
+	router := d.BuildRouter()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	var resp struct {
+		Subsystems map[string]struct {
+			Status string `json:"status"`
+		} `json:"subsystems"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode /health: %v", err)
+	}
+	// WAL should be ok in a healthy test daemon.
+	if s := resp.Subsystems["wal"].Status; s != "ok" {
+		t.Errorf("wal status = %q; want ok", s)
+	}
+	// Database should be ok (test daemon has a destination).
+	if s := resp.Subsystems["database"].Status; s != "ok" {
+		t.Errorf("database status = %q; want ok", s)
+	}
+	// Substrate, encryption, mcp are disabled in minimal test daemon — just verify they are present.
+	for _, key := range []string{"substrate", "encryption", "mcp"} {
+		if s := resp.Subsystems[key].Status; s == "" {
+			t.Errorf("subsystem %q has empty status", key)
+		}
 	}
 }
 

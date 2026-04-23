@@ -103,7 +103,7 @@ func TestErrorCodesInExpectedRange(t *testing.T) {
 			// NA2A custom codes should be in -32000 to -32099
 		} else if c >= -32700 && c <= -32600 {
 			// Standard JSON-RPC codes
-		} else if c >= -32012 && c <= -32000 {
+		} else if c >= -32013 && c <= -32000 {
 			// NA2A codes
 		} else {
 			t.Errorf("unexpected error code range: %d", c)

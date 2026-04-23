@@ -23,7 +23,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/BubbleFish-Nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/metrics"
 )
 
 // TestMultipleRegistriesNoPanic verifies that creating multiple Metrics
@@ -91,17 +91,17 @@ func TestMetricsNonZeroAfterExercise(t *testing.T) {
 	}
 
 	wantNonZero := map[string]bool{
-		"bubblefish_throughput_per_source_total":          false,
-		"bubblefish_payload_processing_latency_seconds":   false,
-		"bubblefish_read_latency_seconds":                 false,
-		"bubblefish_queue_processing_rate_total":          false,
-		"bubblefish_queue_depth":                          false,
-		"bubblefish_wal_pending_entries":                  false,
-		"bubblefish_wal_healthy":                          false,
-		"bubblefish_wal_disk_bytes_free":                  false,
-		"bubblefish_wal_append_latency_seconds":           false,
-		"bubblefish_replay_entries_total":                 false,
-		"bubblefish_replay_duration_seconds":              false,
+		"nexus_throughput_per_source_total":          false,
+		"nexus_payload_processing_latency_seconds":   false,
+		"nexus_read_latency_seconds":                 false,
+		"nexus_queue_processing_rate_total":          false,
+		"nexus_queue_depth":                          false,
+		"nexus_wal_pending_entries":                  false,
+		"nexus_wal_healthy":                          false,
+		"nexus_wal_disk_bytes_free":                  false,
+		"nexus_wal_append_latency_seconds":           false,
+		"nexus_replay_entries_total":                 false,
+		"nexus_replay_duration_seconds":              false,
 	}
 
 	for _, mf := range mfs {
@@ -134,16 +134,16 @@ func TestRegistryServesPrometheusFormat(t *testing.T) {
 		t.Fatalf("Gather() error: %v", err)
 	}
 
-	// Must include the bubblefish_ namespace.
+	// Must include the nexus_ namespace.
 	found := false
 	for _, mf := range mfs {
-		if strings.HasPrefix(mf.GetName(), "bubblefish_") {
+		if strings.HasPrefix(mf.GetName(), "nexus_") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("no bubblefish_ metrics found in registry output")
+		t.Error("no nexus_ metrics found in registry output")
 	}
 }
 
@@ -166,10 +166,10 @@ func TestSecurityMetricsRegistered(t *testing.T) {
 	}
 
 	wantNonZero := map[string]bool{
-		"bubblefish_auth_failures_total":   false,
-		"bubblefish_policy_denials_total":  false,
-		"bubblefish_rate_limit_hits_total": false,
-		"bubblefish_admin_calls_total":     false,
+		"nexus_auth_failures_total":   false,
+		"nexus_policy_denials_total":  false,
+		"nexus_rate_limit_hits_total": false,
+		"nexus_admin_calls_total":     false,
 	}
 
 	for _, mf := range mfs {

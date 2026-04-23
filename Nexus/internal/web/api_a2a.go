@@ -25,12 +25,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/governance"
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/a2a/server"
-	"github.com/BubbleFish-Nexus/internal/a2a/store"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/governance"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/server"
+	"github.com/bubblefish-tech/nexus/internal/a2a/store"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/events"
 )
 
 // A2ADashboard serves A2A-specific dashboard API endpoints.
@@ -41,6 +42,7 @@ type A2ADashboard struct {
 	taskStore  *store.SQLiteTaskStore
 	adminToken string
 	logger     *slog.Logger
+	bus        events.Emitter // EVT.2: nil-safe event emitter for agent events
 }
 
 // NewA2ADashboard creates an A2ADashboard with the given dependencies.
@@ -59,6 +61,10 @@ func NewA2ADashboard(
 		logger:     logger,
 	}
 }
+
+// SetEmitter wires an event emitter for agent registration/deregistration events.
+// If not called (or called with nil), agent events are silently skipped.
+func (d *A2ADashboard) SetEmitter(e events.Emitter) { d.bus = e }
 
 // Handler returns an http.Handler that serves all /api/a2a/* routes.
 func (d *A2ADashboard) Handler() http.Handler {
@@ -169,9 +175,7 @@ func (d *A2ADashboard) handleAgentsCreate(w http.ResponseWriter, r *http.Request
 		req.Transport = "http"
 	}
 
-	agentID := a2a.NewTaskID() // reuse ULID generator; prefix doesn't matter for registry IDs
-	// Use a simple agent ID format.
-	agentID = "agent_" + agentID[4:] // strip tsk_ prefix, add agent_
+	agentID := a2a.NewAgentID()
 
 	agent := registry.RegisteredAgent{
 		AgentID:     agentID,
@@ -196,6 +200,10 @@ func (d *A2ADashboard) handleAgentsCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if d.bus != nil {
+		d.bus.Emit("agent_connected", map[string]any{"agent_id": agentID, "name": req.Name})
+	}
+
 	writeA2AJSON(w, http.StatusCreated, map[string]interface{}{
 		"agent_id": agentID,
 		"name":     req.Name,
@@ -215,6 +223,10 @@ func (d *A2ADashboard) handleAgentsDelete(w http.ResponseWriter, r *http.Request
 		d.logger.Error("a2a: delete agent", "error", err)
 		writeA2AError(w, http.StatusNotFound, "not_found", "agent not found")
 		return
+	}
+
+	if d.bus != nil {
+		d.bus.Emit("agent_disconnected", map[string]any{"agent_id": agentID})
 	}
 
 	writeA2AJSON(w, http.StatusOK, map[string]interface{}{"deleted": agentID})

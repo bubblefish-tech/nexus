@@ -82,7 +82,7 @@ func formatSyslogMessage(sink *SinkConfig, e Event) string {
 	}
 	tag := sink.Tag
 	if tag == "" {
-		tag = "bubblefish"
+		tag = "nexus"
 	}
 
 	// RFC 5424: <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID SD MSG

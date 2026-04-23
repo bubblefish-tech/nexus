@@ -21,9 +21,9 @@ Suitable for power users running multiple AI clients on a home network.
 ## Quick Start
 
 ```bash
-bubblefish install --dest postgres --mode balanced
-# Edit ~/.bubblefish/Nexus/config.toml with your Postgres DSN.
-bubblefish start
+nexus install --dest postgres --mode balanced
+# Edit ~/.nexus/Nexus/config.toml with your Postgres DSN.
+nexus start
 ```
 
 ## Sample Config
@@ -49,7 +49,7 @@ mode = "crc32"
 
 [daemon.wal.encryption]
 enabled  = true
-key_file = "file:~/.bubblefish/Nexus/secrets/wal.key"
+key_file = "file:~/.nexus/Nexus/secrets/wal.key"
 
 [daemon.rate_limit]
 global_requests_per_minute = 300
@@ -105,7 +105,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ## Per-Source Policies
 
-Define separate source files in `~/.bubblefish/Nexus/sources/` for each
+Define separate source files in `~/.nexus/Nexus/sources/` for each
 AI client. Each source gets its own API key, rate limits, and policy
 constraints.
 

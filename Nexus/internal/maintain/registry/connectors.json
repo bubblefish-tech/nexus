@@ -1,0 +1,722 @@
+{
+  "version": "1.0.0",
+  "connectors": [
+    {
+      "name": "claude-desktop",
+      "display_name": "Claude Desktop",
+      "detection": {
+        "method": "mcp_config",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Claude\\claude_desktop_config.json"],
+          "darwin":  ["~/Library/Application Support/Claude/claude_desktop_config.json"],
+          "linux":   ["~/.config/Claude/claude_desktop_config.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": {
+        "key_path": "mcpServers.nexus",
+        "value": {"command": "nexus", "args": ["mcp-stdio"]}
+      },
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Claude\\claude_desktop_config.json"],
+          "darwin":  ["~/Library/Application Support/Claude/claude_desktop_config.json"],
+          "linux":   ["~/.config/Claude/claude_desktop_config.json"]
+        }
+      },
+      "known_issues": [
+        {
+          "id": "missing_mcp_servers_key",
+          "description": "mcpServers key absent from config",
+          "fix_recipe": [
+            {"action": "backup_file",     "params": {"path": "{{config_path}}"}},
+            {"action": "set_config_key",  "params": {"path": "{{config_path}}", "key": "mcpServers.nexus.command", "value": "nexus"}},
+            {"action": "set_config_key",  "params": {"path": "{{config_path}}", "key": "mcpServers.nexus.args",    "value": ["mcp-stdio"]}},
+            {"action": "verify_config",   "params": {"path": "{{config_path}}"}}
+          ]
+        },
+        {
+          "id": "wrong_nexus_command",
+          "description": "nexus command path points to wrong binary",
+          "fix_recipe": [
+            {"action": "backup_file",     "params": {"path": "{{config_path}}"}},
+            {"action": "set_config_key",  "params": {"path": "{{config_path}}", "key": "mcpServers.nexus.command", "value": "nexus"}},
+            {"action": "verify_config",   "params": {"path": "{{config_path}}"}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cursor",
+      "display_name": "Cursor",
+      "detection": {
+        "method": "mcp_config",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Cursor\\User\\settings.json"],
+          "darwin":  ["~/Library/Application Support/Cursor/User/settings.json"],
+          "linux":   ["~/.config/Cursor/User/settings.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": {
+        "key_path": "mcpServers.nexus",
+        "value": {"command": "nexus", "args": ["mcp-stdio"]}
+      },
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Cursor\\User\\settings.json"],
+          "darwin":  ["~/Library/Application Support/Cursor/User/settings.json"],
+          "linux":   ["~/.config/Cursor/User/settings.json"]
+        }
+      },
+      "known_issues": [
+        {
+          "id": "missing_mcp_servers_key",
+          "description": "mcpServers key absent from Cursor settings",
+          "fix_recipe": [
+            {"action": "backup_file",     "params": {"path": "{{config_path}}"}},
+            {"action": "set_config_key",  "params": {"path": "{{config_path}}", "key": "mcpServers.nexus.command", "value": "nexus"}},
+            {"action": "set_config_key",  "params": {"path": "{{config_path}}", "key": "mcpServers.nexus.args",    "value": ["mcp-stdio"]}},
+            {"action": "verify_config",   "params": {"path": "{{config_path}}"}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "windsurf",
+      "display_name": "Windsurf (Codeium)",
+      "detection": {
+        "method": "mcp_config",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Windsurf\\User\\settings.json"],
+          "darwin":  ["~/Library/Application Support/Windsurf/User/settings.json"],
+          "linux":   ["~/.config/Windsurf/User/settings.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": {
+        "key_path": "mcpServers.nexus",
+        "value": {"command": "nexus", "args": ["mcp-stdio"]}
+      },
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Windsurf\\User\\settings.json"],
+          "darwin":  ["~/Library/Application Support/Windsurf/User/settings.json"],
+          "linux":   ["~/.config/Windsurf/User/settings.json"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "cline",
+      "display_name": "Cline (VS Code Extension)",
+      "detection": {
+        "method": "mcp_config",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Code\\User\\globalStorage\\saoudrizwan.claude-dev\\settings\\cline_mcp_settings.json"],
+          "darwin":  ["~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"],
+          "linux":   ["~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": {
+        "key_path": "mcpServers.nexus",
+        "value": {"command": "nexus", "args": ["mcp-stdio"], "disabled": false, "alwaysAllow": []}
+      },
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\Code\\User\\globalStorage\\saoudrizwan.claude-dev\\settings\\cline_mcp_settings.json"],
+          "darwin":  ["~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"],
+          "linux":   ["~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "vscode-continue",
+      "display_name": "VS Code + Continue",
+      "detection": {
+        "method": "mcp_config",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.continue\\config.json"],
+          "darwin":  ["~/.continue/config.json"],
+          "linux":   ["~/.continue/config.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": {
+        "key_path": "mcpServers.nexus",
+        "value": {"command": "nexus", "args": ["mcp-stdio"]}
+      },
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.continue\\config.json"],
+          "darwin":  ["~/.continue/config.json"],
+          "linux":   ["~/.continue/config.json"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "chatgpt-desktop",
+      "display_name": "ChatGPT Desktop",
+      "detection": {
+        "method": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\ChatGPT\\settings.json"],
+          "darwin":  ["~/Library/Application Support/com.openai.chat/settings.json"],
+          "linux":   []
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": null,
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\ChatGPT\\settings.json"],
+          "darwin":  ["~/Library/Application Support/com.openai.chat/settings.json"],
+          "linux":   []
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "codex-cli",
+      "display_name": "OpenAI Codex CLI",
+      "detection": {
+        "method": "filesystem",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.codex\\config.json"],
+          "darwin":  ["~/.codex/config.json"],
+          "linux":   ["~/.codex/config.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": null,
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.codex\\config.json"],
+          "darwin":  ["~/.codex/config.json"],
+          "linux":   ["~/.codex/config.json"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "ollama",
+      "display_name": "Ollama",
+      "detection": {
+        "method": "port",
+        "default_port": 11434,
+        "endpoint": "http://127.0.0.1:11434"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "health_endpoint": "/api/tags"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:11434/api/tags",
+        "expected_status": 200
+      },
+      "known_issues": [
+        {
+          "id": "port_not_listening",
+          "description": "Ollama not running on port 11434",
+          "fix_recipe": [
+            {"action": "restart_process", "params": {"name": "ollama", "args": ["serve"]}},
+            {"action": "wait_for_port",   "params": {"port": 11434}}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lm-studio",
+      "display_name": "LM Studio",
+      "detection": {
+        "method": "port",
+        "default_port": 1234,
+        "endpoint": "http://127.0.0.1:1234"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "health_endpoint": "/v1/models"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:1234/v1/models",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "localai",
+      "display_name": "LocalAI",
+      "detection": {
+        "method": "port",
+        "default_port": 8080,
+        "endpoint": "http://127.0.0.1:8080"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "health_endpoint": "/readyz"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:8080/readyz",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "jan",
+      "display_name": "Jan",
+      "detection": {
+        "method": "port",
+        "default_port": 1337,
+        "endpoint": "http://127.0.0.1:1337"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:1337/v1",
+        "health_endpoint": "/v1/models"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:1337/v1/models",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "gpt4all",
+      "display_name": "GPT4All",
+      "detection": {
+        "method": "port",
+        "default_port": 4891,
+        "endpoint": "http://127.0.0.1:4891"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:4891/v1",
+        "health_endpoint": "/v1/models"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:4891/v1/models",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "vllm",
+      "display_name": "vLLM",
+      "detection": {
+        "method": "port",
+        "default_port": 8000,
+        "endpoint": "http://127.0.0.1:8000"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:8000/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "text-generation-inference",
+      "display_name": "HuggingFace Text Generation Inference",
+      "detection": {
+        "method": "port",
+        "default_port": 3000,
+        "endpoint": "http://127.0.0.1:3000"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:3000/v1",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:3000/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "koboldcpp",
+      "display_name": "KoboldCpp",
+      "detection": {
+        "method": "port",
+        "default_port": 5001,
+        "endpoint": "http://127.0.0.1:5001"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:5001/v1",
+        "health_endpoint": "/api/v1/info"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:5001/api/v1/info",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "tabby",
+      "display_name": "Tabby ML",
+      "detection": {
+        "method": "port",
+        "default_port": 8080,
+        "endpoint": "http://127.0.0.1:8080"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:8080/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "open-webui",
+      "display_name": "Open WebUI",
+      "detection": {
+        "method": "port",
+        "default_port": 3000,
+        "endpoint": "http://127.0.0.1:3000"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:3000/api",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:3000/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "anything-llm",
+      "display_name": "AnythingLLM",
+      "detection": {
+        "method": "port",
+        "default_port": 3001,
+        "endpoint": "http://127.0.0.1:3001"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:3001/api/openai",
+        "health_endpoint": "/api/ping"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:3001/api/ping",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "librechat",
+      "display_name": "LibreChat",
+      "detection": {
+        "method": "port",
+        "default_port": 3080,
+        "endpoint": "http://127.0.0.1:3080"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:3080/api",
+        "health_endpoint": "/api/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:3080/api/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "ollama-docker",
+      "display_name": "Ollama (Docker)",
+      "detection": {
+        "method": "docker",
+        "image_prefix": "ollama/ollama",
+        "default_port": 11434,
+        "endpoint": "http://127.0.0.1:11434"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "health_endpoint": "/api/tags"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:11434/api/tags",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "localai-docker",
+      "display_name": "LocalAI (Docker)",
+      "detection": {
+        "method": "docker",
+        "image_prefix": "localai/localai",
+        "default_port": 8080,
+        "endpoint": "http://127.0.0.1:8080"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "health_endpoint": "/readyz"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:8080/readyz",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "open-webui-docker",
+      "display_name": "Open WebUI (Docker)",
+      "detection": {
+        "method": "docker",
+        "image_prefix": "ghcr.io/open-webui/open-webui",
+        "default_port": 3000,
+        "endpoint": "http://127.0.0.1:3000"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:3000/api",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:3000/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "vllm-docker",
+      "display_name": "vLLM (Docker)",
+      "detection": {
+        "method": "docker",
+        "image_prefix": "vllm/vllm-openai",
+        "default_port": 8000,
+        "endpoint": "http://127.0.0.1:8000"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:8000/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "tgi-docker",
+      "display_name": "HuggingFace TGI (Docker)",
+      "detection": {
+        "method": "docker",
+        "image_prefix": "ghcr.io/huggingface/text-generation-inference",
+        "default_port": 3000,
+        "endpoint": "http://127.0.0.1:3000"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:3000/v1",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:3000/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    },
+    {
+      "name": "claude-code",
+      "display_name": "Claude Code (CLI)",
+      "detection": {
+        "method": "process",
+        "process_names": ["claude"],
+        "config_format": "json"
+      },
+      "mcp_config_template": null,
+      "health_check": {
+        "type": "process",
+        "process_names": ["claude"]
+      },
+      "known_issues": []
+    },
+    {
+      "name": "aider",
+      "display_name": "Aider",
+      "detection": {
+        "method": "filesystem",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.aider.conf.yml"],
+          "darwin":  ["~/.aider.conf.yml"],
+          "linux":   ["~/.aider.conf.yml"]
+        },
+        "config_format": "yaml"
+      },
+      "mcp_config_template": null,
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.aider.conf.yml"],
+          "darwin":  ["~/.aider.conf.yml"],
+          "linux":   ["~/.aider.conf.yml"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "continue-jetbrains",
+      "display_name": "Continue (JetBrains)",
+      "detection": {
+        "method": "mcp_config",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.continue\\config.json"],
+          "darwin":  ["~/.continue/config.json"],
+          "linux":   ["~/.continue/config.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": {
+        "key_path": "mcpServers.nexus",
+        "value": {"command": "nexus", "args": ["mcp-stdio"]}
+      },
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%USERPROFILE%\\.continue\\config.json"],
+          "darwin":  ["~/.continue/config.json"],
+          "linux":   ["~/.continue/config.json"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "zed",
+      "display_name": "Zed Editor",
+      "detection": {
+        "method": "filesystem",
+        "platform_paths": {
+          "windows": [],
+          "darwin":  ["~/.config/zed/settings.json"],
+          "linux":   ["~/.config/zed/settings.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": {
+        "key_path": "context_servers.nexus",
+        "value": {"command": {"path": "nexus", "args": ["mcp-stdio"]}}
+      },
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": [],
+          "darwin":  ["~/.config/zed/settings.json"],
+          "linux":   ["~/.config/zed/settings.json"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "goose",
+      "display_name": "Goose (Block)",
+      "detection": {
+        "method": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\goose\\profiles.yaml"],
+          "darwin":  ["~/.config/goose/profiles.yaml"],
+          "linux":   ["~/.config/goose/profiles.yaml"]
+        },
+        "config_format": "yaml"
+      },
+      "mcp_config_template": null,
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\goose\\profiles.yaml"],
+          "darwin":  ["~/.config/goose/profiles.yaml"],
+          "linux":   ["~/.config/goose/profiles.yaml"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "amp",
+      "display_name": "Amp (Sourcegraph)",
+      "detection": {
+        "method": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\amp\\config.json"],
+          "darwin":  ["~/.config/amp/config.json"],
+          "linux":   ["~/.config/amp/config.json"]
+        },
+        "config_format": "json"
+      },
+      "mcp_config_template": null,
+      "health_check": {
+        "type": "filesystem",
+        "platform_paths": {
+          "windows": ["%APPDATA%\\amp\\config.json"],
+          "darwin":  ["~/.config/amp/config.json"],
+          "linux":   ["~/.config/amp/config.json"]
+        }
+      },
+      "known_issues": []
+    },
+    {
+      "name": "opencode",
+      "display_name": "OpenCode",
+      "detection": {
+        "method": "port",
+        "default_port": 9090,
+        "endpoint": "http://127.0.0.1:9090"
+      },
+      "runtime_api": {
+        "connection_type": "openai_compat",
+        "base_url": "http://127.0.0.1:9090/v1",
+        "health_endpoint": "/health"
+      },
+      "health_check": {
+        "type": "http",
+        "url": "http://127.0.0.1:9090/health",
+        "expected_status": 200
+      },
+      "known_issues": []
+    }
+  ]
+}

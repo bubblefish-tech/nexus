@@ -26,8 +26,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/daemon"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/daemon"
 )
 
 // buildTestDaemon creates a minimal *daemon.Daemon wired against in-memory

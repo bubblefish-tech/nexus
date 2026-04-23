@@ -167,6 +167,13 @@ type QueryParams struct {
 	// SourceTier is the requesting source's tier level (0-3). Only meaningful
 	// when TierFilter = true.
 	SourceTier int
+
+	// TemporalBinFilter, when true, adds `AND temporal_bin = TemporalBin` to
+	// the WHERE clause. Set by the cascade when the query contains temporal
+	// language hints.
+	TemporalBinFilter bool
+	// TemporalBin is the target bin (0-10). Only used when TemporalBinFilter is true.
+	TemporalBin int
 }
 
 // QueryResult holds one page of query results and pagination state.

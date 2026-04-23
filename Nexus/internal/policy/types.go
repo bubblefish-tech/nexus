@@ -19,7 +19,7 @@
 // artifact (compiled/policies.json) that the daemon loads at startup for fast,
 // lock-free policy enforcement.
 //
-// Policy compilation is a build-time step run via `bubblefish build`. It
+// Policy compilation is a build-time step run via `nexus build`. It
 // validates all [source.policy] blocks against the known destination set and
 // serialises the result atomically. The daemon never re-reads raw TOML on the
 // hot path — only the compiled artifact.

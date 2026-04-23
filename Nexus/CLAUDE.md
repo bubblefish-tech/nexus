@@ -15,7 +15,7 @@ This repo maintains a build ledger at `BUILD_LEDGER.md` (repo root).
 The ledger is the single source of truth for which phase/subtask is active, which branches are in-flight, and what's merged. If the ledger and reality disagree, stop and reconcile before continuing.
 
 ## Go Module
-github.com/BubbleFish-Nexus
+github.com/bubblefish-tech/nexus
 
 ## Build Commands
 - Build: `go build ./...`
@@ -37,9 +37,9 @@ github.com/BubbleFish-Nexus
 - Error format: {"error":"code","message":"text","retry_after_seconds":N}
 
 ## Version
-Public version is v0.1.0 (pre-1.0). Internal development version was 2.2.
-Use "0.1.0" in all code, docs, and CLI output.
-CLI --version output: "bubblefish nexus v0.1.0 (pre-1.0, API subject to change)"
+Public version is v0.1.3 (pre-1.0). Internal development version was 2.2.
+Use the current version from internal/version/version.go in all code, docs, and CLI output.
+CLI --version output: "nexus v{version} (pre-1.0, API subject to change)"
 
 ## Testing
 - Every package gets _test.go files.

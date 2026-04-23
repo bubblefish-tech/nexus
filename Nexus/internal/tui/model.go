@@ -21,8 +21,8 @@ package tui
 import (
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/tui/api"
-	"github.com/BubbleFish-Nexus/internal/tui/tabs"
+	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/tabs"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -47,10 +47,15 @@ type Model struct {
 	retryCount   int
 	tabInited    []bool // tracks which tabs have been lazily initialized
 	statusCache  *api.StatusResponse
+	dotFrame     int // incremented by dotTickMsg for status dot pulse
+	prefs        *TUIPrefs
 }
 
 // tickMsg drives periodic API refresh.
 type tickMsg time.Time
+
+// dotTickMsg drives the status dot pulse animation (500ms interval).
+type dotTickMsg time.Time
 
 // healthCheckMsg is the result of a daemon health check.
 type healthCheckMsg struct {
@@ -62,6 +67,10 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
+func dotTickCmd() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return dotTickMsg(t) })
+}
+
 func healthCheckCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		ok, err := client.Health()
@@ -70,8 +79,11 @@ func healthCheckCmd(client *api.Client) tea.Cmd {
 }
 
 // NewModel creates the root model with all tabs.
-func NewModel(client *api.Client, tabList []tabs.Tab) Model {
+func NewModel(client *api.Client, tabList []tabs.Tab, prefs *TUIPrefs) Model {
 	inited := make([]bool, len(tabList))
+	if prefs == nil {
+		prefs = DefaultPrefs()
+	}
 	return Model{
 		activeTab:   0,
 		tabs:        tabList,
@@ -79,10 +91,11 @@ func NewModel(client *api.Client, tabList []tabs.Tab) Model {
 		sidebarOpen: true,
 		daemonUp:    true,
 		tabInited:   inited,
+		prefs:       prefs,
 	}
 }
 
-// Init starts the first tick and health check.
+// Init starts the first tick, health check, and dot pulse.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), healthCheckCmd(m.client))
+	return tea.Batch(tickCmd(), healthCheckCmd(m.client), dotTickCmd())
 }

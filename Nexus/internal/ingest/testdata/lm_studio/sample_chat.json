@@ -1,0 +1,28 @@
+{
+  "id": "lms-session-001",
+  "title": "Test Conversation",
+  "model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF",
+  "createdAt": "2026-04-01T10:00:00Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is the capital of France?",
+      "createdAt": "2026-04-01T10:00:01Z"
+    },
+    {
+      "role": "assistant",
+      "content": "The capital of France is Paris.",
+      "createdAt": "2026-04-01T10:00:03Z"
+    },
+    {
+      "role": "user",
+      "content": "And what language do they speak?",
+      "createdAt": "2026-04-01T10:00:10Z"
+    },
+    {
+      "role": "assistant",
+      "content": "They speak French in France.",
+      "createdAt": "2026-04-01T10:00:12Z"
+    }
+  ]
+}

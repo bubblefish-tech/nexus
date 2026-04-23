@@ -28,8 +28,8 @@ function Require($condition, $passMsg, $failMsg) {
 # ---------------------------------------------------------------------------
 
 $repoRoot = "D:\BubbleFish\Nexus"
-$testHome = "$env:TEMP\bubblefish-smoke-$(Get-Random)"
-$binPath  = "$repoRoot\bubblefish.exe"
+$testHome = "$env:TEMP\nexus-smoke-$(Get-Random)"
+$binPath  = "$repoRoot\nexus.exe"
 $adminTok = "smoke-admin-token-$(Get-Random)"
 $dataTok  = "smoke-data-token-$(Get-Random)"
 $port     = 18765  # uncommon port to avoid collisions
@@ -46,7 +46,7 @@ Pass "Test home: $testHome"
 # ---------------------------------------------------------------------------
 
 Step "Build"
-go build -o $binPath .\cmd\bubblefish\
+go build -o $binPath .\cmd\nexus\
 Require ($LASTEXITCODE -eq 0) "Binary built" "go build failed"
 Require (Test-Path $binPath) "Binary exists at $binPath" "Binary not found"
 

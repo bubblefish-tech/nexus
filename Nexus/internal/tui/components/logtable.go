@@ -19,8 +19,9 @@ package components
 
 import (
 	"strings"
+	"unicode/utf8"
 
-	"github.com/BubbleFish-Nexus/internal/tui/styles"
+	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -117,8 +118,9 @@ func (l LogTable) View() string {
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
-	return s[:max-1] + "…"
+	runes := []rune(s)
+	return string(runes[:max-1]) + "…"
 }

@@ -24,10 +24,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/client"
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/client"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
 )
 
 // TestTransport_HTTP_RoundTrip verifies the echo skill round-trips through

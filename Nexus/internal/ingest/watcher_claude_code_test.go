@@ -240,6 +240,37 @@ func TestClaudeCodeParse_TimestampParsing(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeParse_CRLFOffsets(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crlf.jsonl")
+
+	line1 := `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"2026-04-10T14:00:00Z","sessionId":"s1"}` + "\r\n"
+	line2 := `{"type":"assistant","message":{"role":"assistant","content":"hi","model":"m"},"timestamp":"2026-04-10T14:00:01Z","sessionId":"s1"}` + "\r\n"
+	if err := os.WriteFile(path, []byte(line1+line2), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	w := newTestClaudeCodeWatcher(t)
+	r1, err := w.Parse(context.Background(), path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r1.Memories) != 2 {
+		t.Fatalf("CRLF parse: got %d memories, want 2", len(r1.Memories))
+	}
+
+	// Second parse from NewOffset must return 0 memories — offset drift would
+	// cause it to seek mid-line and re-ingest data or produce parse errors.
+	r2, err := w.Parse(context.Background(), path, r1.NewOffset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r2.Memories) != 0 {
+		t.Errorf("CRLF second parse from NewOffset: got %d memories, want 0 (offset drift)", len(r2.Memories))
+	}
+}
+
 func TestClaudeCodeName(t *testing.T) {
 	w := newTestClaudeCodeWatcher(t)
 	if w.Name() != "claude_code" {

@@ -35,13 +35,14 @@ const (
 	PrefixGrant    = "gnt_"
 	PrefixAudit    = "aud_"
 	PrefixApproval = "apr_"
+	PrefixAgent    = "agt_"
 )
 
 // AllPrefixes returns all defined ID prefixes for validation.
 func AllPrefixes() []string {
 	return []string{
 		PrefixMessage, PrefixTask, PrefixContext, PrefixArtifact,
-		PrefixGrant, PrefixAudit, PrefixApproval,
+		PrefixGrant, PrefixAudit, PrefixApproval, PrefixAgent,
 	}
 }
 
@@ -85,6 +86,9 @@ func NewAuditID() string { return PrefixAudit + newULID() }
 
 // NewApprovalID generates a new apr_ prefixed ULID.
 func NewApprovalID() string { return PrefixApproval + newULID() }
+
+// NewAgentID generates a new agt_ prefixed ULID.
+func NewAgentID() string { return PrefixAgent + newULID() }
 
 // ValidateID checks that an ID has a known prefix and a valid ULID suffix.
 func ValidateID(id string) error {

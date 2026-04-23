@@ -38,8 +38,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/wal"
 )
 
 const (
@@ -84,7 +84,7 @@ type Config struct {
 
 	// OnProcessed is an optional callback invoked after each entry is
 	// successfully written to the destination. Used to increment the
-	// bubblefish_queue_processing_rate metric. Must be safe to call
+	// nexus_queue_processing_rate metric. Must be safe to call
 	// concurrently. If nil, no callback is made.
 	OnProcessed func()
 
@@ -115,7 +115,7 @@ type Queue struct {
 	once        sync.Once
 	wg          sync.WaitGroup
 	logger      *slog.Logger
-	dest        destination.DestinationWriter
+	dest        destination.Destination
 	updater     wal.WALUpdater
 	onProcessed      func()                                    // optional; called after each successful write
 	onDelivered      func(dest string)                         // optional; called with destination name after successful write
@@ -128,7 +128,7 @@ type Queue struct {
 //
 // Callers MUST call Drain or DrainWithContext before process exit to allow
 // in-flight entries to be written to the destination.
-func New(cfg Config, logger *slog.Logger, dest destination.DestinationWriter, updater wal.WALUpdater) *Queue {
+func New(cfg Config, logger *slog.Logger, dest destination.Destination, updater wal.WALUpdater) *Queue {
 	if logger == nil {
 		panic("queue: logger must not be nil")
 	}
@@ -323,7 +323,7 @@ func (q *Queue) processEntry(entry wal.Entry) string {
 	for attempt := 1; attempt <= maxDeliveryAttempts; attempt++ {
 		writeErr := q.dest.Write(tp)
 		if writeErr == nil {
-			// Notify metrics observer (e.g. bubblefish_queue_processing_rate).
+			// Notify metrics observer (e.g. nexus_queue_processing_rate).
 			if q.onProcessed != nil {
 				q.onProcessed()
 			}

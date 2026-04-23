@@ -611,6 +611,29 @@ body{
 .a-line.flash-amber{animation:af-amber 0.5s ease-out;}
 @keyframes af-amber{0%{background:var(--amber-dim);}100%{background:transparent;}}
 
+/* ═══ SECONDARY STAT ROW (WEB.2) ═══ */
+.secondary-stat-row{display:flex;gap:14px;margin-bottom:14px;}
+.secondary-stat-row .metric-card{flex:1;min-width:0;}
+
+/* ═══ ACTIVITY FEED PANEL (WEB.3) ═══ */
+.activity-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px 12px;display:flex;flex-direction:column;margin-bottom:14px;max-height:280px;position:relative;}
+.activity-panel::before{content:'';position:absolute;top:0;left:14px;right:14px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.05),transparent);}
+.activity-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;}
+.activity-list::-webkit-scrollbar{width:6px;}
+.activity-list::-webkit-scrollbar-track{background:transparent;}
+.activity-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.act-line{font-family:'Geist Mono',monospace;font-size:10.5px;padding:4px 0;display:flex;gap:10px;animation:a-in 0.3s ease-out;border-bottom:1px solid transparent;}
+.act-line .act-time{color:var(--text-dim);min-width:88px;}
+.act-line .act-type{font-weight:600;min-width:90px;}
+.act-type.memory_written{color:var(--cyan);}
+.act-type.memory_queried{color:var(--green);}
+.act-type.quarantine_event{color:var(--amber);}
+.act-type.agent_connected{color:var(--green);}
+.act-type.agent_disconnected{color:var(--text-tertiary);}
+.act-type.sentinel_ingest{color:var(--cyan);}
+.act-type.discovery_event{color:var(--text-secondary);}
+.act-line .act-detail{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
 /* ═══ WITNESS MODE OVERLAY ═══ */
 .witness-overlay{
   display:none;
@@ -1949,6 +1972,38 @@ body{
 
       </div>
 
+      <!-- ROW 1.5: Security & ops stat cards (WEB.2) -->
+      <div class="secondary-stat-row">
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+            Audit Records
+          </div>
+          <div class="metric-value" id="mAuditRecords">—</div>
+          <div class="metric-sub" id="mAuditSub">live · /api/audit/status</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Quarantine Pending
+          </div>
+          <div class="metric-value" style="color:var(--amber)" id="mQuarantine">—</div>
+          <div class="metric-sub" id="mQuarantineSub">live · /api/quarantine/count</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Discovered Tools
+          </div>
+          <div class="metric-value" id="mDiscovered">—</div>
+          <div class="metric-sub" id="mDiscoveredSub">5 min cache · /api/discover/results</div>
+        </div>
+
+      </div>
+
       <!-- ROW 2: Source / connected clients -->
       <div class="sources-panel">
         <div class="panel-header">
@@ -2006,6 +2061,21 @@ body{
           <div class="empty-state">waiting for events… (perform a write or query against the daemon)</div>
         </div>
       </div>
+
+      <!-- ROW 4: Activity Feed — /api/events/stream (WEB.3) -->
+      <div class="activity-panel">
+        <div class="panel-header">
+          <span class="panel-title">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Activity Feed — Live
+          </span>
+          <span class="panel-meta" id="activityFeedMeta">SSE · /api/events/stream</span>
+        </div>
+        <div class="activity-list" id="activityList">
+          <div class="empty-state">waiting for activity events…</div>
+        </div>
+      </div>
+
     </div>
     </div><!-- /view-control -->
 
@@ -2580,9 +2650,40 @@ const SOURCE_COLORS = {
   'default': { c: 'var(--cyan)', g: 'var(--cyan-glow)', cls: 'src-default' }
 };
 function srcColor(id) { return SOURCE_COLORS[id] || { c: 'var(--text-tertiary)', g: 'transparent', cls: 'src-other' }; }
+// INVARIANT: All dynamic content uses textContent or createElement.
+// NEVER use innerHTML with server-supplied data.
+// See: agents.html, grants.html, approvals.html, tasks.html, actions.html for reference pattern.
+
 function srcDot(id) {
   const { c, g } = srcColor(id);
   return `<span class="dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};box-shadow:0 0 6px ${g};margin-right:6px;vertical-align:middle"></span>`;
+}
+
+function createSrcDot(id) {
+  const { c, g } = srcColor(id);
+  const span = document.createElement('span');
+  span.className = 'dot';
+  Object.assign(span.style, { display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', background:c, boxShadow:'0 0 6px '+g, marginRight:'6px', verticalAlign:'middle' });
+  return span;
+}
+
+function createEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = String(text);
+  return el;
+}
+
+function setEmpty(parent, msg) {
+  parent.textContent = '';
+  parent.appendChild(createEl('div', 'empty-state', msg));
+}
+
+function createTextTd(text, cls) {
+  const td = document.createElement('td');
+  if (cls) td.className = cls;
+  td.textContent = text != null ? String(text) : '';
+  return td;
 }
 
 /* ═══ EVENT BUS — single SSE connection fanned out to subscribers ═══ */
@@ -2732,13 +2833,16 @@ function animateCascade(scopeId, ev) {
    CONTROL PLANE / OPS VIEW
 ═══════════════════════════════════════════════════════════════════ */
 const controlView = (() => {
-  let timer = null, busOff = null, statsTimer = null;
+  let timer = null, busOff = null, statsTimer = null, activityFeedHandle = null;
 
   async function refresh() {
-    const [s, c, p] = await Promise.all([
+    const [s, c, p, auditSt, qCount, discResults] = await Promise.all([
       nx.fetch('/api/status'),
       nx.fetch('/api/cache'),
-      nx.fetch('/api/policies')
+      nx.fetch('/api/policies'),
+      nx.fetch('/api/audit/status'),
+      nx.fetch('/api/quarantine/count'),
+      nx.fetch('/api/discover/results')
     ]);
 
     // ─ ROW 1: metric cards ─
@@ -2756,7 +2860,11 @@ const controlView = (() => {
       const hitRate = totalReqs > 0 ? totalHits / totalReqs : null;
       setText('mCache', hitRate != null ? Math.round(hitRate*100) : DASH);
       const mCacheEl = $('mCache');
-      if (mCacheEl && hitRate != null) mCacheEl.innerHTML = Math.round(hitRate*100) + '<span class="unit">%</span>';
+      if (mCacheEl && hitRate != null) {
+        mCacheEl.textContent = '';
+        mCacheEl.appendChild(document.createTextNode(Math.round(hitRate*100)));
+        mCacheEl.appendChild(createEl('span', 'unit', '%'));
+      }
       const sub = $('mCacheSub');
       if (sub) {
         if (c) sub.textContent = `exact ${fmt.num(c.exact.hits)} · semantic ${fmt.num(c.semantic.hits)} · miss ${fmt.num(c.misses_total)}`;
@@ -2793,32 +2901,100 @@ const controlView = (() => {
     if (grid) {
       if (p && p.sources) {
         setText('sourcesMeta', `${p.sources.length} configured`);
-        grid.innerHTML = p.sources.map(src => {
+        grid.textContent = '';
+        p.sources.forEach(src => {
           const col = srcColor(src.source);
-          return `
-          <div class="source-card">
-            <div class="source-name">
-              <div class="source-dot" style="background:${col.c};box-shadow:0 0 6px ${col.g}"></div>
-              ${src.source}
-            </div>
-            <div class="source-stats">
-              <span>R <span style="color:${src.can_read ? 'var(--green)' : 'var(--red)'}">${src.can_read ? 'YES' : 'NO'}</span></span>
-              <span>W <span style="color:${src.can_write ? 'var(--green)' : 'var(--red)'}">${src.can_write ? 'YES' : 'NO'}</span></span>
-              <span>limit <span style="color:var(--text-secondary)">${fmt.num(src.rate_limit_per_min)}/min</span></span>
-            </div>
-            <div class="source-stats" style="margin-top:4px">
-              <span>dest <span style="color:var(--text-secondary)">${(src.allowed_destinations||[]).join(', ')}</span></span>
-              <span>policy <code style="font-size:9.5px;color:var(--text-tertiary)">${(src.policy_hash||'').slice(0,6)}…</code></span>
-            </div>
-          </div>`;
-        }).join('') + `
-          <div class="source-card add">
-            <div class="source-name">+ Add Source</div>
-            <div class="source-stats"><span>edit <code>sources/*.toml</code> &amp; restart</span></div>
-          </div>`;
+          const card = createEl('div', 'source-card');
+
+          const nameDiv = createEl('div', 'source-name');
+          const dot = document.createElement('div');
+          dot.className = 'source-dot';
+          dot.style.background = col.c;
+          dot.style.boxShadow = '0 0 6px ' + col.g;
+          nameDiv.appendChild(dot);
+          nameDiv.appendChild(document.createTextNode(src.source));
+          card.appendChild(nameDiv);
+
+          const stats1 = createEl('div', 'source-stats');
+          const rSpan = document.createElement('span');
+          rSpan.appendChild(document.createTextNode('R '));
+          const rVal = createEl('span', null, src.can_read ? 'YES' : 'NO');
+          rVal.style.color = src.can_read ? 'var(--green)' : 'var(--red)';
+          rSpan.appendChild(rVal);
+          stats1.appendChild(rSpan);
+          const wSpan = document.createElement('span');
+          wSpan.appendChild(document.createTextNode('W '));
+          const wVal = createEl('span', null, src.can_write ? 'YES' : 'NO');
+          wVal.style.color = src.can_write ? 'var(--green)' : 'var(--red)';
+          wSpan.appendChild(wVal);
+          stats1.appendChild(wSpan);
+          const limSpan = document.createElement('span');
+          limSpan.appendChild(document.createTextNode('limit '));
+          const limVal = createEl('span', null, fmt.num(src.rate_limit_per_min) + '/min');
+          limVal.style.color = 'var(--text-secondary)';
+          limSpan.appendChild(limVal);
+          stats1.appendChild(limSpan);
+          card.appendChild(stats1);
+
+          const stats2 = createEl('div', 'source-stats');
+          stats2.style.marginTop = '4px';
+          const destSpan = document.createElement('span');
+          destSpan.appendChild(document.createTextNode('dest '));
+          const destVal = createEl('span', null, (src.allowed_destinations||[]).join(', '));
+          destVal.style.color = 'var(--text-secondary)';
+          destSpan.appendChild(destVal);
+          stats2.appendChild(destSpan);
+          const polSpan = document.createElement('span');
+          polSpan.appendChild(document.createTextNode('policy '));
+          const polCode = document.createElement('code');
+          polCode.style.fontSize = '9.5px';
+          polCode.style.color = 'var(--text-tertiary)';
+          polCode.textContent = (src.policy_hash||'').slice(0,6) + '\u2026';
+          polSpan.appendChild(polCode);
+          stats2.appendChild(polSpan);
+          card.appendChild(stats2);
+
+          grid.appendChild(card);
+        });
+        const addCard = createEl('div', 'source-card add');
+        const addName = createEl('div', 'source-name', '+ Add Source');
+        addCard.appendChild(addName);
+        const addStats = createEl('div', 'source-stats');
+        const addSpan = document.createElement('span');
+        addSpan.appendChild(document.createTextNode('edit '));
+        const addCode = createEl('code', null, 'sources/*.toml');
+        addSpan.appendChild(addCode);
+        addSpan.appendChild(document.createTextNode(' & restart'));
+        addStats.appendChild(addSpan);
+        addCard.appendChild(addStats);
+        grid.appendChild(addCard);
       } else {
-        grid.innerHTML = '<div class="empty-state">no source data — endpoint unreachable</div>';
+        setEmpty(grid, 'no source data \u2014 endpoint unreachable');
       }
+    }
+
+    // ─ ROW 1.5: secondary stat cards (WEB.2) ─
+    if (auditSt) {
+      setText('mAuditRecords', fmt.num(auditSt.total_records));
+      setText('mAuditSub', auditSt.audit_enabled ? 'live · /api/audit/status' : 'disabled');
+    } else {
+      setText('mAuditRecords', DASH);
+      setText('mAuditSub', 'endpoint unreachable');
+    }
+    if (qCount) {
+      setText('mQuarantine', fmt.num(qCount.pending));
+      setText('mQuarantineSub', fmt.num(qCount.total) + ' total · ' + fmt.num(qCount.pending) + ' pending');
+    } else {
+      setText('mQuarantine', DASH);
+      setText('mQuarantineSub', 'endpoint unreachable');
+    }
+    if (discResults) {
+      setText('mDiscovered', fmt.num(discResults.total));
+      const cachedNote = discResults.cached_at ? 'cached ' + fmt.ts(discResults.cached_at) : '5 min cache';
+      setText('mDiscoveredSub', cachedNote + ' · /api/discover/results');
+    } else {
+      setText('mDiscovered', DASH);
+      setText('mDiscoveredSub', 'endpoint unreachable');
     }
 
     // ─ ROW 3: pipeline profile + cache fields are updated below in updateWindowStats ─
@@ -2841,7 +3017,11 @@ const controlView = (() => {
     const w = rollingWindow.snapshot();
     setText('mRate',    w.qps != null ? fmt.rate(w.qps) : DASH);
     const mRateEl = $('mRate');
-    if (mRateEl && w.qps != null) mRateEl.innerHTML = fmt.rate(w.qps) + '<span class="unit">/s</span>';
+    if (mRateEl && w.qps != null) {
+      mRateEl.textContent = '';
+      mRateEl.appendChild(document.createTextNode(fmt.rate(w.qps)));
+      mRateEl.appendChild(createEl('span', 'unit', '/s'));
+    }
     setText('mRateSub', `${w.n} events in last ${CONFIG.WINDOW_MS/1000}s`);
 
     setText('pipeQps',       w.qps != null ? fmt.rate(w.qps) : DASH);
@@ -2864,18 +3044,64 @@ const controlView = (() => {
     }
   }
 
+  // ─ Activity Feed (WEB.3) — /api/events/stream ─
+  function onActivityEvent(ev) {
+    const list = $('activityList');
+    if (!list) return;
+    const empty = list.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const line = document.createElement('div');
+    line.className = 'act-line';
+
+    const timeEl = createEl('span', 'act-time', fmt.ts(ev.ts));
+    line.appendChild(timeEl);
+
+    const typeStr = String(ev.type || '');
+    const typeEl = document.createElement('span');
+    typeEl.className = 'act-type ' + typeStr;
+    typeEl.textContent = typeStr;
+    line.appendChild(typeEl);
+
+    const parts = [];
+    if (ev.source) parts.push(ev.source);
+    if (ev.agent_id) parts.push('agent:' + ev.agent_id);
+    if (ev.meta) { Object.keys(ev.meta).forEach(function(k) { parts.push(k + ':' + ev.meta[k]); }); }
+    const detailEl = createEl('span', 'act-detail', parts.join(' · ') || '—');
+    line.appendChild(detailEl);
+
+    list.insertBefore(line, list.firstChild);
+    while (list.children.length > 50) list.removeChild(list.lastChild);
+  }
+
+  function startActivityFeed() {
+    if (activityFeedHandle) return;
+    activityFeedHandle = nx.sse('/api/events/stream',
+      onActivityEvent,
+      function(state) {
+        const el = $('activityFeedMeta');
+        if (el) el.textContent = 'SSE · ' + state;
+      });
+  }
+
+  function stopActivityFeed() {
+    if (activityFeedHandle) { activityFeedHandle.close(); activityFeedHandle = null; }
+  }
+
   return {
     mount() {
       refresh();
       timer = setInterval(refresh, CONFIG.REFRESH_MS);
       statsTimer = setInterval(updateWindowStats, 1000);
       busOff = bus.on(onEvent);
+      startActivityFeed();
       updateWindowStats();
     },
     unmount() {
       clearInterval(timer); timer = null;
       clearInterval(statsTimer); statsTimer = null;
       if (busOff) busOff();
+      stopActivityFeed();
     }
   };
 })();
@@ -2911,16 +3137,28 @@ const auditView = (() => {
     const tr = document.createElement('tr');
     tr.className = ev.status === 'FILTERED' ? 'flash-amber' : ev.status === 'DENIED' ? 'flash-red' : '';
     const polClass = ev.status === 'ALLOWED' ? 'ok' : ev.status === 'FILTERED' ? 'filt' : 'deny';
-    const subj = ev.subject || '<span style="color:var(--text-tertiary)">∅</span>';
-    tr.innerHTML = `
-      <td class="col-time">${fmt.ts(ev.ts)}</td>
-      <td class="col-op ${ev.op === 'WRITE' ? 'write' : 'query'}">${ev.op}</td>
-      <td class="col-src">${srcDot(ev.source)}${ev.source}</td>
-      <td class="col-subject"><code>${subj}</code></td>
-      <td class="col-detail">${ev.op === 'QUERY' ? 'results: ' + ev.result_count : 'payload accepted'}${ev.labels && ev.labels.length ? ' · labels:[' + ev.labels.join(',') + ']' : ''}</td>
-      <td class="col-status ${polClass}">${ev.status}</td>
-      <td class="col-lat">${ev.total_ms != null ? ev.total_ms.toFixed(1) + 'ms' : DASH}</td>
-    `;
+    tr.appendChild(createTextTd(fmt.ts(ev.ts), 'col-time'));
+    tr.appendChild(createTextTd(ev.op, 'col-op ' + (ev.op === 'WRITE' ? 'write' : 'query')));
+    const srcTd = createTextTd(null, 'col-src');
+    srcTd.appendChild(createSrcDot(ev.source));
+    srcTd.appendChild(document.createTextNode(ev.source));
+    tr.appendChild(srcTd);
+    const subjTd = document.createElement('td');
+    subjTd.className = 'col-subject';
+    const subjCode = document.createElement('code');
+    if (ev.subject) {
+      subjCode.textContent = ev.subject;
+    } else {
+      const nullSpan = createEl('span', null, '\u2205');
+      nullSpan.style.color = 'var(--text-tertiary)';
+      subjCode.appendChild(nullSpan);
+    }
+    subjTd.appendChild(subjCode);
+    tr.appendChild(subjTd);
+    const detailText = (ev.op === 'QUERY' ? 'results: ' + ev.result_count : 'payload accepted') + (ev.labels && ev.labels.length ? ' \u00b7 labels:[' + ev.labels.join(',') + ']' : '');
+    tr.appendChild(createTextTd(detailText, 'col-detail'));
+    tr.appendChild(createTextTd(ev.status, 'col-status ' + polClass));
+    tr.appendChild(createTextTd(ev.total_ms != null ? ev.total_ms.toFixed(1) + 'ms' : DASH, 'col-lat'));
     tbody.appendChild(tr);
     tbody.parentElement.scrollTop = tbody.parentElement.scrollHeight;
   }
@@ -2941,14 +3179,20 @@ const auditView = (() => {
     log.records.forEach(r => {
       const tr = document.createElement('tr');
       tr.className = 'persisted';
-      tr.innerHTML = `
-        <td class="col-time">${fmt.ts(r.timestamp || r.ts)}</td>
-        <td class="col-op ${(r.operation_type||'').toLowerCase().includes('write') ? 'write' : 'query'}">${r.operation_type || '—'}</td>
-        <td class="col-src">${srcDot(r.source)}${r.source || '—'}</td>
-        <td class="col-subject"><code>${r.subject || '∅'}</code></td>
-        <td class="col-detail">${r.endpoint || ''}</td>
-        <td class="col-status ${(r.policy_decision || '').toLowerCase()}">${r.policy_decision || '—'}</td>
-        <td class="col-lat">${r.latency_ms != null ? r.latency_ms.toFixed(1) + 'ms' : DASH}</td>`;
+      tr.appendChild(createTextTd(fmt.ts(r.timestamp || r.ts), 'col-time'));
+      tr.appendChild(createTextTd(r.operation_type || '\u2014', 'col-op ' + ((r.operation_type||'').toLowerCase().includes('write') ? 'write' : 'query')));
+      const pSrcTd = createTextTd(null, 'col-src');
+      pSrcTd.appendChild(createSrcDot(r.source));
+      pSrcTd.appendChild(document.createTextNode(r.source || '\u2014'));
+      tr.appendChild(pSrcTd);
+      const pSubjTd = document.createElement('td');
+      pSubjTd.className = 'col-subject';
+      const pSubjCode = createEl('code', null, r.subject || '\u2205');
+      pSubjTd.appendChild(pSubjCode);
+      tr.appendChild(pSubjTd);
+      tr.appendChild(createTextTd(r.endpoint || '', 'col-detail'));
+      tr.appendChild(createTextTd(r.policy_decision || '\u2014', 'col-status ' + (r.policy_decision || '').toLowerCase()));
+      tr.appendChild(createTextTd(r.latency_ms != null ? r.latency_ms.toFixed(1) + 'ms' : DASH, 'col-lat'));
       tbody.appendChild(tr);
     });
   }
@@ -3023,53 +3267,81 @@ const securityView = (() => {
 
     const tbody = $('policyTableBody');
     if (tbody) {
+      tbody.textContent = '';
       if (policies && policies.sources && policies.sources.length) {
-        tbody.innerHTML = policies.sources.map(p => `
-          <tr>
-            <td class="src">${srcDot(p.source)}${p.source}</td>
-            <td class="cap-cell ${p.can_read  ? 'cap-yes' : 'cap-no'}">${p.can_read  ? 'YES' : 'NO'}</td>
-            <td class="cap-cell ${p.can_write ? 'cap-yes' : 'cap-no'}">${p.can_write ? 'YES' : 'NO'}</td>
-            <td>${(p.allowed_destinations||[]).join(', ')}</td>
-            <td>${fmt.num(p.max_results)}</td>
-            <td>${fmt.num(p.max_response_bytes)}</td>
-            <td>${fmt.num(p.rate_limit_per_min)}/min</td>
-            <td><code style="font-size:9.5px;color:var(--text-tertiary)">${(p.policy_hash||'').slice(0,6)}…</code></td>
-          </tr>`).join('');
+        policies.sources.forEach(p => {
+          const tr = document.createElement('tr');
+          const srcTd = createTextTd(null, 'src');
+          srcTd.appendChild(createSrcDot(p.source));
+          srcTd.appendChild(document.createTextNode(p.source));
+          tr.appendChild(srcTd);
+          tr.appendChild(createTextTd(p.can_read ? 'YES' : 'NO', 'cap-cell ' + (p.can_read ? 'cap-yes' : 'cap-no')));
+          tr.appendChild(createTextTd(p.can_write ? 'YES' : 'NO', 'cap-cell ' + (p.can_write ? 'cap-yes' : 'cap-no')));
+          tr.appendChild(createTextTd((p.allowed_destinations||[]).join(', ')));
+          tr.appendChild(createTextTd(fmt.num(p.max_results)));
+          tr.appendChild(createTextTd(fmt.num(p.max_response_bytes)));
+          tr.appendChild(createTextTd(fmt.num(p.rate_limit_per_min) + '/min'));
+          const hashTd = document.createElement('td');
+          const hashCode = document.createElement('code');
+          hashCode.style.fontSize = '9.5px';
+          hashCode.style.color = 'var(--text-tertiary)';
+          hashCode.textContent = (p.policy_hash||'').slice(0,6) + '\u2026';
+          hashTd.appendChild(hashCode);
+          tr.appendChild(hashTd);
+          tbody.appendChild(tr);
+        });
       } else {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">no policy data</td></tr>';
+        const tr = document.createElement('tr');
+        const td = createTextTd('no policy data', 'empty-state');
+        td.colSpan = 8;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
       }
     }
 
     const eList = $('secEventsList');
     if (eList) {
+      eList.textContent = '';
       if (events && events.events && events.events.length) {
-        eList.innerHTML = events.events.map(e => `
-          <div class="sec-event ${e.severity}">
-            <div class="sec-event-head">
-              <span class="sec-event-kind">${(e.kind||'').replace(/_/g,' ')}</span>
-              <span class="sec-event-ts">${new Date(e.ts).toLocaleTimeString()}</span>
-            </div>
-            <div class="sec-event-body">
-              ${e.source ? srcDot(e.source) + '<span style="color:var(--text-tertiary)">' + e.source + '</span> · ' : ''}${e.message || ''}
-            </div>
-          </div>`).join('');
+        events.events.forEach(e => {
+          const card = createEl('div', 'sec-event ' + (e.severity||''));
+          const head = createEl('div', 'sec-event-head');
+          head.appendChild(createEl('span', 'sec-event-kind', (e.kind||'').replace(/_/g,' ')));
+          head.appendChild(createEl('span', 'sec-event-ts', new Date(e.ts).toLocaleTimeString()));
+          card.appendChild(head);
+          const body = createEl('div', 'sec-event-body');
+          if (e.source) {
+            body.appendChild(createSrcDot(e.source));
+            const srcSpan = createEl('span', null, e.source);
+            srcSpan.style.color = 'var(--text-tertiary)';
+            body.appendChild(srcSpan);
+            body.appendChild(document.createTextNode(' \u00b7 '));
+          }
+          body.appendChild(document.createTextNode(e.message || ''));
+          card.appendChild(body);
+          eList.appendChild(card);
+        });
       } else {
-        eList.innerHTML = '<div class="empty-state">no recent security events</div>';
+        eList.appendChild(createEl('div', 'empty-state', 'no recent security events'));
       }
     }
 
     const lList = $('lintList');
     if (lList) {
+      lList.textContent = '';
       if (lint && lint.warnings && lint.warnings.length) {
-        lList.innerHTML = lint.warnings.map(w => `
-          <div class="lint-row ${w.severity}">
-            <span class="lint-sev">${(w.severity||'').toUpperCase()}</span>
-            <span class="lint-code"><code>${w.code}</code></span>
-            <span class="lint-msg">${w.message}</span>
-            <span class="lint-loc">${w.file}${w.line ? ':' + w.line : ''}</span>
-          </div>`).join('');
+        lint.warnings.forEach(w => {
+          const row = createEl('div', 'lint-row ' + (w.severity||''));
+          row.appendChild(createEl('span', 'lint-sev', (w.severity||'').toUpperCase()));
+          const codeSpan = createEl('span', 'lint-code');
+          codeSpan.appendChild(createEl('code', null, w.code));
+          row.appendChild(codeSpan);
+          row.appendChild(createEl('span', 'lint-msg', w.message));
+          row.appendChild(createEl('span', 'lint-loc', w.file + (w.line ? ':' + w.line : '')));
+          lList.appendChild(row);
+        });
       } else {
-        lList.innerHTML = '<div class="empty-state">no lint warnings</div>';
+        lList.appendChild(createEl('div', 'empty-state', 'no lint warnings'));
       }
     }
   }
@@ -3114,14 +3386,20 @@ const pipelineView = (() => {
     while (list.children.length > 60) list.firstChild.remove();
     const line = document.createElement('div');
     line.className = 'sse-line';
-    const stages = ev.stages
-      ? ev.stages.map(s => `<span class="sse-step ${s.hit?'hit':''} ${s.ms===0?'skip':''}">${s.name}:${s.ms.toFixed(2)}ms</span>`).join(' <span class="sse-arrow">→</span> ')
-      : '<span class="sse-step">write</span>';
-    line.innerHTML = `
-      <span class="sse-ts">${fmt.ts(ev.ts)}</span>
-      <span class="sse-req">${ev.request_id}</span>
-      <span class="sse-stages">${stages}</span>
-      <span class="sse-total">${ev.total_ms.toFixed(2)}ms</span>`;
+    line.appendChild(createEl('span', 'sse-ts', fmt.ts(ev.ts)));
+    line.appendChild(createEl('span', 'sse-req', ev.request_id));
+    const stagesSpan = createEl('span', 'sse-stages');
+    if (ev.stages) {
+      ev.stages.forEach((s, i) => {
+        if (i > 0) stagesSpan.appendChild(createEl('span', 'sse-arrow', '\u2192'));
+        const cls = 'sse-step' + (s.hit ? ' hit' : '') + (s.ms === 0 ? ' skip' : '');
+        stagesSpan.appendChild(createEl('span', cls, s.name + ':' + s.ms.toFixed(2) + 'ms'));
+      });
+    } else {
+      stagesSpan.appendChild(createEl('span', 'sse-step', 'write'));
+    }
+    line.appendChild(stagesSpan);
+    line.appendChild(createEl('span', 'sse-total', ev.total_ms.toFixed(2) + 'ms'));
     list.appendChild(line);
     list.scrollTop = list.scrollHeight;
   }
@@ -3168,34 +3446,45 @@ const conflictsView = (() => {
     const list = $('conflictList');
     const cnt = $('conflictCount');
     if (!data) {
-      if (list) list.innerHTML = '<div class="empty-state">/api/conflicts unreachable</div>';
-      if (cnt)  { cnt.textContent = '— conflicts'; cnt.className = 'filter-pill'; }
+      if (list) setEmpty(list, '/api/conflicts unreachable');
+      if (cnt)  { cnt.textContent = '\u2014 conflicts'; cnt.className = 'filter-pill'; }
       return;
     }
     if (list) {
+      list.textContent = '';
       if (!data.conflicts || !data.conflicts.length) {
-        list.innerHTML = '<div class="empty-state">no conflicts found for current filters</div>';
+        list.appendChild(createEl('div', 'empty-state', 'no conflicts found for current filters'));
       } else {
-        list.innerHTML = data.conflicts.map(c => `
-          <div class="conflict-card">
-            <div class="conflict-head">
-              <div class="conflict-title">
-                <span class="conflict-id">${c.id}</span>
-                <span class="conflict-subject"><code>${c.subject}</code></span>
-                ${c.entity ? '<span class="conflict-entity">→ <code>' + c.entity + '</code></span>' : ''}
-              </div>
-              <span class="conflict-pill">${c.group_size} divergent</span>
-            </div>
-            <div class="conflict-mems">
-              ${(c.memories||[]).map(m => `
-                <div class="conflict-mem">
-                  <div class="conflict-mem-meta">
-                    ${srcDot(m.source)}${m.source} · ${m.actor_type} · ${new Date(m.ts).toLocaleString()}
-                  </div>
-                  <div class="conflict-mem-content">${escapeHtml(m.content || '')}</div>
-                </div>`).join('')}
-            </div>
-          </div>`).join('');
+        data.conflicts.forEach(c => {
+          const card = createEl('div', 'conflict-card');
+          const head = createEl('div', 'conflict-head');
+          const title = createEl('div', 'conflict-title');
+          title.appendChild(createEl('span', 'conflict-id', c.id));
+          const subjSpan = createEl('span', 'conflict-subject');
+          subjSpan.appendChild(createEl('code', null, c.subject));
+          title.appendChild(subjSpan);
+          if (c.entity) {
+            const entSpan = createEl('span', 'conflict-entity');
+            entSpan.appendChild(document.createTextNode('\u2192 '));
+            entSpan.appendChild(createEl('code', null, c.entity));
+            title.appendChild(entSpan);
+          }
+          head.appendChild(title);
+          head.appendChild(createEl('span', 'conflict-pill', c.group_size + ' divergent'));
+          card.appendChild(head);
+          const mems = createEl('div', 'conflict-mems');
+          (c.memories||[]).forEach(m => {
+            const mem = createEl('div', 'conflict-mem');
+            const meta = createEl('div', 'conflict-mem-meta');
+            meta.appendChild(createSrcDot(m.source));
+            meta.appendChild(document.createTextNode(m.source + ' \u00b7 ' + m.actor_type + ' \u00b7 ' + new Date(m.ts).toLocaleString()));
+            mem.appendChild(meta);
+            mem.appendChild(createEl('div', 'conflict-mem-content', m.content || ''));
+            mems.appendChild(mem);
+          });
+          card.appendChild(mems);
+          list.appendChild(card);
+        });
       }
     }
     if (cnt) {
@@ -3251,92 +3540,115 @@ const conflictsView = (() => {
 const settingsView = (() => {
   let timer = null;
 
-  function row(k, v, cls) {
-    return `<div class="cfg-row"><span class="k">${k}</span><span class="v ${cls||''}">${v == null || v === '' ? DASH : v}</span></div>`;
+  function cfgRow(parent, k, v, cls) {
+    const div = createEl('div', 'cfg-row');
+    div.appendChild(createEl('span', 'k', k));
+    const valSpan = createEl('span', 'v' + (cls ? ' ' + cls : ''));
+    if (v == null || v === '') { valSpan.textContent = DASH; }
+    else if (typeof v === 'object' && v.nodeType) { valSpan.appendChild(v); }
+    else { valSpan.textContent = String(v); }
+    div.appendChild(valSpan);
+    parent.appendChild(div);
   }
 
-  function section(title, icon, rows) {
-    return `<div class="cfg-section">
-      <div class="cfg-section-title">${icon}${title}</div>
-      ${rows}
-    </div>`;
+  function cfgCodeVal(text) {
+    return createEl('code', null, text);
+  }
+
+  function cfgSection(parent, title, svgPath, buildRows) {
+    const sec = createEl('div', 'cfg-section');
+    const titleDiv = createEl('div', 'cfg-section-title');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.innerHTML = svgPath;
+    titleDiv.appendChild(svg);
+    titleDiv.appendChild(document.createTextNode(title));
+    sec.appendChild(titleDiv);
+    buildRows(sec);
+    parent.appendChild(sec);
+  }
+
+  function cfgCodeList(items) {
+    const frag = document.createDocumentFragment();
+    (items||[]).forEach((s, i) => {
+      if (i > 0) frag.appendChild(document.createTextNode(' '));
+      frag.appendChild(createEl('code', null, s));
+    });
+    return frag;
   }
 
   async function refresh() {
     const [cfg, status] = await Promise.all([nx.fetch('/api/config'), nx.fetch('/api/status')]);
     const grid = $('cfgGrid');
     if (!grid) return;
-    if (!cfg) { grid.innerHTML = '<div class="empty-state">/api/config unreachable</div>'; return; }
+    if (!cfg) { setEmpty(grid, '/api/config unreachable'); return; }
 
-    const ic = (svg) => `<svg viewBox="0 0 24 24">${svg}</svg>`;
-    const html = [];
+    grid.textContent = '';
 
-    html.push(section('Daemon', ic('<rect x="2" y="2" width="20" height="20" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/>'),
-      row('mode', `<code>${cfg.daemon.mode}</code>`) +
-      row('bind', `<code>${cfg.daemon.bind}:${cfg.daemon.port}</code>`) +
-      row('log_level', cfg.daemon.log_level) +
-      row('queue_size', fmt.num(cfg.daemon.queue_size)) +
-      row('pid', fmt.num(status && status.pid)) +
-      row('goroutines', fmt.num(status && status.goroutines)) +
-      row('memory', fmt.bytes(status && status.memory_resident_bytes))
-    ));
+    cfgSection(grid, 'Daemon', '<rect x="2" y="2" width="20" height="20" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/>', s => {
+      cfgRow(s, 'mode', cfgCodeVal(cfg.daemon.mode));
+      cfgRow(s, 'bind', cfgCodeVal(cfg.daemon.bind + ':' + cfg.daemon.port));
+      cfgRow(s, 'log_level', cfg.daemon.log_level);
+      cfgRow(s, 'queue_size', fmt.num(cfg.daemon.queue_size));
+      cfgRow(s, 'pid', fmt.num(status && status.pid));
+      cfgRow(s, 'goroutines', fmt.num(status && status.goroutines));
+      cfgRow(s, 'memory', fmt.bytes(status && status.memory_resident_bytes));
+    });
 
-    html.push(section('WAL', ic('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>'),
-      row('path', `<code>${cfg.wal.path}</code>`) +
-      row('integrity_mode', cfg.wal.integrity_mode) +
-      row('encryption', cfg.wal.encryption_enabled ? 'enabled' : 'disabled', cfg.wal.encryption_enabled ? 'green' : '') +
-      row('max_segment', cfg.wal.max_segment_size_mb + ' MB') +
-      row('watchdog', 'every ' + cfg.wal.watchdog_interval_s + 's') +
-      row('healthy', status && status.wal && status.wal.healthy ? 'YES' : 'NO',
-          status && status.wal && status.wal.healthy ? 'green' : 'red') +
-      row('pending', fmt.num(status && status.wal && status.wal.pending_entries)) +
-      row('current_segment', `<code>${status && status.wal && status.wal.current_segment}</code>`)
-    ));
+    cfgSection(grid, 'WAL', '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>', s => {
+      cfgRow(s, 'path', cfgCodeVal(cfg.wal.path));
+      cfgRow(s, 'integrity_mode', cfg.wal.integrity_mode);
+      cfgRow(s, 'encryption', cfg.wal.encryption_enabled ? 'enabled' : 'disabled', cfg.wal.encryption_enabled ? 'green' : '');
+      cfgRow(s, 'max_segment', cfg.wal.max_segment_size_mb + ' MB');
+      cfgRow(s, 'watchdog', 'every ' + cfg.wal.watchdog_interval_s + 's');
+      cfgRow(s, 'healthy', status && status.wal && status.wal.healthy ? 'YES' : 'NO',
+          status && status.wal && status.wal.healthy ? 'green' : 'red');
+      cfgRow(s, 'pending', fmt.num(status && status.wal && status.wal.pending_entries));
+      cfgRow(s, 'current_segment', cfgCodeVal(status && status.wal && status.wal.current_segment));
+    });
 
-    html.push(section('MCP', ic('<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/>'),
-      row('enabled', cfg.mcp.enabled ? 'YES' : 'NO', cfg.mcp.enabled ? 'green' : '') +
-      row('bind', `<code>${cfg.mcp.bind}:${cfg.mcp.port}</code>`) +
-      row('source_name', cfg.mcp.source_name)
-    ));
+    cfgSection(grid, 'MCP', '<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/>', s => {
+      cfgRow(s, 'enabled', cfg.mcp.enabled ? 'YES' : 'NO', cfg.mcp.enabled ? 'green' : '');
+      cfgRow(s, 'bind', cfgCodeVal(cfg.mcp.bind + ':' + cfg.mcp.port));
+      cfgRow(s, 'source_name', cfg.mcp.source_name);
+    });
 
-    html.push(section('Web Dashboard', ic('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>'),
-      row('port', cfg.web.port) +
-      row('require_auth', cfg.web.require_auth ? 'YES' : 'NO', cfg.web.require_auth ? 'green' : 'amber')
-    ));
+    cfgSection(grid, 'Web Dashboard', '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>', s => {
+      cfgRow(s, 'port', cfg.web.port);
+      cfgRow(s, 'require_auth', cfg.web.require_auth ? 'YES' : 'NO', cfg.web.require_auth ? 'green' : 'amber');
+    });
 
-    html.push(section('Embedding', ic('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/>'),
-      row('enabled', cfg.embedding.enabled ? 'YES' : 'NO', cfg.embedding.enabled ? 'green' : '') +
-      row('provider', cfg.embedding.provider) +
-      row('model', cfg.embedding.model) +
-      row('dimensions', cfg.embedding.dimensions || DASH)
-    ));
+    cfgSection(grid, 'Embedding', '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/>', s => {
+      cfgRow(s, 'enabled', cfg.embedding.enabled ? 'YES' : 'NO', cfg.embedding.enabled ? 'green' : '');
+      cfgRow(s, 'provider', cfg.embedding.provider);
+      cfgRow(s, 'model', cfg.embedding.model);
+      cfgRow(s, 'dimensions', cfg.embedding.dimensions || DASH);
+    });
 
-    html.push(section('TLS', ic('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
-      row('enabled', cfg.tls.enabled ? 'YES' : 'NO', cfg.tls.enabled ? 'green' : 'amber') +
-      row('min_version', cfg.tls.min_version)
-    ));
+    cfgSection(grid, 'TLS', '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', s => {
+      cfgRow(s, 'enabled', cfg.tls.enabled ? 'YES' : 'NO', cfg.tls.enabled ? 'green' : 'amber');
+      cfgRow(s, 'min_version', cfg.tls.min_version);
+    });
 
-    html.push(section('Rate Limit', ic('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'),
-      row('global_rpm', fmt.num(cfg.rate_limit.global_rpm))
-    ));
+    cfgSection(grid, 'Rate Limit', '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>', s => {
+      cfgRow(s, 'global_rpm', fmt.num(cfg.rate_limit.global_rpm));
+    });
 
-    html.push(section('Retrieval', ic('<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
-      row('time_decay', cfg.retrieval.time_decay ? 'YES' : 'NO', cfg.retrieval.time_decay ? 'green' : '') +
-      row('half_life_days', cfg.retrieval.half_life_days) +
-      row('default_profile', cfg.retrieval.default_profile)
-    ));
+    cfgSection(grid, 'Retrieval', '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>', s => {
+      cfgRow(s, 'time_decay', cfg.retrieval.time_decay ? 'YES' : 'NO', cfg.retrieval.time_decay ? 'green' : '');
+      cfgRow(s, 'half_life_days', cfg.retrieval.half_life_days);
+      cfgRow(s, 'default_profile', cfg.retrieval.default_profile);
+    });
 
-    html.push(section('Audit', ic('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/>'),
-      row('enabled', cfg.audit.enabled ? 'YES' : 'NO', cfg.audit.enabled ? 'green' : 'amber') +
-      row('dual_write', cfg.audit.dual_write ? 'YES' : 'NO')
-    ));
+    cfgSection(grid, 'Audit', '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/>', s => {
+      cfgRow(s, 'enabled', cfg.audit.enabled ? 'YES' : 'NO', cfg.audit.enabled ? 'green' : 'amber');
+      cfgRow(s, 'dual_write', cfg.audit.dual_write ? 'YES' : 'NO');
+    });
 
-    html.push(section('Sources / Destinations', ic('<circle cx="12" cy="12" r="9"/>'),
-      row('sources', (cfg.sources||[]).map(s => '<code>'+s+'</code>').join(' ')) +
-      row('destinations', (cfg.destinations||[]).map(d => '<code>'+d+'</code>').join(' '))
-    ));
-
-    grid.innerHTML = html.join('');
+    cfgSection(grid, 'Sources / Destinations', '<circle cx="12" cy="12" r="9"/>', s => {
+      cfgRow(s, 'sources', cfgCodeList(cfg.sources));
+      cfgRow(s, 'destinations', cfgCodeList(cfg.destinations));
+    });
   }
 
   return {
@@ -3382,19 +3694,28 @@ const agentsView = (() => {
     if (agentsEl) {
       // Try the admin list; the daemon may not expose /api/agents yet.
       // We show whatever we can from the status endpoint.
-      agentsEl.innerHTML = `
-        <div style="display:flex;flex-wrap:wrap;gap:12px">
-          <div class="stat-box"><div class="stat-val">${fmt.num(status.queue_depth)}</div><div class="stat-label">queue depth</div></div>
-          <div class="stat-box"><div class="stat-val">${status.version || DASH}</div><div class="stat-label">version</div></div>
-        </div>
-        <div class="empty-state" style="margin-top:12px">
-          Use <code>bubblefish agent list</code> to see registered agents.
-          Activity and session data appears when agents make requests via the MCP layer.
-        </div>`;
+      agentsEl.textContent = '';
+      const flexWrap = document.createElement('div');
+      Object.assign(flexWrap.style, { display:'flex', flexWrap:'wrap', gap:'12px' });
+      const box1 = createEl('div', 'stat-box');
+      box1.appendChild(createEl('div', 'stat-val', fmt.num(status.queue_depth)));
+      box1.appendChild(createEl('div', 'stat-label', 'queue depth'));
+      flexWrap.appendChild(box1);
+      const box2 = createEl('div', 'stat-box');
+      box2.appendChild(createEl('div', 'stat-val', status.version || DASH));
+      box2.appendChild(createEl('div', 'stat-label', 'version'));
+      flexWrap.appendChild(box2);
+      agentsEl.appendChild(flexWrap);
+      const hint = createEl('div', 'empty-state');
+      hint.style.marginTop = '12px';
+      hint.appendChild(document.createTextNode('Use '));
+      hint.appendChild(createEl('code', null, 'bubblefish agent list'));
+      hint.appendChild(document.createTextNode(' to see registered agents. Activity and session data appears when agents make requests via the MCP layer.'));
+      agentsEl.appendChild(hint);
     }
 
     if (activityEl) {
-      activityEl.innerHTML = '<div class="empty-state">Activity events stream here when agents call MCP tools (nexus_write, nexus_search, agent_broadcast).</div>';
+      setEmpty(activityEl, 'Activity events stream here when agents call MCP tools (nexus_write, nexus_search, agent_broadcast).');
     }
   }
 

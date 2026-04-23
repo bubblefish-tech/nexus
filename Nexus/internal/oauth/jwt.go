@@ -28,7 +28,7 @@ import (
 )
 
 // Audience is the expected aud claim for Nexus JWT access tokens.
-const Audience = "bubblefish-nexus"
+const Audience = "nexus-nexus"
 
 // nexusClaims defines the JWT claims used by Nexus OAuth access tokens.
 type nexusClaims struct {

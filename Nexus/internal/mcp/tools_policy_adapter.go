@@ -20,7 +20,7 @@ package mcp
 import (
 	"encoding/json"
 
-	"github.com/BubbleFish-Nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/policy"
 )
 
 // ToolPolicyAdapter adapts policy.ToolPolicyChecker to the

@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/tui/components"
-	"github.com/BubbleFish-Nexus/internal/tui/styles"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
+	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -50,9 +50,6 @@ func (m Model) View() string {
 	sbStatus := "—"
 	sbVersion := "—"
 	sbQueue := 0
-	if !m.daemonUp {
-		sbStatus = "down"
-	}
 	if m.statusCache != nil {
 		sbStatus = m.statusCache.Status
 		sbVersion = m.statusCache.Version
@@ -126,7 +123,7 @@ func (m Model) viewDaemonDown() string {
 	title := lipgloss.NewStyle().Foreground(styles.ColorRed).Bold(true).
 		Render("  DAEMON NOT RUNNING")
 	body := lipgloss.NewStyle().Foreground(styles.TextSecondary).
-		Render(fmt.Sprintf("\n  Start with: bubblefish start\n\n  Retry count: %d\n  Press 'r' to retry, 'q' to quit.", m.retryCount))
+		Render(fmt.Sprintf("\n  Start with: nexus start\n\n  Retry count: %d\n  Press 'r' to retry, 'q' to quit.", m.retryCount))
 	content := lipgloss.JoinVertical(lipgloss.Left, title, body)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -179,12 +176,13 @@ func (m Model) viewHelp() string {
 }
 
 func (m Model) buildSidebarSections() []components.SidebarSection {
-	statusDot := "green"
+	dotStatus := components.DotOnline
 	statusVal := "LIVE"
 	if !m.daemonUp {
-		statusDot = "red"
+		dotStatus = components.DotOffline
 		statusVal = "DOWN"
 	}
+	statusDot := components.StatusDot{Status: dotStatus, Frame: m.dotFrame}.View()
 
 	ver := "—"
 	queue := "0"
@@ -197,37 +195,71 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 		}
 	}
 
-	return []components.SidebarSection{
-		{
+	memories := "—"
+	if m.statusCache != nil && m.statusCache.MemoriesTotal > 0 {
+		memories = fmt.Sprintf("%d", m.statusCache.MemoriesTotal)
+	}
+
+	destItems := []components.SidebarItem{}
+	if m.statusCache != nil {
+		for _, d := range m.statusCache.Destinations {
+			dot := "green"
+			val := "ok"
+			if !d.Healthy {
+				dot = "red"
+				val = "err"
+			}
+			destItems = append(destItems, components.SidebarItem{Name: d.Name, Value: val, Dot: dot})
+		}
+	}
+	if len(destItems) == 0 {
+		destItems = append(destItems, components.SidebarItem{Name: "—", Value: "—"})
+	}
+	destItems = append(destItems, components.SidebarItem{Name: "wal", Value: queue + " pend"})
+
+	apiPort := ":8080"
+	dashPort := ":8081"
+	if m.statusCache != nil {
+		if m.statusCache.Bind != "" {
+			parts := strings.SplitN(m.statusCache.Bind, ":", 2)
+			if len(parts) == 2 {
+				apiPort = ":" + parts[1]
+			} else {
+				apiPort = m.statusCache.Bind
+			}
+		}
+		if m.statusCache.WebPort > 0 {
+			dashPort = fmt.Sprintf(":%d", m.statusCache.WebPort)
+		}
+	}
+
+	all := map[string]components.SidebarSection{
+		"Daemon": {
 			Title: "Daemon",
 			Items: []components.SidebarItem{
 				{Name: "Status", Value: statusVal, Dot: statusDot},
 				{Name: "Version", Value: ver},
-				{Name: "Mode", Value: "simple"},
+				{Name: "Memories", Value: memories},
 			},
 		},
-		{
+		"Sources": {
 			Title: "Sources",
 			Items: []components.SidebarItem{
-				{Name: "default", Value: "active", Dot: "green"},
+				{Name: "default", Value: "active", Dot: statusDot},
 			},
 		},
-		{
+		"Destinations": {
 			Title: "Destinations",
-			Items: []components.SidebarItem{
-				{Name: "sqlite", Value: "ok", Dot: "green"},
-				{Name: "wal", Value: queue + " pend"},
-			},
+			Items: destItems,
 		},
-		{
+		"Ports": {
 			Title: "Ports",
 			Items: []components.SidebarItem{
-				{Name: "API", Value: ":8080"},
-				{Name: "MCP", Value: ":7474"},
-				{Name: "Dashboard", Value: ":8081"},
+				{Name: "API", Value: apiPort},
+				{Name: "Dashboard", Value: dashPort},
 			},
 		},
-		{
+		"Health": {
 			Title: "Health",
 			Items: []components.SidebarItem{
 				{Name: "Consistency", Value: consistency},
@@ -235,4 +267,15 @@ func (m Model) buildSidebarSections() []components.SidebarSection {
 			},
 		},
 	}
+
+	available := []string{"Daemon", "Sources", "Destinations", "Ports", "Health"}
+	ordered := m.prefs.ApplySidebarOrder(available)
+
+	sections := make([]components.SidebarSection, 0, len(ordered))
+	for _, name := range ordered {
+		if sec, ok := all[name]; ok {
+			sections = append(sections, sec)
+		}
+	}
+	return sections
 }

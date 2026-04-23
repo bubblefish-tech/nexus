@@ -29,9 +29,10 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -55,9 +56,10 @@ func (t *HTTPTransport) Dial(ctx context.Context, config TransportConfig) (Conn,
 		timeout = time.Duration(config.TimeoutMs) * time.Millisecond
 	}
 	return &httpClientConn{
-		url:       strings.TrimSuffix(config.URL, "/"),
-		authType:  config.AuthType,
-		authToken: token,
+		jsonrpcEndpoint: config.JSONRPCEndpoint(),
+		streamEndpoint:  config.StreamEndpoint(),
+		authType:        config.AuthType,
+		authToken:       token,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -74,29 +76,27 @@ func (t *HTTPTransport) Listen(ctx context.Context, config TransportConfig) (Lis
 
 // httpClientConn is an HTTP-based client connection.
 type httpClientConn struct {
-	url       string
-	authType  string
-	authToken string
-	client    *http.Client
-	closed    bool
-	mu        sync.Mutex
+	jsonrpcEndpoint string
+	streamEndpoint  string
+	authType        string
+	authToken       string
+	client          *http.Client
+	closeOnce       sync.Once
+	closed          atomic.Bool
 }
 
 // Send posts a JSON-RPC request over HTTP.
 func (c *httpClientConn) Send(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Response, error) {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	if c.closed.Load() {
 		return nil, fmt.Errorf("transport: connection closed")
 	}
-	c.mu.Unlock()
 
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("transport: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.jsonrpcEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("transport: create request: %w", err)
 	}
@@ -123,19 +123,16 @@ func (c *httpClientConn) Send(ctx context.Context, req *jsonrpc.Request) (*jsonr
 
 // Stream opens an SSE stream for a JSON-RPC request.
 func (c *httpClientConn) Stream(ctx context.Context, req *jsonrpc.Request) (<-chan Event, error) {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	if c.closed.Load() {
 		return nil, fmt.Errorf("transport: connection closed")
 	}
-	c.mu.Unlock()
 
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("transport: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.streamEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("transport: create request: %w", err)
 	}
@@ -229,10 +226,10 @@ func (c *httpClientConn) setAuth(req *http.Request) {
 
 // Close marks the connection as closed.
 func (c *httpClientConn) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.closed = true
-	c.client.CloseIdleConnections()
+	c.closeOnce.Do(func() {
+		c.closed.Store(true)
+		c.client.CloseIdleConnections()
+	})
 	return nil
 }
 
@@ -281,7 +278,11 @@ func newHTTPListener(_ context.Context, config TransportConfig) (*httpListener, 
 	hl.router = r
 
 	hl.srv = &http.Server{
-		Handler: r,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
@@ -300,7 +301,10 @@ func (hl *httpListener) SetHandler(h Handler) {
 	hl.handler = h
 }
 
+const maxA2ABodySize = 1 << 20 // 1 MiB
+
 func (hl *httpListener) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxA2ABodySize)
 	var req jsonrpc.Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
@@ -342,6 +346,7 @@ func (hl *httpListener) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 }
 
 func (hl *httpListener) handleStream(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxA2ABodySize)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)

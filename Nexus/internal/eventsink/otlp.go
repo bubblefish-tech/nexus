@@ -60,13 +60,13 @@ func (s *Sink) deliverOTLP(sink *SinkConfig, e Event) {
 			map[string]interface{}{
 				"resource": map[string]interface{}{
 					"attributes": []interface{}{
-						otlpKV("service.name", "bubblefish-nexus"),
+						otlpKV("service.name", "nexus-nexus"),
 					},
 				},
 				"scopeLogs": []interface{}{
 					map[string]interface{}{
 						"scope": map[string]interface{}{
-							"name":    "bubblefish.eventsink",
+							"name":    "nexus.eventsink",
 							"version": "0.1.0",
 						},
 						"logRecords": []interface{}{logRecord},

@@ -21,7 +21,7 @@ import (
 	"errors"
 	"math"
 
-	"github.com/BubbleFish-Nexus/internal/canonical"
+	"github.com/bubblefish-tech/nexus/internal/canonical"
 )
 
 // QuerySketch is the 4-bit asymmetric representation used at query time.

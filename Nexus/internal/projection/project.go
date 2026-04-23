@@ -20,8 +20,8 @@ package projection
 import (
 	"encoding/json"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/policy"
 )
 
 // Response is the final JSON-serializable query response. It contains the

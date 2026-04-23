@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/doctor"
+	"github.com/bubblefish-tech/nexus/internal/doctor"
 )
 
 // stubPinger is a test double for doctor.Pinger. It returns the configured

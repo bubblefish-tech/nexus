@@ -19,18 +19,16 @@ package ingest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 )
 
-// OpenWebUIWatcher is a v0.1.3 scaffold. The real parser is planned for
-// v0.1.4. Open WebUI stores conversations in a webui.db SQLite database,
-// typically at ~/.open-webui/webui.db or in a Docker volume.
-//
-// This file exists so that the v0.1.3 interface is stable and so that the
-// manager can report "detected, not yet supported" for users who have Open
-// WebUI installed.
+// OpenWebUIWatcher parses Open WebUI exported conversation JSON files.
+// Open WebUI stores conversations in ~/.open-webui/ and supports JSON exports.
 type OpenWebUIWatcher struct {
 	mu    sync.Mutex
 	state WatcherState
@@ -60,8 +58,68 @@ func (w *OpenWebUIWatcher) Detect(ctx context.Context) (bool, string, error) {
 	return false, "", nil
 }
 
+type openWebUIChat struct {
+	Title    string `json:"title"`
+	Messages []struct {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		Timestamp string `json:"timestamp"`
+		CreatedAt string `json:"created_at"`
+	} `json:"messages"`
+	Chat struct {
+		Messages []struct {
+			Role      string `json:"role"`
+			Content   string `json:"content"`
+			Timestamp string `json:"timestamp"`
+		} `json:"messages"`
+	} `json:"chat"`
+}
+
 func (w *OpenWebUIWatcher) Parse(ctx context.Context, path string, fromOffset int64) (*ParseResult, error) {
-	return nil, ErrNotImplemented
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("open_webui: read %s: %w", path, err)
+	}
+
+	contentHash := sha256.Sum256(data)
+
+	var chat openWebUIChat
+	if err := json.Unmarshal(data, &chat); err != nil {
+		return &ParseResult{NewOffset: int64(len(data)), LastHash: contentHash}, nil
+	}
+
+	var memories []Memory
+
+	msgs := chat.Messages
+	if len(msgs) == 0 && len(chat.Chat.Messages) > 0 {
+		for _, m := range chat.Chat.Messages {
+			msgs = append(msgs, struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				Timestamp string `json:"timestamp"`
+				CreatedAt string `json:"created_at"`
+			}{Role: m.Role, Content: m.Content, Timestamp: m.Timestamp})
+		}
+	}
+
+	for _, msg := range msgs {
+		if msg.Content == "" {
+			continue
+		}
+		memories = append(memories, Memory{
+			Content:      msg.Content,
+			Role:         normalizeRole(msg.Role),
+			Timestamp:    parseTimestampMulti(msg.Timestamp, msg.CreatedAt),
+			OriginalFile: path,
+			SourceMeta:   map[string]string{"title": chat.Title},
+		})
+	}
+
+	return &ParseResult{
+		Memories:  memories,
+		NewOffset: int64(len(data)),
+		LastHash:  contentHash,
+	}, nil
 }
 
 func (w *OpenWebUIWatcher) State() WatcherState {

@@ -24,7 +24,7 @@ symbol resolution (`r.pkg[p]` where `p = 16777213` and `len(r.pkg) = 11`).
 
 **Scope**: Every package that transitively imports `modernc.org/sqlite`:
 `destination`, `daemon`, `queue`, `cache`, `projection`, `query`, `mcp`,
-`cmd/bubblefish`.
+`cmd/nexus`.
 
 **Not affected**: `wal`, `config`, `idempotency`, `policy`, `metrics`,
 `hotreload`, `doctor`, `embedding`, `tray`, `web` — these pass `-race` cleanly.

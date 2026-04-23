@@ -20,32 +20,180 @@ package daemon
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/client"
-	"github.com/BubbleFish-Nexus/internal/a2a/governance"
-	"github.com/BubbleFish-Nexus/internal/a2a/registry"
-	"github.com/BubbleFish-Nexus/internal/a2a/server"
-	"github.com/BubbleFish-Nexus/internal/a2a/transport"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/mcp/bridge"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/client"
+	"github.com/bubblefish-tech/nexus/internal/a2a/governance"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	"github.com/bubblefish-tech/nexus/internal/a2a/server"
+	"github.com/bubblefish-tech/nexus/internal/a2a/transport"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/mcp/bridge"
+	"github.com/bubblefish-tech/nexus/internal/safego"
 	"github.com/BurntSushi/toml"
 	_ "modernc.org/sqlite"
 )
 
-// setupA2ABridge constructs the A2A bridge and wires it into the MCP server.
-// This is a no-op if [a2a] enabled is false or if the MCP server is nil.
-// Any error during A2A setup disables A2A and logs a warning (fail-safe:
-// A2A errors must never bring down the daemon).
-func (d *Daemon) setupA2ABridge(cfg *config.Config) {
-	if !cfg.A2A.Enabled {
-		return
+// poolAdapter adapts client.Pool + registry.Store to the server.ClientPool interface
+// so the a2aServer can dispatch agent/invoke calls through the pool.
+// It is protocol-aware: agents declaring tasks/send (OpenClaw-style) get dispatched
+// via tasks/send + polling, while standard A2A agents use message/send.
+type poolAdapter struct {
+	pool   *client.Pool
+	store  *registry.Store
+	logger *slog.Logger
+}
+
+func (a *poolAdapter) SendMessage(ctx context.Context, targetAgentID string, msg *a2a.Message, skill string) (*a2a.Task, error) {
+	agent, err := a.store.Get(ctx, targetAgentID)
+	if err != nil {
+		return nil, fmt.Errorf("agent not found: %w", err)
 	}
+	c, err := a.pool.Get(ctx, *agent)
+	if err != nil {
+		return nil, fmt.Errorf("get client: %w", err)
+	}
+
+	if agentUsesTasksSend(agent) {
+		return a.sendViaTasksSend(ctx, c, agent, msg, skill)
+	}
+	return c.SendMessage(ctx, msg, skill, nil)
+}
+
+func agentUsesTasksSend(agent *registry.RegisteredAgent) bool {
+	for _, m := range agent.AgentCard.Methods {
+		if m == "tasks/send" {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *poolAdapter) sendViaTasksSend(ctx context.Context, c *client.Client, agent *registry.RegisteredAgent, msg *a2a.Message, skill string) (*a2a.Task, error) {
+	var messageStr string
+	for _, pw := range msg.Parts {
+		if tp, ok := pw.Part.(a2a.TextPart); ok {
+			messageStr += tp.Text
+		}
+	}
+	if messageStr == "" {
+		raw, _ := json.Marshal(msg)
+		messageStr = string(raw)
+	}
+
+	params := map[string]interface{}{"message": messageStr}
+	if skill != "" {
+		params["agentId"] = skill
+	}
+
+	resp, err := c.Call(ctx, "tasks/send", params)
+	if err != nil {
+		return nil, fmt.Errorf("tasks/send to %s: %w", agent.Name, err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(resp.Result, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshal tasks/send result: %w", err)
+	}
+
+	status, _ := raw["status"].(string)
+	if status != "pending" && status != "running" {
+		return a.taskFromRaw(raw, agent.AgentID), nil
+	}
+
+	taskID, _ := raw["taskId"].(string)
+	if taskID == "" {
+		return nil, fmt.Errorf("tasks/send returned pending but no taskId")
+	}
+
+	a.logger.Info("poolAdapter: polling for task completion",
+		"agent", agent.Name, "taskId", taskID)
+
+	return a.pollTasksGet(ctx, c, agent, taskID)
+}
+
+const (
+	poolPollInterval = 1500 * time.Millisecond
+	poolPollMaxWait  = 120 * time.Second
+)
+
+func (a *poolAdapter) pollTasksGet(ctx context.Context, c *client.Client, agent *registry.RegisteredAgent, taskID string) (*a2a.Task, error) {
+	deadline := time.Now().Add(poolPollMaxWait)
+	ticker := time.NewTicker(poolPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled polling %s: %w", agent.Name, ctx.Err())
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return &a2a.Task{
+					TaskID: taskID,
+					Status: a2a.TaskStatus{State: "failed"},
+				}, fmt.Errorf("timeout polling %s after %v", agent.Name, poolPollMaxWait)
+			}
+
+			resp, err := c.Call(ctx, "tasks/get", map[string]interface{}{"taskId": taskID})
+			if err != nil {
+				continue
+			}
+
+			var raw map[string]interface{}
+			if err := json.Unmarshal(resp.Result, &raw); err != nil {
+				continue
+			}
+
+			status, _ := raw["status"].(string)
+			if status == "pending" || status == "running" {
+				continue
+			}
+
+			return a.taskFromRaw(raw, agent.AgentID), nil
+		}
+	}
+}
+
+func (a *poolAdapter) taskFromRaw(raw map[string]interface{}, agentID string) *a2a.Task {
+	taskID, _ := raw["taskId"].(string)
+	status, _ := raw["status"].(string)
+	resultText, _ := raw["result"].(string)
+
+	task := &a2a.Task{
+		TaskID: taskID,
+		Status: a2a.TaskStatus{State: a2a.TaskState(status)},
+	}
+
+	if resultText != "" {
+		task.Artifacts = []a2a.Artifact{{
+			Parts: []a2a.PartWrapper{{Part: a2a.NewTextPart(resultText)}},
+		}}
+	}
+
+	return task
+}
+
+// setupA2ABridge constructs the A2A bridge and wires it into the MCP server.
+// Callers gate on cfg.A2A.Enabled. Requires d.registryStore to have been
+// opened earlier in Start(); if nil, A2A is disabled. Any error during A2A
+// setup disables A2A and logs a warning (fail-safe: A2A errors must never
+// bring down the daemon).
+func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 	if d.mcpServer == nil {
 		d.logger.Warn("daemon: A2A enabled but MCP server not running — A2A disabled",
+			"component", "a2a",
+		)
+		return
+	}
+	if d.registryStore == nil {
+		d.logger.Warn("daemon: A2A enabled but registry store not open — A2A disabled",
 			"component", "a2a",
 		)
 		return
@@ -60,7 +208,8 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 		return
 	}
 
-	// Open a shared SQLite database for governance grants.
+	// Open a shared SQLite database for governance grants (separate from the
+	// agent registry — governance has its own migration path).
 	dbPath := filepath.Join(configDir, "nexus.db")
 	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout%3d5000")
 	if err != nil {
@@ -95,17 +244,8 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 	grantStore := governance.NewGrantStore(db)
 	govEngine := governance.NewEngine(grantStore)
 
-	// Agent registry.
-	regPath := filepath.Join(configDir, "a2a", "registry.db")
-	regStore, err := registry.NewStore(regPath)
-	if err != nil {
-		d.logger.Warn("daemon: A2A setup failed — registry store",
-			"component", "a2a",
-			"error", err,
-		)
-		db.Close()
-		return
-	}
+	// Reuse the already-opened agent registry store from daemon Start().
+	regStore := d.registryStore
 
 	// Load agents from TOML files in <configDir>/a2a/agents/*.toml.
 	d.loadA2AAgents(configDir, regStore)
@@ -113,6 +253,7 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 	// Client pool.
 	factory := client.NewFactory(d.logger)
 	pool := client.NewPool(factory, d.logger)
+	d.a2aPool = pool
 
 	// Audit sink adapter — use a fake for now; the bridge just needs a
 	// non-nil AuditSink to log events.
@@ -123,6 +264,35 @@ func (d *Daemon) setupA2ABridge(cfg *config.Config) {
 
 	// Wire into the MCP server.
 	d.mcpServer.SetBridge(br)
+
+	// Start periodic health checks on all active agents.
+	hc := registry.NewHealthChecker(regStore, registry.WithHealthLogger(d.logger))
+	safego.Go("a2a-health-check", d.logger, d.subsystemHealth, func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-d.shutdownReq:
+				return
+			case <-ticker.C:
+				_ = hc.CheckAll(context.Background())
+			}
+		}
+	})
+
+	// Construct the NA2A JSON-RPC server for inbound requests (agent/register).
+	var regToken string
+	if len(cfg.ResolvedA2ARegToken) > 0 {
+		regToken = string(cfg.ResolvedA2ARegToken)
+	}
+	a2aCard := a2a.AgentCard{Name: "nexus", ProtocolVersion: "0.1.0"}
+	d.a2aServer = server.NewServer(a2aCard,
+		server.WithRegistrationStore(regStore),
+		server.WithAgentPinger(hc),
+		server.WithRegistrationToken(regToken),
+		server.WithClientPool(&poolAdapter{pool: pool, store: regStore, logger: d.logger}),
+		server.WithLogger(d.logger),
+	)
 
 	// Count registered agents for the log message.
 	agents, _ := regStore.List(context.Background(), registry.ListFilter{})
@@ -148,10 +318,81 @@ type agentTOML struct {
 		Kind string `toml:"kind"`
 		HTTP struct {
 			URL            string `toml:"url"`
+			JSONRPCPath    string `toml:"jsonrpc_path"`
+			StreamPath     string `toml:"stream_path"`
 			Auth           string `toml:"auth"`
 			BearerTokenEnv string `toml:"bearer_token_env"`
 		} `toml:"http"`
 	} `toml:"transport"`
+}
+
+// tryAgentHandshake dials the agent, fetches its agent/card, and updates the
+// registry with the authoritative card data. This runs asynchronously after
+// each TOML load so startup is not blocked by slow or offline agents.
+// Any failure is logged and silently discarded — the TOML-configured data
+// remains the fallback.
+func (d *Daemon) tryAgentHandshake(agentID string, tc transport.TransportConfig, regStore *registry.Store) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	t, err := transport.Get(tc.Kind)
+	if err != nil {
+		d.logger.Warn("a2a handshake: unknown transport kind",
+			"agent_id", agentID, "kind", tc.Kind)
+		return
+	}
+
+	conn, err := t.Dial(ctx, tc)
+	if err != nil {
+		d.logger.Warn("a2a handshake: dial failed",
+			"agent_id", agentID, "error", err)
+		return
+	}
+	defer conn.Close()
+
+	req, err := jsonrpc.NewRequest(jsonrpc.StringID(fmt.Sprintf("card-%s", agentID)), "agent/card", nil)
+	if err != nil {
+		return
+	}
+
+	resp, err := conn.Send(ctx, req)
+	if err != nil {
+		d.logger.Warn("a2a handshake: agent/card failed",
+			"agent_id", agentID, "error", err)
+		return
+	}
+	if resp.Error != nil {
+		d.logger.Warn("a2a handshake: agent/card returned error",
+			"agent_id", agentID, "code", resp.Error.Code, "msg", resp.Error.Message)
+		return
+	}
+
+	var card a2a.AgentCard
+	if err := json.Unmarshal(resp.Result, &card); err != nil {
+		d.logger.Warn("a2a handshake: failed to decode agent card",
+			"agent_id", agentID, "error", err)
+		return
+	}
+
+	// Merge: use the name already in registry, update everything else.
+	existing, _ := regStore.Get(ctx, agentID)
+	displayName := card.Name
+	if existing != nil && existing.Name != "" {
+		displayName = existing.Name
+	}
+
+	if err := regStore.UpdateTransportAndCard(ctx, agentID, card, displayName, tc); err != nil {
+		d.logger.Warn("a2a handshake: registry update failed",
+			"agent_id", agentID, "error", err)
+		return
+	}
+
+	d.logger.Info("a2a handshake: agent card synced",
+		"agent_id", agentID,
+		"agent_name", card.Name,
+		"protocol_version", card.ProtocolVersion,
+		"methods", card.Methods,
+	)
 }
 
 // loadA2AAgents reads agent TOML files from <configDir>/a2a/agents/ and
@@ -198,24 +439,40 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 
 		agentID := raw.Agent.AgentID
 		if agentID == "" {
-			agentID = "agt_" + a2a.NewTaskID()[4:] // generate if not set
+			agentID = a2a.NewAgentID()
 		}
 
 		// Build transport config.
 		tc := transport.TransportConfig{
 			Kind:           raw.Transport.Kind,
 			URL:            raw.Transport.HTTP.URL,
+			JSONRPCPath:    raw.Transport.HTTP.JSONRPCPath,
+			StreamPath:     raw.Transport.HTTP.StreamPath,
 			AuthType:       raw.Transport.HTTP.Auth,
 			BearerTokenEnv: raw.Transport.HTTP.BearerTokenEnv,
 		}
 
-		// Check if already registered (idempotent on restart).
+		// Upsert: if already registered, update transport config and card
+		// so TOML changes (URL fixes, method list, etc.) take effect on restart.
 		existing, _ := regStore.GetByName(ctx, raw.Agent.Name)
 		if existing != nil {
-			d.logger.Debug("daemon: agent already registered, skipping",
-				"component", "a2a",
-				"name", raw.Agent.Name,
-			)
+			card := a2a.AgentCard{Name: raw.Agent.Name, Methods: raw.Agent.Methods}
+			if err := regStore.UpdateTransportAndCard(ctx, existing.AgentID, card, raw.Agent.Name, tc); err != nil {
+				d.logger.Warn("daemon: failed to update agent from TOML",
+					"component", "a2a",
+					"name", raw.Agent.Name,
+					"error", err,
+				)
+			} else {
+				d.logger.Info("daemon: updated A2A agent from TOML",
+					"component", "a2a",
+					"name", raw.Agent.Name,
+					"agent_id", existing.AgentID,
+					"url", tc.URL,
+				)
+				// Async handshake: fetch real card and update registry.
+				go d.tryAgentHandshake(existing.AgentID, tc, regStore)
+			}
 			continue
 		}
 
@@ -248,5 +505,7 @@ func (d *Daemon) loadA2AAgents(configDir string, regStore *registry.Store) {
 			"agent_id", agentID,
 			"url", tc.URL,
 		)
+		// Async handshake: fetch real card and update registry.
+		go d.tryAgentHandshake(agentID, tc, regStore)
 	}
 }

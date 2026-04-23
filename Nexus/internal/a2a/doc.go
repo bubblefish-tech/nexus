@@ -17,7 +17,7 @@
 
 // Package a2a implements the Nexus A2A Protocol — a clean-room Go
 // implementation of the A2A v1.0 wire format plus the
-// sh.bubblefish.nexus.governance/v1 extension.
+// sh.nexus.nexus.governance/v1 extension.
 //
 // NA2A is wire-compatible with the public A2A v1.0 specification. No source
 // code from github.com/a2aproject/a2a-go, @a2a-js/sdk, or any other A2A SDK

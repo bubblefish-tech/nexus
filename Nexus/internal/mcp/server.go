@@ -22,6 +22,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -32,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/mcp/bridge"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/mcp/bridge"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // JSON-RPC 2.0 error codes.
@@ -213,6 +214,18 @@ type Server struct {
 	// a2aBridge dispatches A2A bridge tool calls. Nil when A2A is disabled.
 	a2aBridge *bridge.Bridge
 
+	// controlPlane handles governed control-plane MCP tools (MT.4).
+	// Nil when the control plane is disabled.
+	controlPlane ControlPlaneProvider
+
+	// orchestrateProvider handles multi-agent orchestration MCP tools (DISC.4).
+	// Nil when orchestration is not enabled.
+	orchestrateProvider OrchestrateProvider
+
+	tlsConfig *tls.Config // nil when TLS is disabled (default)
+
+	subscribeStore SubscribeStore
+
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
@@ -282,18 +295,28 @@ func (s *Server) SetBridge(b *bridge.Bridge) {
 	s.a2aBridge = b
 }
 
+// SetTLSConfig enables TLS on the MCP server. Must be called before Start().
+// When set, the server wraps its TCP listener with the provided TLS config.
+func (s *Server) SetTLSConfig(cfg *tls.Config) {
+	s.tlsConfig = cfg
+}
+
 func (s *Server) Start() error {
 	if s.bind != "127.0.0.1" {
 		return fmt.Errorf("mcp: bind address must be 127.0.0.1, got %q", s.bind)
 	}
 
 	addr := fmt.Sprintf("%s:%d", s.bind, s.port)
-	ln, err := net.Listen("tcp", addr)
+	rawLn, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("mcp: listen %s: %w", addr, err)
 	}
+	var ln net.Listener = rawLn
+	if s.tlsConfig != nil {
+		ln = tls.NewListener(rawLn, s.tlsConfig)
+	}
 	s.listener = ln
-	s.addr = ln.Addr().String()
+	s.addr = rawLn.Addr().String()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", s.handleMCP)
@@ -746,7 +769,7 @@ func (s *Server) handleInitialize(w http.ResponseWriter, r *http.Request, req rp
 			},
 		},
 		ServerInfo: serverInfo{
-			Name:    "bubblefish-nexus",
+			Name:    "nexus-nexus",
 			Version: version.Version,
 		},
 	})
@@ -756,6 +779,12 @@ func (s *Server) handleToolsList(w http.ResponseWriter, r *http.Request, req rpc
 	tools := toolList()
 	if s.a2aBridge != nil {
 		tools = append(tools, a2aToolDefs(s.a2aBridge)...)
+	}
+	if s.controlPlane != nil {
+		tools = append(tools, controlToolDefs()...)
+	}
+	if s.orchestrateProvider != nil {
+		tools = append(tools, orchestrateToolDefs()...)
 	}
 	s.writeRPCResult(w, r, req.ID, toolsListResult{Tools: tools})
 }
@@ -800,6 +829,34 @@ func (s *Server) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpc
 		"a2a_stream_to_agent", "a2a_get_task", "a2a_resume_task",
 		"a2a_cancel_task", "a2a_list_pending_approvals", "a2a_list_grants":
 		s.callA2ABridgeTool(w, r, req, params.Name, params.Arguments)
+	case "nexus_grant_list":
+		s.callNexusGrantList(w, r, req)
+	case "nexus_approval_request":
+		s.callNexusApprovalRequest(w, r, req, params.Arguments)
+	case "nexus_approval_status":
+		s.callNexusApprovalStatus(w, r, req, params.Arguments)
+	case "nexus_task_create":
+		s.callNexusTaskCreate(w, r, req, params.Arguments)
+	case "nexus_task_status":
+		s.callNexusTaskStatus(w, r, req, params.Arguments)
+	case "nexus_action_log":
+		s.callNexusActionLog(w, r, req, params.Arguments)
+	case "nexus_list_agents":
+		s.callNexusListAgents(w, r, req)
+	case "nexus_orchestrate":
+		s.callNexusOrchestrate(w, r, req, params.Arguments)
+	case "nexus_council":
+		s.callNexusCouncil(w, r, req, params.Arguments)
+	case "nexus_broadcast":
+		s.callNexusBroadcast(w, r, req, params.Arguments)
+	case "nexus_collect":
+		s.callNexusCollect(w, r, req, params.Arguments)
+	case "nexus_subscribe":
+		s.callNexusSubscribe(w, r, req, params.Arguments)
+	case "nexus_unsubscribe":
+		s.callNexusUnsubscribe(w, r, req, params.Arguments)
+	case "nexus_subscriptions":
+		s.callNexusSubscriptions(w, r, req)
 	default:
 		s.writeRPCError(w, r, req.ID, rpcMethodNotFound, fmt.Sprintf("unknown tool %q", params.Name))
 	}

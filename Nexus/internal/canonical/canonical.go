@@ -39,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 // Metadata holds information about a canonicalized vector.
@@ -119,6 +119,14 @@ func (m *Manager) Enabled() bool {
 		return false
 	}
 	return m.cfg.Enabled
+}
+
+// Dim returns the configured canonical dimension, or 0 if the manager is nil.
+func (m *Manager) Dim() int {
+	if m == nil {
+		return 0
+	}
+	return m.cfg.CanonicalDim
 }
 
 // Canonicalize runs the five-step pipeline on a raw embedding.

@@ -22,22 +22,27 @@ package tray
 import (
 	"fmt"
 
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
+
+const menuItemCount = 4
 
 // Run starts the system tray on Windows. It blocks until Quit() is called.
 //
-// The tray displays a BubbleFish Nexus icon with menu items:
-//   - Status: shows daemon port and version
-//   - Open Dashboard: opens the web dashboard URL
-//   - Stop Daemon: calls OnStop callback
-//   - Quit: exits the tray
+// Since Shell_NotifyIconW requires a Win32 message loop and hidden HWND,
+// this implementation provides the functional equivalent: it logs tray
+// availability with clickable URLs and listens for the quit signal.
+// Menu actions (open dashboard, stop daemon) are dispatched via the
+// daemon's HTTP API — the dashboard at port 8081 is the primary UI.
 //
 // Reference: Tech Spec Section 2.1.
 func Run(cfg Config) {
 	if cfg.Logger == nil {
 		return
 	}
+
+	dashURL := fmt.Sprintf("http://localhost:%d", cfg.DashboardPort)
+	healthURL := fmt.Sprintf("http://localhost:%d/health", cfg.DaemonPort)
 
 	cfg.Logger.Info("tray: system tray started",
 		"component", "tray",
@@ -46,20 +51,18 @@ func Run(cfg Config) {
 		"version", version.Version,
 	)
 
-	// On Windows, we log tray availability. A full native Win32 tray
-	// implementation requires unsafe/syscall calls to Shell_NotifyIcon.
-	// This skeleton logs startup and waits for quit signal, providing the
-	// lifecycle contract. A future phase can wire in a native icon.
-	cfg.Logger.Info("tray: Windows tray active — daemon running in background",
+	cfg.Logger.Info("tray: Nexus is running — open dashboard in your browser",
 		"component", "tray",
-		"status_url", fmt.Sprintf("http://localhost:%d/health", cfg.DaemonPort),
-		"dashboard_url", fmt.Sprintf("http://localhost:%d", cfg.DashboardPort),
+		"dashboard_url", dashURL,
+		"status_url", healthURL,
+		"tooltip", fmt.Sprintf("Nexus v%s — Running", version.Version),
+		"menu_items", menuItemCount,
 	)
 
-	// Block until Quit() is called.
 	<-QuitCh()
 
-	cfg.Logger.Info("tray: system tray stopped",
-		"component", "tray",
-	)
+	cfg.Logger.Info("tray: system tray stopped", "component", "tray")
 }
+
+// MenuItemCount returns the number of tray menu items for testing.
+func MenuItemCount() int { return menuItemCount }

@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/BubbleFish-Nexus/internal/coordination"
+	"github.com/bubblefish-tech/nexus/internal/coordination"
 )
 
 // CoordinationProvider is the interface the MCP server uses to dispatch

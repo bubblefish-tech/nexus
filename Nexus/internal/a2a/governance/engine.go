@@ -23,8 +23,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
-	"github.com/BubbleFish-Nexus/internal/a2a/server"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a/server"
 )
 
 // Compile-time checks that Engine implements the server interfaces.

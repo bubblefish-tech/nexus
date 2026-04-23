@@ -20,14 +20,14 @@ no encryption overhead, no external dependencies.
 ## Quick Start
 
 ```bash
-bubblefish install --mode simple
-bubblefish start
+nexus install --mode simple
+nexus start
 ```
 
-This creates a default config at `~/.bubblefish/Nexus/` with:
+This creates a default config at `~/.nexus/Nexus/` with:
 
-- SQLite destination at `~/.bubblefish/Nexus/data/nexus.db`
-- WAL at `~/.bubblefish/Nexus/wal/`
+- SQLite destination at `~/.nexus/Nexus/data/nexus.db`
+- WAL at `~/.nexus/Nexus/wal/`
 - Daemon on `127.0.0.1:8000`
 - Dashboard on `127.0.0.1:8081`
 - Auto-generated admin token (printed once at install)
@@ -38,7 +38,7 @@ This creates a default config at `~/.bubblefish/Nexus/` with:
 [daemon]
 port       = 8000
 bind       = "127.0.0.1"
-admin_token = "file:~/.bubblefish/Nexus/secrets/admin.key"
+admin_token = "file:~/.nexus/Nexus/secrets/admin.key"
 log_level  = "info"
 mode       = "simple"
 queue_size = 128

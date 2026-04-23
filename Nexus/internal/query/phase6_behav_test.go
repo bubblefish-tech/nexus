@@ -33,10 +33,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/cache"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/cache"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/query"
 )
 
 // ---------------------------------------------------------------------------
@@ -95,6 +95,11 @@ type fixedVecClient struct{ vec []float32 }
 
 func (f *fixedVecClient) Embed(_ context.Context, _ string) ([]float32, error) {
 	return f.vec, nil
+}
+func (f *fixedVecClient) BatchEmbed(_ context.Context, texts []string) ([][]float32, error) {
+	r := make([][]float32, len(texts))
+	for i := range texts { r[i] = f.vec }
+	return r, nil
 }
 func (f *fixedVecClient) Dimensions() int { return len(f.vec) }
 func (f *fixedVecClient) Close() error    { return nil }

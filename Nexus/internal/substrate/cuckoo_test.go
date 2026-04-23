@@ -39,9 +39,11 @@ func newTestDB(t *testing.T) *sql.DB {
 	// Create substrate tables
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS substrate_cuckoo_filter (
-			filter_id INTEGER PRIMARY KEY,
-			filter_bytes BLOB NOT NULL,
-			last_persisted INTEGER NOT NULL
+			filter_id                INTEGER PRIMARY KEY,
+			filter_bytes             BLOB NOT NULL,
+			last_persisted           INTEGER NOT NULL,
+			filter_bytes_encrypted   BLOB,
+			filter_bytes_enc_version INTEGER NOT NULL DEFAULT 0
 		)
 	`)
 	if err != nil {
@@ -213,7 +215,7 @@ func TestCuckooPersistAndLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded, err := LoadCuckooOracle(db, 1024)
+	loaded, err := LoadCuckooOracle(db, 1024, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +232,7 @@ func TestCuckooPersistAndLoad(t *testing.T) {
 
 func TestCuckooLoadMissingRow(t *testing.T) {
 	db := newTestDB(t)
-	_, err := LoadCuckooOracle(db, 1024)
+	_, err := LoadCuckooOracle(db, 1024, nil)
 	if !errors.Is(err, ErrCuckooNotPersisted) {
 		t.Fatalf("expected ErrCuckooNotPersisted, got %v", err)
 	}
@@ -244,7 +246,7 @@ func TestCuckooLoadCorrupt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = LoadCuckooOracle(db, 1024)
+	_, err = LoadCuckooOracle(db, 1024, nil)
 	if err == nil {
 		t.Fatal("expected error for corrupt data")
 	}
@@ -267,7 +269,7 @@ func TestCuckooPersistIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded, _ := LoadCuckooOracle(db, 1024)
+	loaded, _ := LoadCuckooOracle(db, 1024, nil)
 	if !loaded.Lookup("test2") {
 		t.Fatal("second persist should update the row")
 	}
@@ -277,7 +279,7 @@ func TestCuckooPersistIdempotent(t *testing.T) {
 
 func TestRebuildFromDBEmpty(t *testing.T) {
 	db := newTestDB(t)
-	oracle, err := RebuildFromDB(db, 1024, slog.Default())
+	oracle, err := RebuildFromDB(db, 1024, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +304,7 @@ func TestRebuildFromDBWithMemories(t *testing.T) {
 		}
 	}
 
-	oracle, err := RebuildFromDB(db, 2000, slog.Default())
+	oracle, err := RebuildFromDB(db, 2000, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/a2a"
+	"github.com/bubblefish-tech/nexus/internal/a2a"
 	_ "modernc.org/sqlite"
 )
 

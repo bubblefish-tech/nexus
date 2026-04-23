@@ -30,8 +30,8 @@ package mcp
 import (
 	"context"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // Pipeline is the internal interface the MCP server uses to route tool calls
@@ -134,6 +134,10 @@ type StatusResult struct {
 	Profiles []StatusProfile `json:"profiles"`
 	Sources  []string        `json:"sources"`
 	Ingest   StatusIngest    `json:"ingest"`
+
+	TemporalAwareness bool     `json:"temporal_awareness"`
+	TemporalBins      []string `json:"temporal_bins,omitempty"`
+	SearchModes       []string `json:"search_modes"`
 }
 
 // StatusDaemon holds daemon identity and uptime.
@@ -261,6 +265,36 @@ func toolList() []toolDef {
 				Required: []string{"agent_id"},
 			},
 		},
+		{
+			Name:        "nexus_subscribe",
+			Description: "Subscribe to memories matching a semantic filter. When new memories are written that match your filter, they will be boosted to the top of your search results.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]propDef{
+					"filter": {Type: "string", Description: "Natural language description of what to watch for (e.g. 'competitive intelligence', 'bug reports')."},
+				},
+				Required: []string{"filter"},
+			},
+		},
+		{
+			Name:        "nexus_unsubscribe",
+			Description: "Remove a subscription by ID.",
+			InputSchema: inputSchema{
+				Type: "object",
+				Properties: map[string]propDef{
+					"subscription_id": {Type: "string", Description: "Subscription ID to remove."},
+				},
+				Required: []string{"subscription_id"},
+			},
+		},
+		{
+			Name:        "nexus_subscriptions",
+			Description: "List your active subscriptions with match counts.",
+			InputSchema: inputSchema{
+				Type:       "object",
+				Properties: map[string]propDef{},
+			},
+		},
 	}
 }
 
@@ -269,7 +303,7 @@ func toolList() []toolDef {
 // ---------------------------------------------------------------------------
 
 // TestPipeline is a no-op Pipeline implementation that returns canned
-// responses. Used by `bubblefish mcp test` and unit tests that need a
+// responses. Used by `nexus mcp test` and unit tests that need a
 // Pipeline without a running daemon.
 type TestPipeline struct{}
 
@@ -292,6 +326,8 @@ func (p *TestPipeline) Status(_ context.Context) (StatusResult, error) {
 		Daemon:     StatusDaemon{Version: version.Version, UptimeSeconds: 0},
 		Tools:      DefaultStatusTools(),
 		Profiles:   DefaultStatusProfiles(),
+		TemporalAwareness: true,
+		SearchModes:       []string{"semantic", "keyword", "hybrid"},
 	}, nil
 }
 

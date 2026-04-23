@@ -23,7 +23,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/BubbleFish-Nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/config"
 )
 
 // trustedProxies holds parsed CIDR networks and the list of forwarded headers

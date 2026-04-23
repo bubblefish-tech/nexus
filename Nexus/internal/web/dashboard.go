@@ -35,7 +35,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BubbleFish-Nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/version"
 )
 
 // SourcePolicyInfo is a read-only summary of a source's policies for the
@@ -128,6 +128,12 @@ type Config struct {
 	AdminHandler     http.Handler    // Optional; when set, /api/* routes are delegated to this handler.
 	DashboardHTML    string          // Optional; v4 dashboard HTML content. When set, replaces the builtin skeleton.
 	LogoPNG          []byte          // Optional; embedded logo PNG served at /logo_metal.png.
+
+	// TLSCertFile and TLSKeyFile enable HTTPS when both are non-empty.
+	// Populated by the caller (start.go) from the operator config or an
+	// auto-generated cert at ~/.nexus/keys/tls.crt.
+	TLSCertFile string
+	TLSKeyFile  string
 }
 
 // Dashboard is the web dashboard server. All state is held in struct fields.
@@ -147,11 +153,13 @@ func New(cfg Config) *Dashboard {
 func (d *Dashboard) Start() error {
 	mux := http.NewServeMux()
 
-	// Delegate admin API routes to the daemon's admin handler when configured.
-	// This allows the v4 dashboard (served on this port) to call admin
-	// endpoints on the same origin without CORS.
+	// Delegate admin API routes and control-plane dashboard pages to the
+	// daemon's admin handler when configured. This allows the v4 dashboard
+	// (served on this port) to call admin endpoints and navigate to
+	// control-plane pages on the same origin without CORS.
 	if d.cfg.AdminHandler != nil {
 		mux.Handle("/api/", d.cfg.AdminHandler)
+		mux.Handle("/dashboard/", d.cfg.AdminHandler)
 	}
 
 	// Serve embedded logo PNG if available. The v4 HTML references it as
@@ -184,6 +192,17 @@ func (d *Dashboard) Start() error {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
+	}
+
+	if d.cfg.TLSCertFile != "" && d.cfg.TLSKeyFile != "" {
+		d.cfg.Logger.Info("web: dashboard starting (HTTPS)",
+			"component", "web",
+			"addr", addr,
+		)
+		if err := d.server.ListenAndServeTLS(d.cfg.TLSCertFile, d.cfg.TLSKeyFile); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("web: dashboard server (TLS): %w", err)
+		}
+		return nil
 	}
 
 	d.cfg.Logger.Info("web: dashboard starting",

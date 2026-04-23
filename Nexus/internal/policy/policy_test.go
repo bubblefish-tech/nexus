@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/policy"
 )
 
 // knownDests returns a destination name set for test use.

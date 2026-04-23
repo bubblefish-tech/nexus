@@ -1,0 +1,17 @@
+{
+  "id": "lms-session-003",
+  "title": "Alt Timestamp Format",
+  "model": "some-model",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello from alt format",
+      "timestamp": "2026-04-02T09:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Received alt format message",
+      "timestamp": "2026-04-02T09:00:01Z"
+    }
+  ]
+}

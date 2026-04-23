@@ -47,6 +47,7 @@ type CuckooOracle struct {
 	mu           sync.RWMutex
 	filter       *cuckoo.Filter
 	capacity     uint
+	encryptor    *SubstrateEncryptor
 	insertCount  uint64
 	deleteCount  uint64
 	rebuildCount uint64
@@ -129,13 +130,37 @@ type CuckooStats struct {
 
 // Persist serializes the filter to the substrate_cuckoo_filter table.
 // The write is a single UPSERT on filter_id=1 (single-row table).
+// When encryption is enabled, the serialized bytes are sealed and stored in
+// filter_bytes_encrypted; filter_bytes holds a one-byte placeholder.
 func (o *CuckooOracle) Persist(db *sql.DB) error {
 	o.mu.RLock()
 	data := o.filter.Encode()
+	enc := o.encryptor
 	o.mu.RUnlock()
 
 	// Chaos kill point: filter encoded but SQL write not yet executed.
 	ChaosKillPoint("cuckoo_persist")
+
+	if enc != nil {
+		encrypted, encErr := enc.SealCuckooFilter(data)
+		if encErr != nil {
+			return fmt.Errorf("encrypt cuckoo filter: %w", encErr)
+		}
+		_, err := db.Exec(`
+			INSERT INTO substrate_cuckoo_filter
+			  (filter_id, filter_bytes, last_persisted, filter_bytes_encrypted, filter_bytes_enc_version)
+			VALUES (1, ?, ?, ?, 1)
+			ON CONFLICT(filter_id) DO UPDATE SET
+				filter_bytes = excluded.filter_bytes,
+				last_persisted = excluded.last_persisted,
+				filter_bytes_encrypted = excluded.filter_bytes_encrypted,
+				filter_bytes_enc_version = excluded.filter_bytes_enc_version
+		`, []byte{0}, time.Now().UnixNano(), encrypted)
+		if err != nil {
+			return fmt.Errorf("persist encrypted cuckoo filter: %w", err)
+		}
+		return nil
+	}
 
 	_, err := db.Exec(`
 		INSERT INTO substrate_cuckoo_filter (filter_id, filter_bytes, last_persisted)
@@ -153,11 +178,18 @@ func (o *CuckooOracle) Persist(db *sql.DB) error {
 // LoadCuckooOracle restores the filter from the substrate_cuckoo_filter table.
 // Returns ErrCuckooNotPersisted if no row exists (fresh install).
 // Returns ErrCuckooCorrupt if deserialization fails.
-func LoadCuckooOracle(db *sql.DB, expectedCapacity uint) (*CuckooOracle, error) {
-	var data []byte
+// enc may be nil when encryption is disabled; enc must be non-nil when
+// filter_bytes_enc_version=1 rows exist.
+func LoadCuckooOracle(db *sql.DB, expectedCapacity uint, enc *SubstrateEncryptor) (*CuckooOracle, error) {
+	var (
+		data       []byte
+		encBlob    []byte
+		encVersion int
+	)
 	err := db.QueryRow(`
-		SELECT filter_bytes FROM substrate_cuckoo_filter WHERE filter_id = 1
-	`).Scan(&data)
+		SELECT filter_bytes, filter_bytes_encrypted, filter_bytes_enc_version
+		FROM substrate_cuckoo_filter WHERE filter_id = 1
+	`).Scan(&data, &encBlob, &encVersion)
 	if err == sql.ErrNoRows {
 		return nil, ErrCuckooNotPersisted
 	}
@@ -165,21 +197,37 @@ func LoadCuckooOracle(db *sql.DB, expectedCapacity uint) (*CuckooOracle, error) 
 		return nil, fmt.Errorf("query cuckoo filter: %w", err)
 	}
 
-	filter, err := cuckoo.Decode(data)
+	var filterData []byte
+	if encVersion == 1 {
+		if enc == nil {
+			return nil, fmt.Errorf("cuckoo filter is encrypted (enc_version=1) but no encryptor configured")
+		}
+		plain, decErr := enc.OpenCuckooFilter(encBlob)
+		if decErr != nil {
+			return nil, fmt.Errorf("decrypt cuckoo filter: %w: %w", ErrCuckooCorrupt, decErr)
+		}
+		filterData = plain
+	} else {
+		filterData = data
+	}
+
+	filter, err := cuckoo.Decode(filterData)
 	if err != nil {
 		return nil, fmt.Errorf("decode cuckoo filter: %w: %w", ErrCuckooCorrupt, err)
 	}
 	return &CuckooOracle{
-		filter:   filter,
-		capacity: expectedCapacity,
+		filter:    filter,
+		capacity:  expectedCapacity,
+		encryptor: enc,
 	}, nil
 }
 
 // RebuildFromDB reconstructs the cuckoo filter from the memories table.
 // Called on startup if the persisted filter fails to load or is inconsistent.
+// enc is propagated to the returned oracle for subsequent Persist calls.
 //
 // This path is slow (O(n) over all memories) but rare.
-func RebuildFromDB(db *sql.DB, capacity uint, logger *slog.Logger) (*CuckooOracle, error) {
+func RebuildFromDB(db *sql.DB, capacity uint, logger *slog.Logger, enc *SubstrateEncryptor) (*CuckooOracle, error) {
 	startTime := time.Now()
 	logger.Warn("cuckoo: rebuilding filter from memories table")
 
@@ -220,6 +268,7 @@ func RebuildFromDB(db *sql.DB, capacity uint, logger *slog.Logger) (*CuckooOracl
 	}
 
 	oracle.rebuildCount++
+	oracle.encryptor = enc
 	logger.Warn("cuckoo: rebuild complete",
 		"memories", inserted,
 		"duration", time.Since(startTime),

@@ -26,8 +26,9 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 
-	"github.com/BubbleFish-Nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
 )
 
 // StdioTransport implements Transport over newline-delimited JSON on stdin/stdout.
@@ -77,13 +78,14 @@ func (t *StdioTransport) Listen(ctx context.Context, config TransportConfig) (Li
 
 // stdioConn is a client connection over a child process's stdin/stdout.
 type stdioConn struct {
-	reader  *bufio.Reader
-	writer  io.WriteCloser
-	cmd     *exec.Cmd
-	pending map[string]chan *jsonrpc.Response
-	mu      sync.Mutex
-	done    chan struct{}
-	closed  bool
+	reader    *bufio.Reader
+	writer    io.WriteCloser
+	cmd       *exec.Cmd
+	pending   map[string]chan *jsonrpc.Response
+	mu        sync.Mutex
+	done      chan struct{}
+	closeOnce sync.Once
+	closed    atomic.Bool
 }
 
 func (c *stdioConn) readLoop() {
@@ -129,11 +131,10 @@ func (c *stdioConn) readLoop() {
 
 // Send sends a JSON-RPC request and waits for the response.
 func (c *stdioConn) Send(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Response, error) {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	if c.closed.Load() {
 		return nil, fmt.Errorf("transport: connection closed")
 	}
+	c.mu.Lock()
 
 	idStr := req.ID.String()
 	ch := make(chan *jsonrpc.Response, 1)
@@ -173,19 +174,14 @@ func (c *stdioConn) Stream(ctx context.Context, req *jsonrpc.Request) (<-chan Ev
 
 // Close kills the child process and closes pipes.
 func (c *stdioConn) Close() error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil
-	}
-	c.closed = true
-	c.mu.Unlock()
-
-	c.writer.Close()
-	if c.cmd != nil && c.cmd.Process != nil {
-		c.cmd.Process.Kill()
-		c.cmd.Wait() //nolint:errcheck
-	}
+	c.closeOnce.Do(func() {
+		c.closed.Store(true)
+		c.writer.Close()
+		if c.cmd != nil && c.cmd.Process != nil {
+			c.cmd.Process.Kill()
+			c.cmd.Wait() //nolint:errcheck
+		}
+	})
 	return nil
 }
 

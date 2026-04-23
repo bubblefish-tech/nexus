@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 )
 
 // BenchmarkCache_Hit measures the cost of a cache hit on the ExactCache.

@@ -11,13 +11,13 @@ name exactly:
 
 ```bash
 # Check registered agents
-bubblefish a2a agent list
+nexus a2a agent list
 ```
 
 If the agent is not listed, register it:
 
 ```bash
-bubblefish a2a agent add <name> --transport http --url <url>
+nexus a2a agent add <name> --transport http --url <url>
 ```
 
 ### "transport: unknown kind" during registration
@@ -31,7 +31,7 @@ The agent failed 5 or more consecutive health checks. Verify the agent is
 running and reachable:
 
 ```bash
-bubblefish a2a agent test <name>
+nexus a2a agent test <name>
 ```
 
 Common causes:
@@ -49,7 +49,7 @@ the default policy for the capability is not `auto-allow`.
 Fix: add a grant:
 
 ```bash
-bubblefish a2a grant add \
+nexus a2a grant add \
   --source <source_identity> \
   --target <agent_id> \
   --capability "<capability>"
@@ -71,10 +71,10 @@ by adding a pre-authorized grant via CLI.
 
 Grants are matched by `(source, target, capability)`:
 
-1. Verify the **source identity** matches. Use `bubblefish a2a grant list` and
+1. Verify the **source identity** matches. Use `nexus a2a grant list` and
    compare with the identity shown in audit events.
 2. Verify the **target agent ID** (not the display name). Use
-   `bubblefish a2a agent show <name>` to see the agent ID.
+   `nexus a2a agent show <name>` to see the agent ID.
 3. Check for conflicting **deny grants**. Deny always wins over allow at the
    same specificity level.
 4. Check grant **expiration**. Expired grants are ignored.
@@ -85,7 +85,7 @@ The grant's `expires_at` time has passed. Create a new grant or use a longer
 expiration:
 
 ```bash
-bubblefish a2a grant add \
+nexus a2a grant add \
   --source <src> --target <tgt> \
   --capability "<cap>" \
   --expires 720h  # 30 days
@@ -154,7 +154,7 @@ If your client reports an unexpected name, the source identity may not match
 your grants. Check the audit log:
 
 ```bash
-bubblefish a2a audit tail --since 5m
+nexus a2a audit tail --since 5m
 ```
 
 Look for the `source` field in the audit events.
@@ -166,14 +166,14 @@ Look for the `source` field in the audit events.
 The audit chain has a gap or integrity issue. Run verification with details:
 
 ```bash
-bubblefish a2a audit verify
+nexus a2a audit verify
 ```
 
 If this is a known-safe situation (e.g., after a database restore), use the
 main audit recovery tool:
 
 ```bash
-bubblefish audit recover
+nexus audit recover
 ```
 
 ### Missing audit events
@@ -197,7 +197,7 @@ Common causes:
 Check task timing:
 
 ```bash
-bubblefish a2a task get <task_id>
+nexus a2a task get <task_id>
 ```
 
 ### "SQLITE_BUSY" errors under load
@@ -211,6 +211,6 @@ other processes accessing the same database.
 
 If your issue is not covered here:
 
-1. Check daemon logs: `~/.bubblefish/Nexus/logs/`
-2. Run diagnostics: `bubblefish doctor`
-3. Report an issue: https://github.com/BubbleFish-Nexus/issues
+1. Check daemon logs: `~/.nexus/Nexus/logs/`
+2. Run diagnostics: `nexus doctor`
+3. Report an issue: https://github.com/bubblefish-tech/nexus/issues

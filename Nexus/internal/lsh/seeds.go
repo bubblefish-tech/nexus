@@ -19,7 +19,7 @@
 //
 // Seeds are per-tier: the same content in different tiers produces different
 // bucket IDs, making cross-tier bucket collisions impossible by construction.
-// Seeds are persisted in ~/.bubblefish/Nexus/secrets/ so they survive restarts.
+// Seeds are persisted in ~/.nexus/Nexus/secrets/ so they survive restarts.
 //
 // Phase 2.2 establishes the seed infrastructure. Phase 3.1 adds the full
 // 16-hyperplane SimHash computation on top of these seeds.
@@ -32,7 +32,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/BubbleFish-Nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
 )
 
 const (

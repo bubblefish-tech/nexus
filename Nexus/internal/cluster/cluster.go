@@ -36,8 +36,8 @@ import (
 	"math"
 	"sort"
 
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/lsh"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	"github.com/bubblefish-tech/nexus/internal/lsh"
 )
 
 const (

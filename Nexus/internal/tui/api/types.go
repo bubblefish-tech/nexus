@@ -22,10 +22,63 @@ import "time"
 
 // StatusResponse is the shape of GET /api/status.
 type StatusResponse struct {
-	Status           string  `json:"status"`
-	Version          string  `json:"version"`
-	QueueDepth       int     `json:"queue_depth"`
-	ConsistencyScore float64 `json:"consistency_score"`
+	Status              string                       `json:"status"`
+	Version             string                       `json:"version"`
+	QueueDepth          int                          `json:"queue_depth"`
+	ConsistencyScore    float64                      `json:"consistency_score"`
+	MemoriesTotal       int                          `json:"memories_total"`
+	SourcesTotal        int                          `json:"sources_total"`
+	UptimeSeconds       int                          `json:"uptime_seconds"`
+	Goroutines          int                          `json:"goroutines"`
+	MemoryResidentBytes int64                        `json:"memory_resident_bytes"`
+	PID                 int                          `json:"pid"`
+	Bind                string                       `json:"bind"`
+	WebPort             int                          `json:"web_port"`
+	Cache               StatusCache                  `json:"cache"`
+	WAL                 StatusWAL                    `json:"wal"`
+	Destinations        []StatusDest                 `json:"destinations"`
+	WritesTotal         int64                        `json:"writes_total"`
+	Writes1m            int                          `json:"writes_1m"`
+	ReadsTotal          int64                        `json:"reads_total"`
+	Reads1m             int                          `json:"reads_1m"`
+	Errors1m            int                          `json:"errors_1m"`
+	ImmuneScans         int64                        `json:"immune_scans"`
+	QuarantineTotal     int64                        `json:"quarantine_total"`
+	AuditEnabled        bool                         `json:"audit_enabled"`
+	CascadeStages       map[string]StageMetricEntry  `json:"cascade_stages"`
+	WriteStages         map[string]StageMetricEntry  `json:"write_stages"`
+	SourceHealth        []SourceHealthEntry          `json:"source_health"`
+}
+
+type StageMetricEntry struct {
+	Status string  `json:"status"`
+	AvgMs  float64 `json:"avg_ms"`
+	Hits   int64   `json:"hits"`
+}
+
+type SourceHealthEntry struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+type StatusCache struct {
+	HitRate      float64 `json:"hit_rate"`
+	ExactRate    float64 `json:"exact_rate"`
+	SemanticRate float64 `json:"semantic_rate"`
+}
+
+type StatusWAL struct {
+	Healthy              bool   `json:"healthy"`
+	CurrentSegment       string `json:"current_segment"`
+	IntegrityMode        string `json:"integrity_mode"`
+	PendingEntries       int    `json:"pending_entries"`
+	LastCheckpointSecsAgo int   `json:"last_checkpoint_seconds_ago"`
+}
+
+type StatusDest struct {
+	Name      string  `json:"name"`
+	Healthy   bool    `json:"healthy"`
+	LastError *string `json:"last_error"`
 }
 
 // HealthResponse is the shape of GET /health.
@@ -65,26 +118,31 @@ type SecurityEventsResponse struct {
 
 // SecuritySummaryResponse is the shape of GET /api/security/summary.
 type SecuritySummaryResponse struct {
-	AuthFailures              int            `json:"auth_failures"`
-	PolicyDenials             int            `json:"policy_denials"`
-	RateLimitHits             int            `json:"rate_limit_hits"`
+	AuthFailures              int            `json:"auth_failures_total"`
+	PolicyDenials             int            `json:"policy_denials_total"`
+	RateLimitHits             int            `json:"rate_limit_hits_total"`
 	WALTamperDetected         int            `json:"wal_tamper_detected"`
 	ConfigSignatureInvalid    int            `json:"config_signature_invalid"`
-	AdminAccess               int            `json:"admin_access"`
+	AdminAccess               int            `json:"admin_calls_total"`
 	RetrievalFirewallFiltered int            `json:"retrieval_firewall_filtered"`
 	RetrievalFirewallDenied   int            `json:"retrieval_firewall_denied"`
 	BySource                  map[string]int `json:"by_source"`
 }
 
 // ConflictEntry is a single conflict group.
-// Matches destination.ConflictGroup from the server.
 type ConflictEntry struct {
-	Subject           string      `json:"subject"`
-	EntityKey         string      `json:"entity_key"`
-	ConflictingValues []string    `json:"conflicting_values"`
-	Sources           []string    `json:"sources"`
-	Timestamps        []time.Time `json:"timestamps"`
-	Count             int         `json:"count"`
+	ID        string           `json:"id"`
+	Subject   string           `json:"subject"`
+	Entity    string           `json:"entity"`
+	GroupSize int              `json:"group_size"`
+	Memories  []ConflictMemory `json:"memories"`
+}
+
+type ConflictMemory struct {
+	Source    string `json:"source"`
+	ActorType string `json:"actor_type"`
+	Ts       string `json:"ts"`
+	Content  string `json:"content"`
 }
 
 // ConflictsResponse is the shape of GET /api/conflicts.
@@ -243,4 +301,18 @@ type ConfigRetrieval struct {
 type ConfigAudit struct {
 	Enabled   bool `json:"enabled"`
 	DualWrite bool `json:"dual_write"`
+}
+
+// AgentSummary is a condensed view of a registered A2A agent.
+type AgentSummary struct {
+	AgentID     string    `json:"agent_id"`
+	DisplayName string    `json:"display_name"`
+	Status      string    `json:"status"`
+	TrustTier   int       `json:"trust_tier"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+}
+
+// AgentsResponse is the shape of GET /api/control/agents.
+type AgentsResponse struct {
+	Agents []AgentSummary `json:"agents"`
 }

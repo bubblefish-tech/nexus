@@ -19,6 +19,7 @@ package ingest
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -129,6 +130,18 @@ func (w *ClaudeCodeWatcher) Parse(ctx context.Context, path string, fromOffset i
 	// Extract the project hash from the parent directory name.
 	projectHash := filepath.Base(filepath.Dir(path))
 
+	// Probe for CRLF line endings. JSONL spec mandates LF, but some Windows
+	// tools write CRLF. bufio.Scanner strips both terminators; we detect once
+	// so offset accounting uses the correct byte width per line.
+	termSize := int64(1)
+	{
+		probe := make([]byte, 512)
+		n, _ := f.ReadAt(probe, 0)
+		if bytes.Contains(probe[:n], []byte("\r\n")) {
+			termSize = 2
+		}
+	}
+
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), w.cfg.MaxLineLength)
 
@@ -144,7 +157,7 @@ func (w *ClaudeCodeWatcher) Parse(ctx context.Context, path string, fromOffset i
 		}
 
 		line := scanner.Bytes()
-		lineLen := int64(len(line)) + 1 // +1 for newline
+		lineLen := int64(len(line)) + termSize
 		lineNum++
 
 		var entry claudeCodeEntry
@@ -292,7 +305,7 @@ func parseTimestamp(s string) int64 {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		// Try without nanoseconds.
-		t, err = time.Parse("2006-01-02T15:04:05Z", s)
+		t, err = time.Parse(time.RFC3339, s)
 		if err != nil {
 			return 0
 		}

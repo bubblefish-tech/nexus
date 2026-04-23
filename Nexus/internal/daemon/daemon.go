@@ -32,6 +32,7 @@ package daemon
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,35 +49,56 @@ import (
 
 	"database/sql"
 
-	"github.com/BubbleFish-Nexus/internal/agent"
-	"github.com/BubbleFish-Nexus/internal/audit"
-	"github.com/BubbleFish-Nexus/internal/coordination"
-	"github.com/BubbleFish-Nexus/internal/credentials"
-	"github.com/BubbleFish-Nexus/internal/cache"
-	"github.com/BubbleFish-Nexus/internal/canonical"
-	"github.com/BubbleFish-Nexus/internal/config"
-	"github.com/BubbleFish-Nexus/internal/destination"
-	"github.com/BubbleFish-Nexus/internal/doctor"
-	"github.com/BubbleFish-Nexus/internal/embedding"
-	"github.com/BubbleFish-Nexus/internal/hotreload"
-	"github.com/BubbleFish-Nexus/internal/idempotency"
-	"github.com/BubbleFish-Nexus/internal/mcp"
-	"github.com/BubbleFish-Nexus/internal/metrics"
-	"github.com/BubbleFish-Nexus/internal/eventsink"
-	"github.com/BubbleFish-Nexus/internal/firewall"
-	"github.com/BubbleFish-Nexus/internal/jwtauth"
-	"github.com/BubbleFish-Nexus/internal/oauth"
-	"github.com/BubbleFish-Nexus/internal/policy"
-	"github.com/BubbleFish-Nexus/internal/provenance"
-	"github.com/BubbleFish-Nexus/internal/queue"
-	"github.com/BubbleFish-Nexus/internal/secrets"
-	"github.com/BubbleFish-Nexus/internal/securitylog"
-	"github.com/BubbleFish-Nexus/internal/signing"
-	"github.com/BubbleFish-Nexus/internal/substrate"
-	"github.com/BubbleFish-Nexus/internal/supervisor"
-	"github.com/BubbleFish-Nexus/internal/version"
-	"github.com/BubbleFish-Nexus/internal/vizpipe"
-	"github.com/BubbleFish-Nexus/internal/wal"
+	a2aclient "github.com/bubblefish-tech/nexus/internal/a2a/client"
+	"github.com/bubblefish-tech/nexus/internal/a2a/registry"
+	a2aserver "github.com/bubblefish-tech/nexus/internal/a2a/server"
+	"github.com/bubblefish-tech/nexus/internal/actions"
+	"github.com/bubblefish-tech/nexus/internal/agent"
+	"github.com/bubblefish-tech/nexus/internal/approvals"
+	"github.com/bubblefish-tech/nexus/internal/audit"
+	"github.com/bubblefish-tech/nexus/internal/coordination"
+	"github.com/bubblefish-tech/nexus/internal/credentials"
+	"github.com/bubblefish-tech/nexus/internal/cache"
+	"github.com/bubblefish-tech/nexus/internal/canonical"
+	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/destination"
+	destfactory "github.com/bubblefish-tech/nexus/internal/destination/factory"
+	"github.com/bubblefish-tech/nexus/internal/discover"
+	"github.com/bubblefish-tech/nexus/internal/doctor"
+	"github.com/bubblefish-tech/nexus/internal/embedding"
+	"github.com/bubblefish-tech/nexus/internal/maintain"
+	"github.com/bubblefish-tech/nexus/internal/eventbus"
+	"github.com/bubblefish-tech/nexus/internal/events"
+	"github.com/bubblefish-tech/nexus/internal/eventsink"
+	"github.com/bubblefish-tech/nexus/internal/firewall"
+	"github.com/bubblefish-tech/nexus/internal/grants"
+	"github.com/bubblefish-tech/nexus/internal/hotreload"
+	"github.com/bubblefish-tech/nexus/internal/idempotency"
+	"github.com/bubblefish-tech/nexus/internal/immune"
+	"github.com/bubblefish-tech/nexus/internal/jwtauth"
+	"github.com/bubblefish-tech/nexus/internal/mcp"
+	"github.com/bubblefish-tech/nexus/internal/metrics"
+	"github.com/bubblefish-tech/nexus/internal/oauth"
+	"github.com/bubblefish-tech/nexus/internal/orchestrate"
+	"github.com/bubblefish-tech/nexus/internal/policy"
+	"github.com/bubblefish-tech/nexus/internal/provenance"
+	"github.com/bubblefish-tech/nexus/internal/query"
+	"github.com/bubblefish-tech/nexus/internal/safego"
+	"github.com/bubblefish-tech/nexus/internal/quarantine"
+	"github.com/bubblefish-tech/nexus/internal/queue"
+	"github.com/bubblefish-tech/nexus/internal/secrets"
+	"github.com/bubblefish-tech/nexus/internal/securitylog"
+	"github.com/bubblefish-tech/nexus/internal/signing"
+	"github.com/bubblefish-tech/nexus/internal/subscribe"
+	"github.com/bubblefish-tech/nexus/internal/substrate"
+	"github.com/bubblefish-tech/nexus/internal/supervisor"
+	"github.com/bubblefish-tech/nexus/internal/tasks"
+	"github.com/bubblefish-tech/nexus/internal/temporal"
+	"github.com/bubblefish-tech/nexus/internal/version"
+	"github.com/bubblefish-tech/nexus/internal/vizpipe"
+	"github.com/bubblefish-tech/nexus/internal/wal"
+
+	nexuscrypto "github.com/bubblefish-tech/nexus/internal/crypto"
 )
 
 // Daemon is the central BubbleFish Nexus gateway daemon. All state is held in
@@ -94,7 +116,7 @@ type Daemon struct {
 	wal             *wal.WAL
 	queue           *queue.Queue
 	idem            *idempotency.Store
-	dest            destination.DestinationWriter
+	dest            destination.Destination
 	querier         destination.Querier
 	embeddingClient embedding.EmbeddingClient // nil when embedding disabled
 	exactCache      *cache.ExactCache         // Stage 1 — Phase 4
@@ -169,6 +191,42 @@ type Daemon struct {
 	// startedAt records when Start() was called, for uptime calculation.
 	startedAt time.Time
 
+	// a2aServer is the NA2A JSON-RPC server exposed on POST /a2a/jsonrpc.
+	// Nil until setupA2ABridge succeeds. Provides agent/register when a
+	// registration token is configured.
+	a2aServer *a2aserver.Server
+
+	// a2aPool is the shared client connection pool for outbound A2A calls.
+	// Nil until setupA2ABridge succeeds. Used by the admin register endpoint
+	// to evict stale connections when a URL changes.
+	a2aPool *a2aclient.Pool
+
+	// registryStore holds the A2A agent registry (configDir/a2a/registry.db).
+	// Opened unconditionally early in Start(); owns the shared *sql.DB used
+	// by the control-plane stores below and — when [a2a] enabled — by the
+	// A2A bridge. Nil until Start() opens it; if the open fails the daemon
+	// logs a warning and proceeds without control/A2A features.
+	registryStore *registry.Store
+
+	// Control-plane stores (MT.1/MT.2). All four share registryStore.DB()
+	// so grants/approvals/tasks/actions foreign-key directly against the
+	// real a2a_agents table. Nil until Start() opens the registry and
+	// cfg.Control.Enabled is true; routes in handlers_control.go register
+	// only when grantStore is non-nil.
+	grantStore    *grants.Store
+	approvalStore *approvals.Store
+	taskStore     *tasks.Store
+	actionStore   *actions.Store
+
+	// policyEngine is the MT.3 Nexus-native policy evaluation engine.
+	// Nil when cfg.Control.Enabled is false or registry failed to open.
+	policyEngine *policy.Engine
+
+	// mkm is the master key manager derived from NEXUS_PASSWORD at startup.
+	// Shared by memory encryption (CU.0.2) and control-plane encryption (CU.0.4).
+	// Nil when home directory is unavailable or key derivation fails.
+	mkm *nexuscrypto.MasterKeyManager
+
 	// exactStats and semanticStats hold cache counter references for the
 	// /api/status and /api/cache admin endpoints.
 	exactStats    *cache.Stats
@@ -225,6 +283,52 @@ type Daemon struct {
 	// Reference: v0.1.3 BF-Sketch Substrate Build Plan, Section 3.2.
 	canonical *canonical.Manager
 
+	// immuneScanner runs Tier-0 heuristic rules on every inbound write.
+	// Always initialized in Start(). Never nil after Start().
+	// Reference: DEF.1, DEF.2.
+	immuneScanner *immune.Scanner
+
+	// quarantineStore persists Tier-0 intercepts. Nil when configDir is
+	// unavailable. Gated routes and handlers check for nil before use.
+	// Reference: DEF.2.
+	quarantineStore *quarantine.Store
+
+	// eventBus is the WebUI activity event bus (WEB.3). Always initialised in
+	// New(); never nil. Publishes memory_written, memory_queried,
+	// agent_connected, agent_disconnected, quarantine_event, ingest,
+	// and discovery_event to SSE clients at GET /api/events/stream.
+	eventBus *eventbus.Bus
+
+	// liteBus is the Event Bus Lite (EVT.1). Single-consumer bus with richer
+	// Data map[string]any payload. A bridge goroutine forwards events to
+	// eventBus so all events appear in the SSE feed.
+	liteBus *events.LiteBus
+
+	// subscribeStore holds semantic subscriptions. Nil when the registry DB is
+	// unavailable. Reference: SNC.2.
+	subscribeStore   *subscribe.Store
+	subscribeMatcher *subscribe.Matcher
+
+	// pipeMetrics tracks per-stage latency and throughput for the TUI dashboard.
+	pipeMetrics *pipelineMetrics
+
+	// bm25Searcher runs BM25 sparse keyword queries against the FTS5 index.
+	// Nil when destination is not SQLite. Wired into the cascade runner.
+	bm25Searcher query.BM25Searcher
+
+	// subsystemHealth tracks which subsystem goroutines are alive vs degraded
+	// after a recovered panic. Reported by /health endpoint.
+	subsystemHealth *safego.StatusTracker
+
+	// discoveryScanner runs the 5-tier AI-tool discovery scan on demand for
+	// GET /api/discover/results. Nil until Start() resolves configDir.
+	discoveryScanner *discover.Scanner
+
+	// lastDiscoveryMu guards lastDiscovery and lastDiscoveryAt.
+	lastDiscoveryMu sync.RWMutex
+	lastDiscovery   []discover.DiscoveredTool
+	lastDiscoveryAt time.Time
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -243,14 +347,18 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	}
 	m := metrics.New()
 	d := &Daemon{
-		cfg:     cfg,
-		logger:  logger,
-		metrics: m,
-		rl:      newRateLimiter(),
-		bytesRL: newBytesRateLimiter(),
-		vizPipe: vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
-		stopped:     make(chan struct{}),
-		shutdownReq: make(chan struct{}),
+		cfg:             cfg,
+		logger:          logger,
+		metrics:         m,
+		rl:              newRateLimiter(),
+		bytesRL:         newBytesRateLimiter(),
+		vizPipe:         vizpipe.New(1000, &vizDropAdapter{c: m.VizEventsDroppedTotal}, logger),
+		eventBus:        eventbus.New(256),
+		liteBus:         events.NewLiteBus(512),
+		pipeMetrics:     newPipelineMetrics(),
+		subsystemHealth: safego.NewStatusTracker(),
+		stopped:         make(chan struct{}),
+		shutdownReq:     make(chan struct{}),
 	}
 	// -1.0 means "not yet computed". Overwritten on first check.
 	d.consistencyScore.Store(math.Float64bits(-1.0))
@@ -384,7 +492,7 @@ func (d *Daemon) Start() error {
 			return fmt.Errorf("daemon: WAL encryption key_file resolved to empty value")
 		}
 		walOpts = append(walOpts, wal.WithEncryption([]byte(resolved)))
-		d.logger.Info("daemon: WAL encryption enabled",
+		d.logger.Warn("daemon: WAL encryption configured but NOT YET IMPLEMENTED — WAL data is stored in plaintext",
 			"component", "daemon",
 		)
 	}
@@ -412,9 +520,9 @@ func (d *Daemon) Start() error {
 	// queue workers, and WAL watchdog. On stall: logs fatal, dumps stacks,
 	// exits with code 3. Converts silent deadlock into visible crash.
 	home, _ := os.UserHomeDir()
-	logsDir := filepath.Join(home, ".bubblefish", "logs")
+	logsDir := filepath.Join(home, ".nexus", "logs")
 	d.supervisor = supervisor.New(supervisor.Config{
-		Timeout: 30 * time.Second,
+		Timeout: 120 * time.Second,
 		LogsDir: logsDir,
 	}, d.logger)
 
@@ -467,23 +575,112 @@ func (d *Daemon) Start() error {
 	}
 	d.wal = w
 
-	// Open SQLite destination.
-	sqlitePath, err := d.resolveSQLitePath()
-	if err != nil {
-		return fmt.Errorf("daemon: resolve SQLite path: %w", err)
+	// Open destination adapter (factory selects backend from config type).
+	destCfg := d.resolveDestinationConfig()
+	configDir, configDirErr := config.ConfigDir()
+	if configDirErr != nil {
+		return fmt.Errorf("daemon: resolve config dir: %w", configDirErr)
 	}
 
-	d.logger.Info("daemon: opening SQLite destination",
+	d.logger.Info("daemon: opening destination",
 		"component", "daemon",
-		"path", sqlitePath,
+		"type", destCfg.Type,
+		"name", destCfg.Name,
 	)
 
-	sqliteDest, err := destination.OpenSQLite(sqlitePath, d.logger)
+	openedDest, err := destfactory.OpenByType(destCfg, d.logger, configDir)
 	if err != nil {
-		return fmt.Errorf("daemon: open SQLite destination: %w", err)
+		return fmt.Errorf("daemon: open destination: %w", err)
 	}
-	d.dest = sqliteDest
-	d.querier = sqliteDest
+	d.dest = openedDest
+	if q, ok := openedDest.(destination.Querier); ok {
+		d.querier = q
+	}
+
+	// WIRE.3: run schema migrations on startup (idempotent, records in nexus_migrations).
+	if migrateErr := openedDest.Migrate(context.Background(), 0); migrateErr != nil {
+		d.logger.Warn("daemon: schema migration failed (non-fatal)",
+			"component", "daemon", "error", migrateErr)
+	}
+
+	// Wire BM25 searcher and start temporal bin refresh for SQLite destinations.
+	if sqliteDest, ok := openedDest.(*destination.SQLiteDestination); ok {
+		d.bm25Searcher = &query.SQLBM25Searcher{DB: sqliteDest.DB()}
+		if refreshErr := temporal.RefreshBins(context.Background(), sqliteDest.DB()); refreshErr != nil {
+			d.logger.Warn("daemon: initial temporal bin refresh failed (non-fatal)",
+				"component", "daemon", "error", refreshErr)
+		}
+		safego.Go("temporal-bin-refresher", d.logger, d.subsystemHealth, func() { d.temporalBinRefresher(sqliteDest.DB()) })
+		d.logger.Info("daemon: BM25 search and temporal bins enabled",
+			"component", "daemon")
+	}
+
+	// CU.0.2: wire memory content encryption via MasterKeyManager.
+	// Password is resolved from NEXUS_PASSWORD env (set by `nexus config set-password`).
+	if home, homeErr := os.UserHomeDir(); homeErr != nil {
+		d.logger.Warn("daemon: cannot resolve home directory; memory encryption disabled",
+			"component", "daemon", "error", homeErr)
+	} else {
+		saltPath := filepath.Join(home, ".nexus", "crypto.salt")
+		mkm, mkmErr := nexuscrypto.NewMasterKeyManager("", saltPath)
+		if mkmErr != nil {
+			d.logger.Warn("daemon: master key derivation failed; memory encryption disabled",
+				"component", "daemon", "error", mkmErr)
+		} else {
+			// CU.0.11: startup encryption self-test — refuse to start if the
+			// crypto stack cannot round-trip its own keys.
+			if selfErr := nexuscrypto.SelfTest(mkm); selfErr != nil {
+				return fmt.Errorf("daemon: encryption self-test failed — refusing to start: %w", selfErr)
+			}
+			d.mkm = mkm // shared with control-plane encryption (CU.0.4)
+			if sqliteDst, ok := d.dest.(*destination.SQLiteDestination); ok {
+				sqliteDst.SetEncryption(mkm)
+			}
+			if mkm.IsEnabled() {
+				d.logger.Info("daemon: memory content encryption enabled (self-test passed)",
+					"component", "daemon")
+			} else {
+				d.logger.Warn("daemon: memory content encryption DISABLED — set NEXUS_PASSWORD to enable",
+					"component", "daemon")
+			}
+		}
+	}
+
+	// DEF.2: wire Tier-0 immune scanner (always-on, zero config needed).
+	d.immuneScanner = immune.New()
+
+	// DEF.2: open quarantine store. Failure is non-fatal; quarantine routes
+	// simply do not register when quarantineStore is nil.
+	if configDir, cdErr := config.ConfigDir(); cdErr == nil {
+		qPath := filepath.Join(configDir, "quarantine.db")
+		if qs, qErr := quarantine.New(qPath); qErr != nil {
+			d.logger.Warn("daemon: cannot open quarantine store — quarantine features disabled",
+				"component", "quarantine",
+				"path", qPath,
+				"error", qErr,
+			)
+		} else {
+			d.quarantineStore = qs
+			d.logger.Info("daemon: quarantine store opened",
+				"component", "quarantine",
+				"path", qPath,
+			)
+		}
+	}
+
+	// WEB.2: init discovery scanner for GET /api/discover/results.
+	if configDir, cdErr := config.ConfigDir(); cdErr == nil {
+		d.discoveryScanner = discover.NewScanner(configDir, d.logger)
+	}
+
+	// W1: initialise path allowlist for closed action set.
+	if err := maintain.InitAllowedPaths(); err != nil {
+		d.logger.Warn("daemon: maintain path allowlist init failed", "err", err)
+	}
+	// W4: recover any incomplete transactions from a prior crash.
+	if err := maintain.RecoverIncomplete(context.Background()); err != nil {
+		d.logger.Warn("daemon: maintain recover incomplete transactions", "err", err)
+	}
 
 	// Create embedding client from config. Returns nil when disabled.
 	// INVARIANT: resolved API key is never logged.
@@ -557,7 +754,7 @@ func (d *Daemon) Start() error {
 	)
 
 	// Replay WAL: re-register idempotency keys and re-enqueue PENDING entries.
-	// Measure replay duration for the bubblefish_replay_duration_seconds gauge.
+	// Measure replay duration for the nexus_replay_duration_seconds gauge.
 	if err := d.replayWAL(); err != nil {
 		return fmt.Errorf("daemon: WAL replay: %w", err)
 	}
@@ -580,7 +777,7 @@ func (d *Daemon) Start() error {
 	// Start consistency checker if enabled.
 	// Reference: Tech Spec Section 11.5.
 	if cfg.Consistency.Enabled {
-		go d.consistencyChecker()
+		safego.Go("consistency-checker", d.logger, d.subsystemHealth, func() { d.consistencyChecker() })
 		d.logger.Info("daemon: consistency checker started",
 			"component", "daemon",
 			"interval_seconds", cfg.Consistency.IntervalSeconds,
@@ -588,8 +785,10 @@ func (d *Daemon) Start() error {
 		)
 	}
 
-	// Start visualization pipe.
+	// Start visualization pipe, WebUI activity event bus, and LiteBus bridge.
 	d.vizPipe.Start()
+	d.eventBus.Start()
+	safego.Go("litebus-bridge", d.logger, d.subsystemHealth, func() { d.runLiteBusBridge() })
 
 	// Initialise provenance: daemon Ed25519 key, source signing keys, and
 	// audit hash chain state. Non-fatal — the daemon runs without provenance
@@ -691,6 +890,7 @@ func (d *Daemon) Start() error {
 		}
 		d.auditLogger = al
 		d.auditWAL = audit.NewWALWriter(d.wal, d.chainState)
+		d.auditWAL.SetEncryption(d.mkm) // CU.0.5: nil mkm or disabled → no-op
 
 		// Build reader options mirroring the logger config.
 		var readerOpts []audit.ReaderOption
@@ -832,7 +1032,7 @@ func (d *Daemon) Start() error {
 			// Canonical needs Init with secrets dir
 			home, homeErr := os.UserHomeDir()
 			if homeErr == nil {
-				basePath := filepath.Join(home, ".bubblefish", "Nexus")
+				basePath := filepath.Join(home, ".nexus", "Nexus")
 				sd, sdErr := secrets.Open(basePath)
 				if sdErr == nil {
 					if initErr := d.canonical.Init(sd, d.logger); initErr != nil {
@@ -847,10 +1047,21 @@ func (d *Daemon) Start() error {
 						if sqliteDst, ok := d.dest.(*destination.SQLiteDestination); ok {
 							sqlDB = sqliteDst.DB()
 						}
+						// CU.0.9: wire substrate state encryption if mkm is available.
+						var subOpts []substrate.Option
+						if d.mkm != nil {
+							enc := substrate.NewSubstrateEncryptor(d.mkm)
+							if enc != nil {
+								subOpts = append(subOpts, substrate.WithEncryptor(enc))
+								d.logger.Info("daemon: substrate state encryption enabled",
+									"component", "substrate")
+							}
+						}
 						sub, subErr := substrate.New(
 							substrateCfg, sqlDB, sd,
 							d.daemonKeyPair, d.canonical,
 							d.chainState, d.logger,
+							subOpts...,
 						)
 						if subErr != nil {
 							d.logger.Warn("substrate initialization failed, disabling substrate",
@@ -931,6 +1142,136 @@ func (d *Daemon) Start() error {
 	tlsCfg, err := buildTLSConfig(cfg.Daemon.TLS, resolve)
 	if err != nil {
 		return fmt.Errorf("daemon: %w", err)
+	}
+
+	// Open the A2A registry store unconditionally before the router is built.
+	// The registry holds agent identity (foundational infra) and its *sql.DB
+	// is shared with the control-plane stores so grants/approvals/tasks/actions
+	// foreign-key against the real a2a_agents table. A2A bridge setup later
+	// reuses the same store. Failure logs a warning and proceeds — control
+	// routes simply do not register, and A2A setup is skipped.
+	if configDir, cdErr := config.ConfigDir(); cdErr == nil {
+		regPath := filepath.Join(configDir, "a2a", "registry.db")
+		if err := os.MkdirAll(filepath.Dir(regPath), 0o700); err != nil {
+			d.logger.Warn("daemon: cannot create registry dir — control plane and A2A disabled",
+				"component", "registry",
+				"path", filepath.Dir(regPath),
+				"error", err,
+			)
+		} else if rs, err := registry.NewStore(regPath); err != nil {
+			d.logger.Warn("daemon: cannot open A2A registry — control plane and A2A disabled",
+				"component", "registry",
+				"path", regPath,
+				"error", err,
+			)
+		} else {
+			d.registryStore = rs
+			// CU.0.4/CU.0.6: add encrypted columns to existing DBs; no-op on new ones.
+			if migErr := registry.MigrateEncryptionColumns(rs.DB()); migErr != nil {
+				d.logger.Warn("daemon: control plane schema migration failed",
+					"component", "control", "error", migErr)
+			}
+			// CU.0.6: wire agent registry encryption (always, regardless of control plane).
+			if d.mkm != nil {
+				d.registryStore.SetEncryption(d.mkm)
+				if d.mkm.IsEnabled() {
+					d.logger.Info("daemon: agent registry encryption enabled",
+						"component", "registry")
+				}
+			}
+			if cfg.Control.Enabled {
+				db := rs.DB()
+				d.grantStore = grants.NewStore(db)
+				d.approvalStore = approvals.NewStore(db)
+				d.taskStore = tasks.NewStore(db)
+				d.actionStore = actions.NewStore(db)
+				if d.mkm != nil {
+					d.grantStore.SetEncryption(d.mkm)
+					d.approvalStore.SetEncryption(d.mkm)
+					d.taskStore.SetEncryption(d.mkm)
+					d.actionStore.SetEncryption(d.mkm)
+				}
+				d.policyEngine = policy.NewEngine(rs, d.grantStore, d.approvalStore, d.actionStore,
+				policy.EngineConfig{RequireApproval: cfg.Control.Capabilities.RequireApproval},
+				d.logger)
+				if d.mkm != nil && d.mkm.IsEnabled() {
+					d.logger.Info("daemon: control plane table encryption enabled",
+						"component", "control")
+				} else {
+					d.logger.Warn("daemon: control plane table encryption DISABLED — set NEXUS_PASSWORD to enable",
+						"component", "control")
+				}
+				d.logger.Info("daemon: control plane initialized",
+					"component", "control",
+					"path", regPath,
+				)
+			} else {
+				d.logger.Info("daemon: control plane disabled (control.enabled = false)",
+					"component", "control",
+				)
+			}
+		}
+
+		if d.registryStore != nil {
+			ss, err := subscribe.NewStore(d.registryStore.DB())
+			if err != nil {
+				d.logger.Warn("daemon: subscribe store init failed", "error", err)
+			} else {
+				d.subscribeStore = ss
+				var embedFn subscribe.EmbedFunc
+				if d.embeddingClient != nil {
+					embedFn = func(ctx context.Context, text string) ([]float32, error) {
+						return d.embeddingClient.Embed(ctx, text)
+					}
+				}
+				d.subscribeMatcher = subscribe.NewMatcher(ss, embedFn)
+				d.logger.Info("daemon: subscribe system initialized")
+			}
+		}
+	} else {
+		d.logger.Warn("daemon: skipping registry/control setup — cannot resolve config dir",
+			"component", "registry",
+			"error", cdErr,
+		)
+	}
+
+	// Wire the MCP control-plane adapter when both the policy engine and MCP
+	// server are available. Must run after the registry init block above and
+	// after startMCPServer (called before startAgentGateway at line ~782).
+	if d.policyEngine != nil && d.mcpServer != nil {
+		d.mcpServer.SetControlPlane(&controlPlaneAdapter{
+			engine:    d.policyEngine,
+			grants:    d.grantStore,
+			approvals: d.approvalStore,
+			tasks:     d.taskStore,
+			actions:   d.actionStore,
+			logger:    d.logger,
+		})
+		d.logger.Info("daemon: MCP control-plane tools enabled",
+			"component", "control",
+		)
+	}
+
+	// Wire the orchestration engine when the registry and grant stores are available.
+	if d.registryStore != nil && d.grantStore != nil && d.mcpServer != nil {
+		orchEngine := orchestrate.New(orchestrate.Config{
+			Agents: &registryAgentLister{store: d.registryStore},
+			Grants: &grantStoreChecker{store: d.grantStore},
+			Logger: d.logger,
+		})
+		d.mcpServer.SetOrchestrateProvider(&orchestrateAdapter{engine: orchEngine})
+		d.logger.Info("daemon: MCP orchestration tools enabled",
+			"component", "orchestrate",
+		)
+	}
+
+	if d.subscribeStore != nil && d.mcpServer != nil {
+		d.mcpServer.SetSubscribeStore(&subscribeStoreAdapter{store: d.subscribeStore})
+	}
+
+	// Wire the A2A bridge if enabled. Uses the already-opened registryStore.
+	if cfg.A2A.Enabled {
+		d.setupA2ABridge(cfg)
 	}
 
 	// Build HTTP server.
@@ -1078,10 +1419,12 @@ func (d *Daemon) Stop() error {
 			}
 		}
 
-		// Stop visualization pipe.
+		// Stop visualization pipe, WebUI activity event bus, and LiteBus.
 		if d.vizPipe != nil {
 			d.vizPipe.Stop()
 		}
+		d.liteBus.Close()
+		d.eventBus.Stop()
 
 		// Drain event sink workers.
 		// Reference: Tech Spec Section 14.2 — drain in Stage 3.
@@ -1144,6 +1487,26 @@ func (d *Daemon) Stop() error {
 
 		// Stop agent gateway subsystems.
 		d.stopAgentGateway()
+
+		// Close the quarantine store (DEF.2).
+		if d.quarantineStore != nil {
+			if err := d.quarantineStore.Close(); err != nil {
+				d.logger.Error("daemon: close quarantine store",
+					"component", "quarantine",
+					"error", err,
+				)
+			}
+		}
+
+		// Close the A2A registry store (shared DB for control plane).
+		if d.registryStore != nil {
+			if err := d.registryStore.Close(); err != nil {
+				d.logger.Error("daemon: close registry store",
+					"component", "registry",
+					"error", err,
+				)
+			}
+		}
 
 		// Stop the goroutine heartbeat supervisor.
 		if d.supervisor != nil {
@@ -1221,6 +1584,9 @@ func (d *Daemon) startMCPServer(cfg *config.Config) {
 	// Wire OAuth server if enabled — must happen before Start() so endpoints
 	// are registered on the mux.
 	d.setupOAuthServer(cfg, srv)
+
+	// Wire MCP TLS if configured (CU.0.7). Must be before Start().
+	d.wireMCPTLS(cfg, srv)
 
 	if err := srv.Start(); err != nil {
 		d.logger.Warn("daemon: MCP server start failed — MCP disabled, HTTP continues",
@@ -1366,6 +1732,68 @@ func (d *Daemon) setupOAuthServer(cfg *config.Config, srv *mcp.Server) {
 	)
 }
 
+// wireMCPTLS configures TLS on the MCP server when [daemon.mcp] tls_enabled = true.
+// Uses an operator-provided cert/key when configured, or auto-generates a self-signed
+// P-256 cert at ~/.nexus/keys/tls.crt (idempotent).
+func (d *Daemon) wireMCPTLS(cfg *config.Config, srv interface{ SetTLSConfig(*tls.Config) }) {
+	if !cfg.Daemon.MCP.TLSEnabled {
+		return
+	}
+
+	certFile := cfg.Daemon.MCP.TLSCertFile
+	keyFile := cfg.Daemon.MCP.TLSKeyFile
+
+	if certFile == "" || keyFile == "" {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			d.logger.Warn("daemon: MCP TLS: cannot resolve home dir — MCP TLS disabled",
+				"component", "daemon", "error", homeErr)
+			return
+		}
+		keysDir := filepath.Join(home, ".nexus", "keys")
+		var certErr error
+		certFile, keyFile, certErr = EnsureAutoTLSCert(keysDir)
+		if certErr != nil {
+			d.logger.Warn("daemon: MCP TLS: cert generation failed — MCP TLS disabled",
+				"component", "daemon", "error", certErr)
+			return
+		}
+	} else {
+		resolve := func(ref string) (string, error) {
+			return config.ResolveEnv(ref, d.logger)
+		}
+		var err error
+		certFile, err = resolve(certFile)
+		if err != nil || certFile == "" {
+			d.logger.Warn("daemon: MCP TLS: resolve cert_file failed — MCP TLS disabled",
+				"component", "daemon", "error", err)
+			return
+		}
+		keyFile, err = resolve(keyFile)
+		if err != nil || keyFile == "" {
+			d.logger.Warn("daemon: MCP TLS: resolve key_file failed — MCP TLS disabled",
+				"component", "daemon", "error", err)
+			return
+		}
+	}
+
+	tlsCfg, err := buildTLSConfig(config.TLSConfig{
+		Enabled:  true,
+		CertFile: certFile,
+		KeyFile:  keyFile,
+	}, func(s string) (string, error) { return s, nil })
+	if err != nil {
+		d.logger.Warn("daemon: MCP TLS: config error — MCP TLS disabled",
+			"component", "daemon", "error", err)
+		return
+	}
+	srv.SetTLSConfig(tlsCfg)
+	d.logger.Info("daemon: MCP TLS enabled",
+		"component", "daemon",
+		"cert", certFile,
+	)
+}
+
 // ---------------------------------------------------------------------------
 // Hot reload
 // ---------------------------------------------------------------------------
@@ -1435,6 +1863,24 @@ func (d *Daemon) startHotReload() {
 // ---------------------------------------------------------------------------
 
 // walWatchdog is a background goroutine that periodically checks WAL health:
+// temporalBinRefresher updates temporal bins every hour so aging memories
+// move to the correct bin without needing a daemon restart.
+func (d *Daemon) temporalBinRefresher(db *sql.DB) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stopped:
+			return
+		case <-ticker.C:
+			if err := temporal.RefreshBins(context.Background(), db); err != nil {
+				d.logger.Warn("daemon: temporal bin refresh failed",
+					"component", "daemon", "error", err)
+			}
+		}
+	}
+}
+
 // directory writeability, disk space, and pending entry count. Interval is
 // configurable via [daemon.wal.watchdog] interval_seconds (default 30).
 // Reference: Tech Spec Section 4.4.
@@ -1456,6 +1902,9 @@ func (d *Daemon) walWatchdog(walDir string) {
 				d.supervisor.Beat("walwatchdog")
 			}
 			d.runWatchdogCheck(walDir)
+			if d.supervisor != nil {
+				d.supervisor.Beat("walwatchdog")
+			}
 		}
 	}
 }
@@ -1511,10 +1960,24 @@ func (d *Daemon) runWatchdogCheck(walDir string) {
 	}
 
 	// Set atomic health flag for /ready endpoint.
+	prev := d.walHealthy.Load()
 	if healthy {
 		d.walHealthy.Store(1)
 	} else {
 		d.walHealthy.Store(0)
+	}
+
+	// EVT.2: emit health_changed when status transitions.
+	newVal := int32(0)
+	if healthy {
+		newVal = 1
+	}
+	if prev != newVal {
+		status := "healthy"
+		if !healthy {
+			status = "unhealthy"
+		}
+		d.liteBus.Emit("health_changed", map[string]any{"status": status, "component": "wal"})
 	}
 }
 
@@ -1568,8 +2031,20 @@ func (d *Daemon) resolveWALPath() (string, error) {
 	return expandPath(d.getConfig().Daemon.WAL.Path)
 }
 
+// resolveDestinationConfig returns the first configured destination, falling
+// back to a synthetic SQLite config pointing at the default memories.db path.
+func (d *Daemon) resolveDestinationConfig() *config.Destination {
+	for _, dst := range d.getConfig().Destinations {
+		if dst.Name != "" && dst.Type != "" {
+			return dst
+		}
+	}
+	return &config.Destination{Name: "default", Type: "sqlite"}
+}
+
 // resolveSQLitePath returns the SQLite database path.
 // Checks configured destinations first, then falls back to the default.
+// Used by the admin list handler and path tests which require direct SQLite access.
 func (d *Daemon) resolveSQLitePath() (string, error) {
 	for _, dst := range d.getConfig().Destinations {
 		if dst.Type == "sqlite" && dst.DBPath != "" {

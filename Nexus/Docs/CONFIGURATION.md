@@ -50,12 +50,12 @@ rate_limit_rpm   = 60
 Agents are registered via CLI:
 
 ```bash
-bubblefish agent register --name "research-agent" --description "RAG research agent"
-bubblefish agent list
-bubblefish agent show <agent_id>
-bubblefish agent suspend <agent_id>
-bubblefish agent retire <agent_id>
-bubblefish agent health
+nexus agent register --name "research-agent" --description "RAG research agent"
+nexus agent list
+nexus agent show <agent_id>
+nexus agent suspend <agent_id>
+nexus agent retire <agent_id>
+nexus agent health
 ```
 
 Agent identity is stored in `nexus.db` (SQLite). The `X-Agent-ID` header is optional in v0.1.3 and carries the agent UUID on requests.

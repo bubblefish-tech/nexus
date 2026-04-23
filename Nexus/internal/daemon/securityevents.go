@@ -24,7 +24,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/BubbleFish-Nexus/internal/securitylog"
+	"github.com/bubblefish-tech/nexus/internal/securitylog"
 )
 
 // emitSecurityEvent writes a structured security event to both the main
@@ -174,7 +174,7 @@ func (d *Daemon) emitAuthFailure(r *http.Request, tokenClass string) {
 }
 
 // emitPolicyDenied emits a policy_denied security event and increments the
-// bubblefish_policy_denials_total metric.
+// nexus_policy_denials_total metric.
 // Reference: Tech Spec Section 11.3.
 func (d *Daemon) emitPolicyDenied(r *http.Request, source, subject, operation, dest, reason string) {
 	d.metrics.PolicyDenialsTotal.WithLabelValues(source, reason).Inc()
