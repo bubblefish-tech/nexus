@@ -1954,15 +1954,12 @@
 - Commit: <SHA>
 - Benchmark (median of 3): 87,285 ns/op | 145,040 B/op | 1,602 allocs/op
 
-## WAL.1: COMPLETE — WAL Replay Pre-Filter
-- Pre-filter skips non-PENDING and audit entries before decompression + unmarshal
-- Zero-alloc byte-level substring matching (bytes.Contains)
-- Compressed entries (zstd: prefix) bypass pre-filter correctly
-- Production benefit: skips DELIVERED entries (majority) without allocating Entry struct
-- Benchmark unchanged (synthetic bench uses 100% PENDING entries — pre-filter doesn't help)
-- Payload field already json.RawMessage — deferred parsing already in place
-- Commit: <SHA>
-- Benchmark (median of 3): 9,417,238 ns/op | 13.1MB B/op | 20,068 allocs/op (unchanged)
+## WAL.1: REVERTED — Pre-Filter Added 24% Overhead
+- Pre-filter (bytes.Contains on raw JSON) added ~1.7ms / 24% overhead on 100% PENDING WALs
+- Benchmark: without filter 7.0ms, with filter 8.7ms — pure cost, zero skips
+- Worst case is crash recovery (WAL full of PENDING) — exactly when speed matters
+- Reverted: pre-filter removed, replay restored to original code path
+- Commit: 9a3dc82 (added), reverted in next commit
 
 ## JWT.1: COMPLETE — JWT Validation Cache
 - LRU cache (256 entries, 60s TTL or JWT exp, SHA-256 key)

@@ -25,7 +25,6 @@ package wal
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
@@ -505,28 +504,6 @@ func (w *WAL) Replay(fn func(Entry)) error {
 	return nil
 }
 
-// replayPreFilter checks raw JSON bytes for status=PENDING and entry_type=""
-// (data) without full unmarshal. Returns false if the entry can be skipped.
-// Uses byte-level substring matching — zero allocations.
-// Compressed entries (zstd: prefix) always pass through since the raw bytes
-// are not JSON-searchable before decompression.
-var pendingBytes = []byte(`"status":"PENDING"`)
-var entryTypeAudit = []byte(`"entry_type":"audit"`)
-var compressPrefixBytes = []byte("zstd:")
-
-func replayPreFilter(data []byte) bool {
-	if bytes.HasPrefix(data, compressPrefixBytes) {
-		return true
-	}
-	if !bytes.Contains(data, pendingBytes) {
-		return false
-	}
-	if bytes.Contains(data, entryTypeAudit) {
-		return false
-	}
-	return true
-}
-
 func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -607,13 +584,6 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 			}
 		}
 
-		// Pre-filter: check status and entry_type in raw JSON before
-		// expensive decompression + full unmarshal. Most WAL entries are
-		// DELIVERED, so this skips them without allocating an Entry struct.
-		if !replayPreFilter(jsonBytes) {
-			continue
-		}
-
 		// Decompress if the payload is zstd-compressed.
 		entryBytes := jsonBytes
 		if decompressed, wasCompressed, dErr := decompressPayload(jsonBytes); dErr != nil {
@@ -626,10 +596,6 @@ func (w *WAL) replaySegment(path string, seen map[string]bool, fn func(Entry)) e
 			continue
 		} else if wasCompressed {
 			entryBytes = decompressed
-			// Re-check after decompression since pre-filter ran on compressed bytes.
-			if !replayPreFilter(entryBytes) {
-				continue
-			}
 		}
 
 		var entry Entry
