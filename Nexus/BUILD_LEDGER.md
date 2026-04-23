@@ -1812,5 +1812,17 @@
 - GODEBUG=madvdontneed=1: returns freed memory to OS
 - New dep: go.uber.org/automaxprocs (MIT)
 - Tests: 3 new tests
-- Commit: <SHA>
+- Commit: cc6238b
 - Exit gate: Build OK | Vet OK | 100 packages PASS
+
+## PERF.1: COMPLETE — SQLite + Connection Tuning
+- SQLite PRAGMAs: synchronous=NORMAL, mmap 256MiB, cache 128MiB, autocheckpoint 10000
+- Connection pools: SQLite MaxIdleConns 1, Postgres MaxOpenConns 64 / MaxIdleConns 16
+- HTTP transport: MaxIdleConnsPerHost=100 (was Go default 2), TCP keepalive 30s
+- Prepared statement cache on write/search/read hot paths
+- Idle-time PRAGMA optimize + wal_checkpoint(PASSIVE) every 5 min of inactivity
+- New package: internal/httputil/
+- Replaced HTTP clients in embedding (OpenAI, Ollama) and A2A transport
+- Tests: 7 new tests
+- Commit: <SHA>
+- Exit gate: Build OK | Vet OK | 101 packages PASS

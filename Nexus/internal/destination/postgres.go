@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	// jackc/pgx/v5 stdlib adapter provides the "pgx" driver for database/sql.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -128,6 +129,10 @@ func OpenPostgres(dsn string, dimensions int, logger *slog.Logger) (*PostgresDes
 	if err != nil {
 		return nil, fmt.Errorf("destination: postgres: open: %w", err)
 	}
+	db.SetMaxOpenConns(64)
+	db.SetMaxIdleConns(16)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	d := &PostgresDestination{db: db, dimensions: dimensions, logger: logger}
 	if err := d.applySchema(); err != nil {

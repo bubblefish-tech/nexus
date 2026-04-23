@@ -26,6 +26,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/bubblefish-tech/nexus/internal/httputil"
 )
 
 // openAIRequest is the JSON body sent to /v1/embeddings (single text).
@@ -67,9 +69,7 @@ type openAIClient struct {
 // INVARIANT: resolvedKey is never logged at any level.
 func newOpenAIClient(baseURL, model, resolvedKey string, dimensions int, timeout time.Duration) *openAIClient {
 	return &openAIClient{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		httpClient:  httputil.NewClient(timeout),
 		baseURL:     baseURL,
 		model:       model,
 		dimensions:  dimensions,

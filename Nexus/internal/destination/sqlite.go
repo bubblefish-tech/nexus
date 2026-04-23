@@ -268,6 +268,9 @@ func OpenSQLite(path string, logger *slog.Logger) (*SQLiteDestination, error) {
 	// A pool of 1 write connection avoids "database is locked" errors from
 	// concurrent goroutines hitting the same file handle.
 	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	d := &SQLiteDestination{
 		db:     db,
@@ -300,7 +303,14 @@ func OpenSQLite(path string, logger *slog.Logger) (*SQLiteDestination, error) {
 func (d *SQLiteDestination) applyPragmasAndSchema() error {
 	pragmas := []string{
 		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA mmap_size=268435456",
+		"PRAGMA cache_size=-131072",
+		"PRAGMA temp_store=MEMORY",
+		"PRAGMA wal_autocheckpoint=10000",
+		"PRAGMA journal_size_limit=67108864",
 		"PRAGMA busy_timeout=5000",
+		"PRAGMA foreign_keys=ON",
 	}
 	for _, p := range pragmas {
 		if _, err := d.db.Exec(p); err != nil {

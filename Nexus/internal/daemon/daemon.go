@@ -329,6 +329,9 @@ type Daemon struct {
 	lastDiscovery   []discover.DiscoveredTool
 	lastDiscoveryAt time.Time
 
+	// writeNotify receives a signal after each write for idle maintenance tracking.
+	writeNotify chan struct{}
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -357,6 +360,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		liteBus:         events.NewLiteBus(512),
 		pipeMetrics:     newPipelineMetrics(),
 		subsystemHealth: safego.NewStatusTracker(),
+		writeNotify:     make(chan struct{}, 1),
 		stopped:         make(chan struct{}),
 		shutdownReq:     make(chan struct{}),
 	}
@@ -630,6 +634,7 @@ func (d *Daemon) Start() error {
 				"component", "daemon", "error", refreshErr)
 		}
 		safego.Go("temporal-bin-refresher", d.logger, d.subsystemHealth, func() { d.temporalBinRefresher(sqliteDest.DB()) })
+		safego.Go("idle-maintenance", d.logger, d.subsystemHealth, func() { d.idleMaintenance(context.Background()) })
 		d.logger.Info("daemon: BM25 search and temporal bins enabled",
 			"component", "daemon")
 	}
@@ -1905,6 +1910,43 @@ func (d *Daemon) temporalBinRefresher(db *sql.DB) {
 					"component", "daemon", "error", err)
 			}
 		}
+	}
+}
+
+// idleMaintenance runs PRAGMA optimize and WAL checkpoint during quiet periods.
+func (d *Daemon) idleMaintenance(ctx context.Context) {
+	idle := time.NewTimer(5 * time.Minute)
+	defer idle.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.stopped:
+			return
+		case <-d.writeNotify:
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(5 * time.Minute)
+		case <-idle.C:
+			if sqlDest, ok := d.dest.(interface{ DB() *sql.DB }); ok {
+				db := sqlDest.DB()
+				_, _ = db.Exec("PRAGMA optimize")
+				_, _ = db.Exec("PRAGMA wal_checkpoint(PASSIVE)")
+			}
+			idle.Reset(5 * time.Minute)
+		}
+	}
+}
+
+// notifyWrite sends a non-blocking signal on writeNotify for idle maintenance.
+func (d *Daemon) notifyWrite() {
+	select {
+	case d.writeNotify <- struct{}{}:
+	default:
 	}
 }
 
