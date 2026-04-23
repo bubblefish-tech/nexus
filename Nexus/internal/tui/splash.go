@@ -227,11 +227,11 @@ func (s SplashModel) View() string {
 
 	var content []string
 
-	// Fish/shield emblem centered above block-letter banners.
+	// Block-letter banners only (no ANSI art on splash).
 	if fp := s.fishFade.p(); fp > 0.1 {
-		content = append(content, components.RenderSplashEmblem())
 		content = append(content, "")
 		content = append(content, components.RenderSplashBanners(s.width))
+		content = append(content, "")
 	}
 
 	content = append(content, "")

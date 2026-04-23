@@ -150,20 +150,28 @@ var nexusBannerLines = []struct {
 
 // RenderSplashBanners returns the two-line block-letter splash:
 // line 1 = BUBBLEFISH, line 2 = NEXUS, centered within the given width.
+// Each banner is rendered at 125% height by duplicating the middle row.
 func RenderSplashBanners(width int) string {
 	if width < 1 {
 		width = 82
 	}
 	var lines []string
 
-	for _, row := range bannerLines {
+	for i, row := range bannerLines {
 		line := lipgloss.NewStyle().Foreground(row.color).Render(row.text)
 		lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		if i == 2 {
+			lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		}
 	}
 	lines = append(lines, "")
-	for _, row := range nexusBannerLines {
+	lines = append(lines, "")
+	for i, row := range nexusBannerLines {
 		line := lipgloss.NewStyle().Foreground(row.color).Render(row.text)
 		lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		if i == 2 {
+			lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		}
 	}
 
 	return strings.Join(lines, "\n")

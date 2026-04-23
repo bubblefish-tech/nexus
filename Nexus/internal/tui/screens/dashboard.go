@@ -161,7 +161,19 @@ func (d *DashboardScreen) View() string {
 func (d *DashboardScreen) viewLeftColumn(w int) string {
 	var lines []string
 
-	lines = append(lines, components.RenderFishEmblem())
+	// Truncate ANSI art to fit content area, centered above brand text.
+	artMaxLines := d.height - 18
+	if artMaxLines < 10 {
+		artMaxLines = 10
+	}
+	artLines := strings.Split(components.RenderFishEmblem(), "\n")
+	if len(artLines) > artMaxLines {
+		artLines = artLines[:artMaxLines]
+	}
+	for i, al := range artLines {
+		artLines[i] = lipgloss.PlaceHorizontal(w, lipgloss.Center, al)
+	}
+	lines = append(lines, strings.Join(artLines, "\n"))
 	lines = append(lines, "")
 
 	// Brand text
