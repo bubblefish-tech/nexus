@@ -2005,5 +2005,13 @@
 - VEC.1: Pre-allocated embedding response vector at known dimension (130→123 allocs, 18.8→17.8KB)
 - PGO.1: CPU profile captured from mixed benchmarks, committed as cmd/nexus/default.pgo (45KB)
 - SQLite pragma helper: internal/destination/sqlite_pragmas.go (reusable across all opens)
-- Commit: <SHA>
+- Commit: 2488846
 - Embedding benchmark: 123 allocs/op, 17,842 B/op (was 130/18,834)
+
+## STMT.1: COMPLETE — Prepared Write Statement
+- Prepared INSERT statement created once at SQLiteDestination.Open()
+- Write() uses prepared stmt instead of re-parsing SQL on every call
+- Closed in SQLiteDestination.Close()
+- writeSQL extracted to package-level const
+- Commit: <SHA>
+- Exit gate: Build OK | Vet OK | Full suite PASS

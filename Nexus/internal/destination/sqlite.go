@@ -43,6 +43,17 @@ const (
 	// sqliteDriverName is the driver name registered by modernc.org/sqlite.
 	sqliteDriverName = "sqlite"
 
+	writeSQL = `INSERT OR IGNORE INTO memories (
+    payload_id, request_id, source, subject, namespace, destination,
+    collection, content, model, role, timestamp, idempotency_key,
+    schema_version, transform_version, actor_type, actor_id, metadata, embedding,
+    sensitivity_labels, classification_tier, tier,
+    lsh_bucket, cluster_id, cluster_role,
+    signature, signing_key_id, signature_alg,
+    content_encrypted, metadata_encrypted, encryption_version,
+    temporal_bin
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
 	// createMemoriesTable is the DDL for the memories table. Uses
 	// IF NOT EXISTS so it is idempotent across restarts.
 	createMemoriesTable = `
@@ -239,6 +250,9 @@ type SQLiteDestination struct {
 	// mkm provides per-row AES-256-GCM encryption via HKDF-derived keys.
 	// Nil or disabled means plaintext storage (backward compatible).
 	mkm *nexuscrypto.MasterKeyManager
+	// writeStmt is a prepared INSERT statement for the hot write path.
+	// Created once at Open(), used for every Write() call.
+	writeStmt *sql.Stmt
 }
 
 // OpenSQLite opens (or creates) a SQLite database at path, applies the
@@ -284,6 +298,14 @@ func OpenSQLite(path string, logger *slog.Logger) (*SQLiteDestination, error) {
 		}
 		return nil, err
 	}
+
+	// Prepare the hot-path write statement once at open time.
+	writeStmt, err := db.Prepare(writeSQL)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("destination: sqlite: prepare write: %w", err)
+	}
+	d.writeStmt = writeStmt
 
 	// Ensure the database file has restricted permissions (0600).
 	// Best-effort on platforms where chmod is not supported (e.g. some Windows
@@ -509,19 +531,7 @@ func (d *SQLiteDestination) Write(p TranslatedPayload) error {
 
 	temporalBin := temporal.ComputeBin(p.Timestamp, time.Now().UTC())
 
-	const query = `
-INSERT OR IGNORE INTO memories (
-    payload_id, request_id, source, subject, namespace, destination,
-    collection, content, model, role, timestamp, idempotency_key,
-    schema_version, transform_version, actor_type, actor_id, metadata, embedding,
-    sensitivity_labels, classification_tier, tier,
-    lsh_bucket, cluster_id, cluster_role,
-    signature, signing_key_id, signature_alg,
-    content_encrypted, metadata_encrypted, encryption_version,
-    temporal_bin
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-	_, err = d.db.Exec(query,
+	_, err = d.writeStmt.Exec(
 		p.PayloadID,
 		p.RequestID,
 		p.Source,
@@ -980,6 +990,9 @@ func parseTimestamp(s string) (time.Time, error) {
 
 // Close closes the underlying database connection. Safe to call once.
 func (d *SQLiteDestination) Close() error {
+	if d.writeStmt != nil {
+		d.writeStmt.Close()
+	}
 	if err := d.db.Close(); err != nil {
 		return fmt.Errorf("destination: sqlite: close: %w", err)
 	}
