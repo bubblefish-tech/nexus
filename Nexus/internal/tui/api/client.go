@@ -166,3 +166,33 @@ func (c *Client) Agents() ([]AgentSummary, error) {
 	}
 	return r.Agents, nil
 }
+
+// QuarantineList fetches GET /api/quarantine.
+func (c *Client) QuarantineList(limit int) (*QuarantineResponse, error) {
+	var r QuarantineResponse
+	return &r, c.get("/api/quarantine?limit="+strconv.Itoa(limit), &r)
+}
+
+// QuarantineCount fetches GET /api/quarantine/count.
+func (c *Client) QuarantineCount() (*QuarantineCountResponse, error) {
+	var r QuarantineCountResponse
+	return &r, c.get("/api/quarantine/count", &r)
+}
+
+// Grants fetches GET /api/control/grants.
+func (c *Client) Grants() (*GrantsResponse, error) {
+	var r GrantsResponse
+	return &r, c.get("/api/control/grants", &r)
+}
+
+// Approvals fetches GET /api/control/approvals.
+func (c *Client) Approvals() (*ApprovalsResponse, error) {
+	var r ApprovalsResponse
+	return &r, c.get("/api/control/approvals", &r)
+}
+
+// Tasks fetches GET /api/control/tasks.
+func (c *Client) Tasks() (*TasksResponse, error) {
+	var r TasksResponse
+	return &r, c.get("/api/control/tasks", &r)
+}

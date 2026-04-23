@@ -87,9 +87,11 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		prefs = DefaultPrefs()
 	}
 	scr := map[AppState]screens.Screen{
-		StateDashboard:  screens.NewDashboardScreen(),
-		StateAuditWalker: screens.NewAuditWalkerScreen(),
-		StateCryptoVault: screens.NewCryptoVaultScreen(),
+		StateDashboard:    screens.NewDashboardScreen(),
+		StateAuditWalker:  screens.NewAuditWalkerScreen(),
+		StateCryptoVault:  screens.NewCryptoVaultScreen(),
+		StateGovernance:   screens.NewGovernanceScreen(),
+		StateImmuneTheater: screens.NewImmuneTheaterScreen(),
 	}
 	return &RootModel{
 		state:        StateSplash,
