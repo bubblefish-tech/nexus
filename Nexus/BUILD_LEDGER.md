@@ -2095,7 +2095,16 @@
 - Regression tape: scripts/vhs/T1_checkpoint.tape (8-tab walkthrough)
 - Commit: c537585
 
-### Next: TIER 2 (§13) — T2-1 Dashboard 6-Stat-Card Grid
+## T2-1: COMPLETE — Dashboard 6-Stat-Card Grid
+- Daemon: GET /api/stats aggregated endpoint (handlers_stats.go)
+- TUI: StatCard rewritten — gradient top line, letter-spaced labels, accent-colored values
+- TUI: AggregatedStats DTO + Stats() client method
+- TUI: Dashboard fetches agents + stats via tea.Batch
+- Cards: MEMORIES (teal), AUDIT EVENTS (green), AI AGENTS (purple), HEALTH (green), QUARANTINE (amber), WAL LAG (green)
+- Commit: 781e515
+- Exit gate: go build OK | go vet OK | full suite PASS (race)
+
+### Next: T2-2 per §14 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
