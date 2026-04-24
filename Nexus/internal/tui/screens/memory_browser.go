@@ -32,9 +32,9 @@ import (
 )
 
 type memorySearchMsg struct {
-	records []api.TimeTravelRecord
-	errKind api.ErrorKind
-	hint    string
+	memories []api.Memory
+	errKind  api.ErrorKind
+	hint     string
 }
 
 var memoryKeys = struct {
@@ -54,7 +54,7 @@ type MemoryBrowserScreen struct {
 	width, height int
 	searchInput   textinput.Model
 	searching     bool
-	records       []api.TimeTravelRecord
+	records       []api.Memory
 	selectedIdx   int
 	errKind       api.ErrorKind
 	errHint       string
@@ -90,7 +90,7 @@ func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		m.errKind = msg.errKind
 		m.errHint = msg.hint
 		if msg.errKind == api.ErrKindUnknown {
-			m.records = msg.records
+			m.records = msg.memories
 			m.selectedIdx = 0
 		}
 		return m, nil
@@ -142,16 +142,13 @@ func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 
 func (m *MemoryBrowserScreen) FireRefresh(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
-		data, err := client.TimeTravel(api.TimeTravelOpts{
-			AsOf:  "now",
-			Limit: 50,
-		})
+		resp, err := client.ListMemories(50, 0)
 		if err != nil {
 			kind := api.Classify(err)
-			sdbg("TimeTravel failed kind=%d err=%v", kind, err)
-			return memorySearchMsg{errKind: kind, hint: api.HintForEndpoint("/api/timetravel", kind)}
+			sdbg("ListMemories failed kind=%d err=%v", kind, err)
+			return memorySearchMsg{errKind: kind, hint: api.HintForEndpoint("/api/memories", kind)}
 		}
-		return memorySearchMsg{records: data.Records}
+		return memorySearchMsg{memories: resp.Memories}
 	}
 }
 
@@ -233,6 +230,9 @@ func (m *MemoryBrowserScreen) viewResultsList(w int) string {
 		}
 
 		content := rec.Content
+		if content == "" {
+			content = rec.ID
+		}
 		maxLen := w - 6
 		if maxLen < 10 {
 			maxLen = 10
@@ -248,7 +248,7 @@ func (m *MemoryBrowserScreen) viewResultsList(w int) string {
 		line := prefix + lipgloss.NewStyle().Foreground(nameStyle).Render(content)
 		lines = append(lines, line)
 
-		meta := fmt.Sprintf("    %s · %s", rec.Source, rec.Timestamp.Format("Jan 2"))
+		meta := fmt.Sprintf("    %s · %s", rec.Source, rec.CreatedAt)
 		lines = append(lines, lipgloss.NewStyle().Foreground(styles.TextMuted).Render(meta))
 	}
 
@@ -268,9 +268,16 @@ func (m *MemoryBrowserScreen) viewDetail(w int) string {
 	rec := m.records[m.selectedIdx]
 
 	idStyle := lipgloss.NewStyle().Foreground(styles.ColorTealDim)
-	lines = append(lines, "  "+idStyle.Render(rec.PayloadID))
-	lines = append(lines, fmt.Sprintf("  %s", rec.Timestamp.Format("2006-01-02 15:04:05 UTC")))
-	lines = append(lines, fmt.Sprintf("  source: %s  ·  actor: %s", rec.Source, rec.ActorType))
+	lines = append(lines, "  "+idStyle.Render(rec.ID))
+	lines = append(lines, fmt.Sprintf("  %s", rec.CreatedAt))
+	actor := rec.ActorType
+	if actor == "" {
+		actor = rec.Actor
+	}
+	if actor == "" {
+		actor = "—"
+	}
+	lines = append(lines, fmt.Sprintf("  source: %s  ·  actor: %s", rec.Source, actor))
 	if rec.Namespace != "" {
 		lines = append(lines, fmt.Sprintf("  namespace: %s", rec.Namespace))
 	}

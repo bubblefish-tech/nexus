@@ -251,6 +251,7 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Get("/api/audit/stats", d.handleAuditStats)
 		r.Get("/api/audit/export", d.handleAuditExport)
 		r.Get("/admin/memories", d.handleAdminList)
+		r.Get("/api/memories", d.handleAdminList)
 		r.Post("/api/shutdown", d.handleShutdown)
 		r.Get("/api/agents/{agent_id}/sessions", d.handleAgentSessions)
 		r.Get("/api/agents/{agent_id}/activity", d.handleAgentActivity)

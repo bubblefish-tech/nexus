@@ -395,3 +395,46 @@ type Task struct {
 type TasksResponse struct {
 	Tasks []Task `json:"tasks"`
 }
+
+// Memory represents a single memory row returned by GET /api/memories.
+type Memory struct {
+	ID          string  `json:"payload_id"`
+	Content     string  `json:"content,omitempty"`
+	Source      string  `json:"source"`
+	Actor       string  `json:"actor,omitempty"`
+	ActorType   string  `json:"actor_type,omitempty"`
+	Namespace   string  `json:"namespace,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	Destination string  `json:"destination,omitempty"`
+	Preview     string  `json:"preview,omitempty"`
+	Score       float64 `json:"score,omitempty"`
+}
+
+// MemoryDetail extends Memory with provenance and scoring details.
+type MemoryDetail struct {
+	Memory
+	ProvenanceEntry int    `json:"provenance_entry"`
+	PrevHash        string `json:"prev_hash"`
+	Hash            string `json:"hash"`
+	Signature       string `json:"signature"`
+	MerkleRoot      string `json:"merkle_root"`
+	Scores          struct {
+		BM25  float64 `json:"bm25"`
+		Dense float64 `json:"dense"`
+		RRF   float64 `json:"rrf"`
+		Decay float64 `json:"decay"`
+	} `json:"scores"`
+}
+
+// MemoryListEnvelope is the pagination metadata from GET /api/memories.
+type MemoryListEnvelope struct {
+	ResultCount int    `json:"result_count"`
+	HasMore     bool   `json:"has_more"`
+	NextCursor  string `json:"next_cursor,omitempty"`
+}
+
+// MemoryListResponse is the shape of GET /api/memories.
+type MemoryListResponse struct {
+	Memories []Memory           `json:"memories"`
+	Admin    MemoryListEnvelope `json:"_admin"`
+}

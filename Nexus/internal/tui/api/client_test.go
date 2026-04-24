@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -354,5 +355,117 @@ func TestResolveBaseURL_priority(t *testing.T) {
 				t.Errorf("ResolveBaseURL(%q) = %q, want %q", tt.cliFlag, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestListMemories_empty(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"memories":[],"_admin":{"result_count":0,"has_more":false}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.ListMemories(50, 0)
+	if err != nil {
+		t.Fatalf("ListMemories() unexpected error: %v", err)
+	}
+	if len(resp.Memories) != 0 {
+		t.Errorf("expected 0 memories, got %d", len(resp.Memories))
+	}
+}
+
+func TestListMemories_populated(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"memories":[
+			{"payload_id":"m1","source":"claude","created_at":"2026-04-23T10:00:00Z","destination":"sqlite"},
+			{"payload_id":"m2","source":"cursor","created_at":"2026-04-23T10:01:00Z","destination":"sqlite"},
+			{"payload_id":"m3","source":"lm-studio","created_at":"2026-04-23T10:02:00Z","destination":"sqlite"}
+		],"_admin":{"result_count":3,"has_more":false}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.ListMemories(50, 0)
+	if err != nil {
+		t.Fatalf("ListMemories() unexpected error: %v", err)
+	}
+	if len(resp.Memories) != 3 {
+		t.Fatalf("expected 3 memories, got %d", len(resp.Memories))
+	}
+	if resp.Memories[0].ID != "m1" {
+		t.Errorf("first memory ID = %q, want m1", resp.Memories[0].ID)
+	}
+	if resp.Memories[1].Source != "cursor" {
+		t.Errorf("second memory source = %q, want cursor", resp.Memories[1].Source)
+	}
+}
+
+func TestListMemories_404(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.ListMemories(50, 0)
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if Classify(err) != ErrKindNotFound {
+		t.Errorf("Classify(err) = %d, want ErrKindNotFound", Classify(err))
+	}
+}
+
+func TestListMemories_500(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.ListMemories(50, 0)
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	if Classify(err) != ErrKindServer {
+		t.Errorf("Classify(err) = %d, want ErrKindServer", Classify(err))
+	}
+}
+
+func TestListMemories_malformed(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{broken json`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.ListMemories(50, 0)
+	if err == nil {
+		t.Fatal("expected decode error for malformed JSON")
+	}
+}
+
+func TestSearchMemories_queryEncoding(t *testing.T) {
+	t.Helper()
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"memories":[],"_admin":{"result_count":0,"has_more":false}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, _ = c.SearchMemories("budget Q3", 10)
+	if !strings.Contains(gotPath, "q=budget+Q3") && !strings.Contains(gotPath, "q=budget%20Q3") {
+		t.Errorf("expected URL-encoded query, got path %q", gotPath)
 	}
 }

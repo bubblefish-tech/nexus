@@ -242,3 +242,30 @@ func (c *Client) Tasks() (*TasksResponse, error) {
 	return &r, c.get("/api/control/tasks", &r)
 }
 
+// ListMemories returns the most recent memories via GET /api/memories.
+// This is the default listing endpoint; time-travel uses a separate path.
+func (c *Client) ListMemories(limit, offset int) (*MemoryListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	path := "/api/memories?limit=" + strconv.Itoa(limit)
+	var r MemoryListResponse
+	return &r, c.get(path, &r)
+}
+
+// SearchMemories performs a query across all memories via GET /api/memories?q=...
+func (c *Client) SearchMemories(query string, limit int) (*MemoryListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	path := "/api/memories?q=" + url.QueryEscape(query) + "&limit=" + strconv.Itoa(limit)
+	var r MemoryListResponse
+	return &r, c.get(path, &r)
+}
+
+// GetMemory fetches a single memory by ID via GET /api/memories/{id}.
+func (c *Client) GetMemory(id string) (*MemoryDetail, error) {
+	var r MemoryDetail
+	return &r, c.get("/api/memories/"+url.PathEscape(id), &r)
+}
+
