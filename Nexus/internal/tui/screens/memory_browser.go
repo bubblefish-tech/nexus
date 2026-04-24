@@ -59,6 +59,8 @@ type MemoryBrowserScreen struct {
 	errKind       api.ErrorKind
 	errHint       string
 	loading       bool
+	lastQuery     string
+	client        *api.Client
 }
 
 // NewMemoryBrowserScreen creates the memory browser.
@@ -104,7 +106,11 @@ func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				return m, nil
 			case "enter":
 				m.searching = false
+				m.lastQuery = m.searchInput.Value()
 				m.searchInput.Blur()
+				if m.client != nil && m.lastQuery != "" {
+					return m, m.searchCmd()
+				}
 				return m, nil
 			default:
 				var cmd tea.Cmd
@@ -141,11 +147,26 @@ func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (m *MemoryBrowserScreen) FireRefresh(client *api.Client) tea.Cmd {
+	m.client = client
 	return func() tea.Msg {
 		resp, err := client.ListMemories(50, 0)
 		if err != nil {
 			kind := api.Classify(err)
 			sdbg("ListMemories failed kind=%d err=%v", kind, err)
+			return memorySearchMsg{errKind: kind, hint: api.HintForEndpoint("/api/memories", kind)}
+		}
+		return memorySearchMsg{memories: resp.Memories}
+	}
+}
+
+func (m *MemoryBrowserScreen) searchCmd() tea.Cmd {
+	query := m.lastQuery
+	client := m.client
+	return func() tea.Msg {
+		resp, err := client.SearchMemories(query, 50)
+		if err != nil {
+			kind := api.Classify(err)
+			sdbg("SearchMemories failed kind=%d err=%v", kind, err)
 			return memorySearchMsg{errKind: kind, hint: api.HintForEndpoint("/api/memories", kind)}
 		}
 		return memorySearchMsg{memories: resp.Memories}
@@ -301,6 +322,16 @@ func (m *MemoryBrowserScreen) viewDetail(w int) string {
 	lines = append(lines, "  "+sep)
 	lines = append(lines, "")
 
+	// Provenance section (populated when daemon returns hash/sig fields).
+	if rec.Score > 0 {
+		lines = append(lines, "  "+sep)
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
+			Render("  ◈ RETRIEVAL SCORE"))
+		lines = append(lines, fmt.Sprintf("    rrf:   %.2f", rec.Score))
+	}
+
+	lines = append(lines, "")
 	actions := lipgloss.NewStyle().Foreground(styles.TextMuted).
 		Render("  [e] edit  [d] delete  [p] proof")
 	lines = append(lines, actions)
