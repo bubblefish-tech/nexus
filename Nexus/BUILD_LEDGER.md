@@ -2104,7 +2104,14 @@
 - Commit: 781e515
 - Exit gate: go build OK | go vet OK | full suite PASS (race)
 
-### Next: T2-2 per §14 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T2-2: COMPLETE — Retrieval Theater Live Waterfall
+- components/waterfall.go: RenderWaterfall with 6 stage states (idle/running/done/skipped/slow/error)
+- retrieval_theater.go: query text input, waterfall from CascadeStages, cascade details, cache perf bars
+- SSE /stream/retrieval deferred until cascade event bus instrumented
+- Commit: 8c5fa24
+- Exit gate: go build OK | go vet OK | full suite PASS (race)
+
+### Next: T2-3 per §15 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
