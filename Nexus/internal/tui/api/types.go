@@ -339,9 +339,13 @@ type QuarantineRecord struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// QuarantineResponse is the shape of GET /api/quarantine.
+// QuarantineResponse is the unified shape of GET /api/quarantine.
+// Contains records AND total/pending counts in a single payload.
 type QuarantineResponse struct {
-	Items []QuarantineRecord `json:"items"`
+	Records []QuarantineRecord `json:"records"`
+	Count   int                `json:"count"`
+	Total   int                `json:"total"`
+	Pending int                `json:"pending"`
 }
 
 // QuarantineCountResponse is the shape of GET /api/quarantine/count.

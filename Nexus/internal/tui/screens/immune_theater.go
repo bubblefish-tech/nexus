@@ -38,8 +38,7 @@ type immuneSecurityMsg struct {
 }
 
 type immuneQuarantineMsg struct {
-	items   *api.QuarantineResponse
-	count   *api.QuarantineCountResponse
+	data    *api.QuarantineResponse
 	errKind api.ErrorKind
 	hint    string
 }
@@ -49,8 +48,7 @@ type ImmuneTheaterScreen struct {
 	width, height    int
 	securityEvents   []api.SecurityEvent
 	securitySummary  *api.SecuritySummaryResponse
-	quarantineItems  []api.QuarantineRecord
-	quarantineCount  *api.QuarantineCountResponse
+	quarantine       *api.QuarantineResponse
 	errKind          api.ErrorKind
 	errHint          string
 	loading          bool
@@ -86,13 +84,8 @@ func (im *ImmuneTheaterScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if m.errKind != api.ErrKindUnknown {
 			im.errKind = m.errKind
 			im.errHint = m.hint
-		} else {
-			if m.items != nil {
-				im.quarantineItems = m.items.Items
-			}
-			if m.count != nil {
-				im.quarantineCount = m.count
-			}
+		} else if m.data != nil {
+			im.quarantine = m.data
 		}
 	}
 	return im, nil
@@ -116,19 +109,13 @@ func (im *ImmuneTheaterScreen) FireRefresh(client *api.Client) tea.Cmd {
 			return immuneSecurityMsg{events: events, summary: summary}
 		},
 		func() tea.Msg {
-			items, err := client.QuarantineList(50)
+			data, err := client.QuarantineList(50)
 			if err != nil {
 				kind := api.Classify(err)
-				sdbg("QuarantineList failed kind=%d err=%v", kind, err)
+				sdbg("Quarantine failed kind=%d err=%v", kind, err)
 				return immuneQuarantineMsg{errKind: kind, hint: api.HintForEndpoint("/api/quarantine", kind)}
 			}
-			count, err := client.QuarantineCount()
-			if err != nil {
-				kind := api.Classify(err)
-				sdbg("QuarantineCount failed kind=%d err=%v", kind, err)
-				return immuneQuarantineMsg{items: items, errKind: kind, hint: api.HintForEndpoint("/api/quarantine/count", kind)}
-			}
-			return immuneQuarantineMsg{items: items, count: count}
+			return immuneQuarantineMsg{data: data}
 		},
 	)
 }
@@ -160,10 +147,10 @@ func (im *ImmuneTheaterScreen) View() string {
 	)
 
 	var footer string
-	if im.quarantineCount != nil {
+	if im.quarantine != nil {
 		footer = lipgloss.NewStyle().Foreground(styles.TextMuted).
 			Render(fmt.Sprintf("  Quarantine: %d total · %d pending",
-				im.quarantineCount.Total, im.quarantineCount.Pending))
+				im.quarantine.Total, im.quarantine.Pending))
 	}
 	if im.securitySummary != nil {
 		footer += lipgloss.NewStyle().Foreground(styles.TextMuted).
@@ -233,12 +220,17 @@ func (im *ImmuneTheaterScreen) viewQuarantine(w int) string {
 	lines = append(lines, sectionHeader("QUARANTINE QUEUE", w))
 	lines = append(lines, "")
 
-	if len(im.quarantineItems) == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No quarantined items"))
+	items := im.quarantineRecords()
+	if len(items) == 0 {
+		hint := "No items in quarantine. Malicious writes will appear here."
+		if im.quarantine != nil && im.quarantine.Pending > 0 {
+			hint = fmt.Sprintf("%d items pending — admin access required to view", im.quarantine.Pending)
+		}
+		lines = append(lines, styles.MutedStyle.Render("  "+hint))
 		return strings.Join(lines, "\n")
 	}
 
-	for _, item := range im.quarantineItems {
+	for _, item := range items {
 		ts := item.CreatedAt.Format("15:04:05")
 		src := lipgloss.NewStyle().Foreground(styles.TextWhiteDim).Render("src=" + item.Source)
 		rule := lipgloss.NewStyle().Foreground(styles.ColorAmber).Render("rule=" + item.Rule)
@@ -265,6 +257,13 @@ func (im *ImmuneTheaterScreen) viewQuarantine(w int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (im *ImmuneTheaterScreen) quarantineRecords() []api.QuarantineRecord {
+	if im.quarantine == nil {
+		return nil
+	}
+	return im.quarantine.Records
 }
 
 var _ Screen = (*ImmuneTheaterScreen)(nil)
