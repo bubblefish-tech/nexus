@@ -29,9 +29,9 @@ import (
 func TestClassify_HTTPErrors(t *testing.T) {
 	t.Helper()
 	tests := []struct {
-		name   string
-		err    error
-		want   ErrorKind
+		name string
+		err  error
+		want ErrorKind
 	}{
 		{"400", &HTTPError{Status: 400, Path: "/api/x"}, ErrKindClient},
 		{"401", &HTTPError{Status: 401, Path: "/api/x"}, ErrKindForbidden},

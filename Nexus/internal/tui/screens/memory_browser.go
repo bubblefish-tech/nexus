@@ -77,7 +77,7 @@ func NewMemoryBrowserScreen() *MemoryBrowserScreen {
 	}
 }
 
-func (m *MemoryBrowserScreen) Name() string    { return "Memory" }
+func (m *MemoryBrowserScreen) Name() string     { return "Memory" }
 func (m *MemoryBrowserScreen) Init() tea.Cmd    { return nil }
 func (m *MemoryBrowserScreen) SetSize(w, h int) { m.width = w; m.height = h }
 

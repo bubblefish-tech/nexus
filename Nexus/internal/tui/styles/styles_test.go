@@ -47,15 +47,15 @@ func TestColorConstants_NonEmpty(t *testing.T) {
 func TestPrecomputedStyles_Render(t *testing.T) {
 	t.Helper()
 	styles := map[string]lipgloss.Style{
-		"ActiveTab":      ActiveTab,
-		"InactiveTab":    InactiveTab,
-		"StatValue":      StatValue,
-		"ErrorStyle":     ErrorStyle,
-		"SuccessStyle":   SuccessStyle,
-		"WarnStyle":      WarnStyle,
-		"MutedStyle":     MutedStyle,
-		"TealStyle":      TealStyle,
-		"SectionHeader":  SectionHeader,
+		"ActiveTab":     ActiveTab,
+		"InactiveTab":   InactiveTab,
+		"StatValue":     StatValue,
+		"ErrorStyle":    ErrorStyle,
+		"SuccessStyle":  SuccessStyle,
+		"WarnStyle":     WarnStyle,
+		"MutedStyle":    MutedStyle,
+		"TealStyle":     TealStyle,
+		"SectionHeader": SectionHeader,
 	}
 	for name, s := range styles {
 		out := s.Render("test")

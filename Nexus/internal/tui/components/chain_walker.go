@@ -27,17 +27,17 @@ import (
 
 // EntryCardProps configures the provenance chain entry card renderer.
 type EntryCardProps struct {
-	EntryN     int
-	Total      int
-	Timestamp  string
-	RecordID   string
-	PrevHash   string
-	ContentID  string
-	Preview    string
-	Hash       string
-	Signature  string
-	SigValid   bool
-	Width      int
+	EntryN    int
+	Total     int
+	Timestamp string
+	RecordID  string
+	PrevHash  string
+	ContentID string
+	Preview   string
+	Hash      string
+	Signature string
+	SigValid  bool
+	Width     int
 }
 
 // RenderEntryCard draws a provenance chain entry showing the

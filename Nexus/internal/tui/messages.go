@@ -28,15 +28,15 @@ import (
 type AppState int
 
 const (
-	StateSplash          AppState = iota
-	StateDashboard                // Main overview (default landing)
-	StateMemoryBrowser            // Search + inspect memories
-	StateRetrievalTheater         // Watch queries traverse cascade
-	StateAuditWalker              // Step through hash chain
-	StateAgentCanvas              // A2A orchestration flow
-	StateCryptoVault              // Keys, Merkle roots, deletion certs
-	StateGovernance               // Grants, approvals, policy log
-	StateImmuneTheater            // Quarantine + threat signatures
+	StateSplash           AppState = iota
+	StateDashboard                 // Main overview (default landing)
+	StateMemoryBrowser             // Search + inspect memories
+	StateRetrievalTheater          // Watch queries traverse cascade
+	StateAuditWalker               // Step through hash chain
+	StateAgentCanvas               // A2A orchestration flow
+	StateCryptoVault               // Keys, Merkle roots, deletion certs
+	StateGovernance                // Grants, approvals, policy log
+	StateImmuneTheater             // Quarantine + threat signatures
 )
 
 // NavigateMsg requests a screen transition.
@@ -65,7 +65,6 @@ type SplashDoneMsg struct{}
 
 // cmdResultMsg is a simple text result from a slash command (e.g. /theme).
 type cmdResultMsg string
-
 
 // dataTickCmd returns a command that fires DataTickMsg after 5 seconds.
 func dataTickCmd() tea.Cmd {

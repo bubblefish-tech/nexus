@@ -28,9 +28,9 @@ import (
 )
 
 type toolEntry struct {
-	Name           string
-	ConnectionType string
-	Detected       bool
+	Name            string
+	ConnectionType  string
+	Detected        bool
 	DetectionMethod string
 }
 

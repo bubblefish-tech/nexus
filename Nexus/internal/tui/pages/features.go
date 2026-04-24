@@ -28,11 +28,11 @@ import (
 
 // featureEntry defines an optional Nexus feature shown on the features page.
 type featureEntry struct {
-	key     string
-	label   string
-	desc    string
-	safeOn  bool // enabled by default in "safe" mode
-	simOn   bool // enabled by default in "simple" mode
+	key    string
+	label  string
+	desc   string
+	safeOn bool // enabled by default in "safe" mode
+	simOn  bool // enabled by default in "simple" mode
 }
 
 var allFeatures = []featureEntry{

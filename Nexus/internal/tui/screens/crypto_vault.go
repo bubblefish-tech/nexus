@@ -46,7 +46,7 @@ func NewCryptoVaultScreen() *CryptoVaultScreen {
 	return &CryptoVaultScreen{}
 }
 
-func (c *CryptoVaultScreen) Name() string            { return "Crypto" }
+func (c *CryptoVaultScreen) Name() string             { return "Crypto" }
 func (c *CryptoVaultScreen) Init() tea.Cmd            { return nil }
 func (c *CryptoVaultScreen) SetSize(w, h int)         { c.width = w; c.height = h }
 func (c *CryptoVaultScreen) ShortHelp() []key.Binding { return nil }

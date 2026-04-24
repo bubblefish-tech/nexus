@@ -27,10 +27,10 @@ import (
 
 // TestCaseResult holds the pass/fail outcome of a single test case.
 type TestCaseResult struct {
-	Name    string
-	Desc    string
-	Passed  bool
-	ErrMsg  string
+	Name   string
+	Desc   string
+	Passed bool
+	ErrMsg string
 }
 
 // TestResultMsg carries the full outcome of a test category run.
@@ -159,7 +159,7 @@ var testCategories = []testCategory{
 		},
 	},
 	{
-		name: "Full Suite",
+		name:  "Full Suite",
 		tests: nil, // populated dynamically (all categories combined)
 	},
 }

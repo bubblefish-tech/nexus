@@ -33,13 +33,13 @@ import (
 )
 
 const (
-	headerHeight      = 1
-	tabBarHeight      = 1
+	headerHeight       = 1
+	tabBarHeight       = 1
 	featureFlagsHeight = 1
-	commandBarHeight  = 1
-	chromeHeight      = headerHeight + tabBarHeight + featureFlagsHeight + commandBarHeight
-	minWidth          = 100
-	minHeight         = 30
+	commandBarHeight   = 1
+	chromeHeight       = headerHeight + tabBarHeight + featureFlagsHeight + commandBarHeight
+	minWidth           = 100
+	minHeight          = 30
 )
 
 // screenNames maps each page state to its tab bar label.
@@ -70,28 +70,28 @@ const (
 // It owns the state machine, all screen sub-models, and the global chrome
 // (header bar, tab bar, feature flags bar, command bar).
 type RootModel struct {
-	state       AppState
-	screens     map[AppState]screens.Screen
-	client      *api.Client
-	width       int
-	height      int
-	statusCache *api.StatusResponse
-	dotFrame    int
-	paused      bool
-	daemonUp    bool
-	authStatus  authState
+	state        AppState
+	screens      map[AppState]screens.Screen
+	client       *api.Client
+	width        int
+	height       int
+	statusCache  *api.StatusResponse
+	dotFrame     int
+	paused       bool
+	daemonUp     bool
+	authStatus   authState
 	instanceName string
-	showHelp    bool
-	retryCount  int
+	showHelp     bool
+	retryCount   int
 	screenInited map[AppState]bool
-	keys        GlobalKeyMap
-	prefs       *TUIPrefs
-	slashCmd    components.SlashCommandModel
-	palette     PaletteModel
-	splash      SplashModel
-	bubbleField *components.BubbleField
-	demo        DemoModel
-	kuramoto    *components.KuramotoSim
+	keys         GlobalKeyMap
+	prefs        *TUIPrefs
+	slashCmd     components.SlashCommandModel
+	palette      PaletteModel
+	splash       SplashModel
+	bubbleField  *components.BubbleField
+	demo         DemoModel
+	kuramoto     *components.KuramotoSim
 }
 
 // NewRootModel creates the root model with the dashboard screen.
@@ -101,14 +101,14 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		prefs = DefaultPrefs()
 	}
 	scr := map[AppState]screens.Screen{
-		StateDashboard:     screens.NewDashboardScreen(),
-		StateMemoryBrowser: screens.NewMemoryBrowserScreen(),
+		StateDashboard:        screens.NewDashboardScreen(),
+		StateMemoryBrowser:    screens.NewMemoryBrowserScreen(),
 		StateRetrievalTheater: screens.NewRetrievalTheaterScreen(),
-		StateAuditWalker:   screens.NewAuditWalkerScreen(),
-		StateAgentCanvas:   screens.NewAgentCanvasScreen(),
-		StateCryptoVault:   screens.NewCryptoVaultScreen(),
-		StateGovernance:    screens.NewGovernanceScreen(),
-		StateImmuneTheater: screens.NewImmuneTheaterScreen(),
+		StateAuditWalker:      screens.NewAuditWalkerScreen(),
+		StateAgentCanvas:      screens.NewAgentCanvasScreen(),
+		StateCryptoVault:      screens.NewCryptoVaultScreen(),
+		StateGovernance:       screens.NewGovernanceScreen(),
+		StateImmuneTheater:    screens.NewImmuneTheaterScreen(),
 	}
 	return &RootModel{
 		state:        StateSplash,
@@ -118,7 +118,7 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		screenInited: make(map[AppState]bool),
 		keys:         DefaultGlobalKeyMap(),
 		prefs:        prefs,
-		slashCmd: components.NewSlashCommandModel(allSlashCommands()),
+		slashCmd:     components.NewSlashCommandModel(allSlashCommands()),
 		palette: NewPaletteModel([]PaletteCommand{
 			{"/search", "Search memories"},
 			{"/write", "Write a memory"},
@@ -133,9 +133,9 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 			{"/test", "Run test suite"},
 			{"/quit", "Quit Nexus"},
 		}),
-		splash: NewSplashModel(),
-		bubbleField:  components.NewBubbleField(120, 40, 12),
-		kuramoto:     components.NewKuramotoSim(12, 2.0),
+		splash:      NewSplashModel(),
+		bubbleField: components.NewBubbleField(120, 40, 12),
+		kuramoto:    components.NewKuramotoSim(12, 2.0),
 	}
 }
 

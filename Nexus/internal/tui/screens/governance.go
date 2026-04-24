@@ -64,7 +64,7 @@ func NewGovernanceScreen() *GovernanceScreen {
 	return &GovernanceScreen{loading: true}
 }
 
-func (g *GovernanceScreen) Name() string            { return "Gov" }
+func (g *GovernanceScreen) Name() string             { return "Gov" }
 func (g *GovernanceScreen) Init() tea.Cmd            { return nil }
 func (g *GovernanceScreen) SetSize(w, h int)         { g.width = w; g.height = h }
 func (g *GovernanceScreen) ShortHelp() []key.Binding { return nil }

@@ -22,33 +22,33 @@ import "time"
 
 // StatusResponse is the shape of GET /api/status.
 type StatusResponse struct {
-	Status              string                       `json:"status"`
-	InstanceName        string                       `json:"instance_name"`
-	Version             string                       `json:"version"`
-	QueueDepth          int                          `json:"queue_depth"`
-	ConsistencyScore    float64                      `json:"consistency_score"`
-	MemoriesTotal       int                          `json:"memories_total"`
-	SourcesTotal        int                          `json:"sources_total"`
-	UptimeSeconds       int                          `json:"uptime_seconds"`
-	Goroutines          int                          `json:"goroutines"`
-	MemoryResidentBytes int64                        `json:"memory_resident_bytes"`
-	PID                 int                          `json:"pid"`
-	Bind                string                       `json:"bind"`
-	WebPort             int                          `json:"web_port"`
-	Cache               StatusCache                  `json:"cache"`
-	WAL                 StatusWAL                    `json:"wal"`
-	Destinations        []StatusDest                 `json:"destinations"`
-	WritesTotal         int64                        `json:"writes_total"`
-	Writes1m            int                          `json:"writes_1m"`
-	ReadsTotal          int64                        `json:"reads_total"`
-	Reads1m             int                          `json:"reads_1m"`
-	Errors1m            int                          `json:"errors_1m"`
-	ImmuneScans         int64                        `json:"immune_scans"`
-	QuarantineTotal     int64                        `json:"quarantine_total"`
-	AuditEnabled        bool                         `json:"audit_enabled"`
-	CascadeStages       map[string]StageMetricEntry  `json:"cascade_stages"`
-	WriteStages         map[string]StageMetricEntry  `json:"write_stages"`
-	SourceHealth        []SourceHealthEntry          `json:"source_health"`
+	Status              string                      `json:"status"`
+	InstanceName        string                      `json:"instance_name"`
+	Version             string                      `json:"version"`
+	QueueDepth          int                         `json:"queue_depth"`
+	ConsistencyScore    float64                     `json:"consistency_score"`
+	MemoriesTotal       int                         `json:"memories_total"`
+	SourcesTotal        int                         `json:"sources_total"`
+	UptimeSeconds       int                         `json:"uptime_seconds"`
+	Goroutines          int                         `json:"goroutines"`
+	MemoryResidentBytes int64                       `json:"memory_resident_bytes"`
+	PID                 int                         `json:"pid"`
+	Bind                string                      `json:"bind"`
+	WebPort             int                         `json:"web_port"`
+	Cache               StatusCache                 `json:"cache"`
+	WAL                 StatusWAL                   `json:"wal"`
+	Destinations        []StatusDest                `json:"destinations"`
+	WritesTotal         int64                       `json:"writes_total"`
+	Writes1m            int                         `json:"writes_1m"`
+	ReadsTotal          int64                       `json:"reads_total"`
+	Reads1m             int                         `json:"reads_1m"`
+	Errors1m            int                         `json:"errors_1m"`
+	ImmuneScans         int64                       `json:"immune_scans"`
+	QuarantineTotal     int64                       `json:"quarantine_total"`
+	AuditEnabled        bool                        `json:"audit_enabled"`
+	CascadeStages       map[string]StageMetricEntry `json:"cascade_stages"`
+	WriteStages         map[string]StageMetricEntry `json:"write_stages"`
+	SourceHealth        []SourceHealthEntry         `json:"source_health"`
 }
 
 type StageMetricEntry struct {
@@ -69,11 +69,11 @@ type StatusCache struct {
 }
 
 type StatusWAL struct {
-	Healthy              bool   `json:"healthy"`
-	CurrentSegment       string `json:"current_segment"`
-	IntegrityMode        string `json:"integrity_mode"`
-	PendingEntries       int    `json:"pending_entries"`
-	LastCheckpointSecsAgo int   `json:"last_checkpoint_seconds_ago"`
+	Healthy               bool   `json:"healthy"`
+	CurrentSegment        string `json:"current_segment"`
+	IntegrityMode         string `json:"integrity_mode"`
+	PendingEntries        int    `json:"pending_entries"`
+	LastCheckpointSecsAgo int    `json:"last_checkpoint_seconds_ago"`
 }
 
 type StatusDest struct {
@@ -105,11 +105,11 @@ type LintResponse struct {
 type SecurityEvent struct {
 	EventType string                 `json:"event_type"`
 	Source    string                 `json:"source,omitempty"`
-	Subject  string                 `json:"subject,omitempty"`
-	IP       string                 `json:"ip,omitempty"`
-	Endpoint string                 `json:"endpoint,omitempty"`
-	Timestamp time.Time             `json:"timestamp"`
-	Details  map[string]interface{} `json:"details,omitempty"`
+	Subject   string                 `json:"subject,omitempty"`
+	IP        string                 `json:"ip,omitempty"`
+	Endpoint  string                 `json:"endpoint,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
 // SecurityEventsResponse is the shape of GET /api/security/events.
@@ -142,8 +142,8 @@ type ConflictEntry struct {
 type ConflictMemory struct {
 	Source    string `json:"source"`
 	ActorType string `json:"actor_type"`
-	Ts       string `json:"ts"`
-	Content  string `json:"content"`
+	Ts        string `json:"ts"`
+	Content   string `json:"content"`
 }
 
 // ConflictsResponse is the shape of GET /api/conflicts.
@@ -230,17 +230,17 @@ type AuditResponse struct {
 // ConfigResponse is the shape of GET /api/config.
 // Contains sanitized config — NEVER includes secrets.
 type ConfigResponse struct {
-	Daemon       ConfigDaemon       `json:"daemon"`
-	WAL          ConfigWAL          `json:"wal"`
-	MCP          ConfigMCP          `json:"mcp"`
-	Web          ConfigWeb          `json:"web"`
-	Embedding    ConfigEmbedding    `json:"embedding"`
-	TLS          ConfigTLS          `json:"tls"`
-	RateLimit    ConfigRateLimit    `json:"rate_limit"`
-	Retrieval    ConfigRetrieval    `json:"retrieval"`
-	Audit        ConfigAudit        `json:"audit"`
-	Sources      []string           `json:"sources"`
-	Destinations []string           `json:"destinations"`
+	Daemon       ConfigDaemon    `json:"daemon"`
+	WAL          ConfigWAL       `json:"wal"`
+	MCP          ConfigMCP       `json:"mcp"`
+	Web          ConfigWeb       `json:"web"`
+	Embedding    ConfigEmbedding `json:"embedding"`
+	TLS          ConfigTLS       `json:"tls"`
+	RateLimit    ConfigRateLimit `json:"rate_limit"`
+	Retrieval    ConfigRetrieval `json:"retrieval"`
+	Audit        ConfigAudit     `json:"audit"`
+	Sources      []string        `json:"sources"`
+	Destinations []string        `json:"destinations"`
 }
 
 // ConfigDaemon holds sanitized daemon settings.
@@ -254,12 +254,12 @@ type ConfigDaemon struct {
 
 // ConfigWAL holds sanitized WAL settings.
 type ConfigWAL struct {
-	Path               string `json:"path"`
-	MaxSegmentSizeMB   int64  `json:"max_segment_size_mb"`
-	IntegrityMode      string `json:"integrity_mode"`
-	EncryptionEnabled  bool   `json:"encryption_enabled"`
-	WatchdogIntervalS  int    `json:"watchdog_interval_s"`
-	WatchdogMinDisk    int64  `json:"watchdog_min_disk"`
+	Path              string `json:"path"`
+	MaxSegmentSizeMB  int64  `json:"max_segment_size_mb"`
+	IntegrityMode     string `json:"integrity_mode"`
+	EncryptionEnabled bool   `json:"encryption_enabled"`
+	WatchdogIntervalS int    `json:"watchdog_interval_s"`
+	WatchdogMinDisk   int64  `json:"watchdog_min_disk"`
 }
 
 // ConfigMCP holds sanitized MCP settings.

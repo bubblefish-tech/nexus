@@ -45,13 +45,13 @@ type immuneQuarantineMsg struct {
 
 // ImmuneTheaterScreen is Page 9 — quarantine + threat signatures.
 type ImmuneTheaterScreen struct {
-	width, height    int
-	securityEvents   []api.SecurityEvent
-	securitySummary  *api.SecuritySummaryResponse
-	quarantine       *api.QuarantineResponse
-	errKind          api.ErrorKind
-	errHint          string
-	loading          bool
+	width, height   int
+	securityEvents  []api.SecurityEvent
+	securitySummary *api.SecuritySummaryResponse
+	quarantine      *api.QuarantineResponse
+	errKind         api.ErrorKind
+	errHint         string
+	loading         bool
 }
 
 // NewImmuneTheaterScreen creates the immune theater.
@@ -59,7 +59,7 @@ func NewImmuneTheaterScreen() *ImmuneTheaterScreen {
 	return &ImmuneTheaterScreen{loading: true}
 }
 
-func (im *ImmuneTheaterScreen) Name() string            { return "Immune" }
+func (im *ImmuneTheaterScreen) Name() string             { return "Immune" }
 func (im *ImmuneTheaterScreen) Init() tea.Cmd            { return nil }
 func (im *ImmuneTheaterScreen) SetSize(w, h int)         { im.width = w; im.height = h }
 func (im *ImmuneTheaterScreen) ShortHelp() []key.Binding { return nil }

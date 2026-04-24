@@ -29,7 +29,7 @@ import (
 type WaterfallStageState int
 
 const (
-	WaterfallIdle     WaterfallStageState = iota
+	WaterfallIdle WaterfallStageState = iota
 	WaterfallRunning
 	WaterfallDone
 	WaterfallSkipped

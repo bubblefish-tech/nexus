@@ -298,4 +298,3 @@ func (c *Client) RatchetStatusInfo() (*RatchetStatus, error) {
 	var r RatchetStatus
 	return &r, c.get("/api/crypto/ratchet", &r)
 }
-

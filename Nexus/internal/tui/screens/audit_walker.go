@@ -72,7 +72,7 @@ func NewAuditWalkerScreen() *AuditWalkerScreen {
 	}
 }
 
-func (a *AuditWalkerScreen) Name() string { return "Audit" }
+func (a *AuditWalkerScreen) Name() string  { return "Audit" }
 func (a *AuditWalkerScreen) Init() tea.Cmd { return nil }
 
 func (a *AuditWalkerScreen) SetSize(w, h int) {
@@ -234,6 +234,5 @@ func (a *AuditWalkerScreen) View() string {
 	return lipgloss.NewStyle().Width(a.width).Height(a.height).
 		Render(strings.Join(sections, "\n"))
 }
-
 
 var _ Screen = (*AuditWalkerScreen)(nil)

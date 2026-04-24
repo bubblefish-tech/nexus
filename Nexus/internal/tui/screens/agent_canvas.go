@@ -50,7 +50,7 @@ func NewAgentCanvasScreen() *AgentCanvasScreen {
 	return &AgentCanvasScreen{loading: true}
 }
 
-func (a *AgentCanvasScreen) Name() string            { return "Agents" }
+func (a *AgentCanvasScreen) Name() string             { return "Agents" }
 func (a *AgentCanvasScreen) Init() tea.Cmd            { return nil }
 func (a *AgentCanvasScreen) SetSize(w, h int)         { a.width = w; a.height = h }
 func (a *AgentCanvasScreen) ShortHelp() []key.Binding { return nil }

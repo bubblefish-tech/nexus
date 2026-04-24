@@ -27,16 +27,16 @@ import (
 
 // DeletionCertProps configures the deletion certificate viewer.
 type DeletionCertProps struct {
-	CertID           string
-	MemoryID         string
-	ContentHash      string
-	DeletedAt        string
-	Actor            string
-	Reason           string
-	MerkleRoot       string
-	SignerPubKey     string
-	Signature        string
-	Width            int
+	CertID       string
+	MemoryID     string
+	ContentHash  string
+	DeletedAt    string
+	Actor        string
+	Reason       string
+	MerkleRoot   string
+	SignerPubKey string
+	Signature    string
+	Width        int
 }
 
 // RenderDeletionCert renders the issued deletion certificate modal.

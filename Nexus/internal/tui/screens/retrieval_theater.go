@@ -50,7 +50,7 @@ func NewRetrievalTheaterScreen() *RetrievalTheaterScreen {
 	return &RetrievalTheaterScreen{queryInput: ti}
 }
 
-func (r *RetrievalTheaterScreen) Name() string { return "Retrieval" }
+func (r *RetrievalTheaterScreen) Name() string  { return "Retrieval" }
 func (r *RetrievalTheaterScreen) Init() tea.Cmd { return nil }
 func (r *RetrievalTheaterScreen) SetSize(w, h int) {
 	r.width = w

@@ -29,7 +29,7 @@ import (
 type EmptyStateKind int
 
 const (
-	EmptyStateLoading      EmptyStateKind = iota
+	EmptyStateLoading EmptyStateKind = iota
 	EmptyStateNoData
 	EmptyStateDisconnected
 	EmptyStateFeatureGated
