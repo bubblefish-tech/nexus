@@ -18,6 +18,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,7 +29,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func runTUI() {
+func runTUI(args []string) {
+	fs := flag.NewFlagSet("tui", flag.ExitOnError)
+	apiURLFlag := fs.String("api-url", "", "daemon base URL (overrides NEXUS_API_URL)")
+	tokenFlag := fs.String("admin-token", "", "admin bearer token (overrides NEXUS_ADMIN_TOKEN)")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "nexus tui: %v\n", err)
+		os.Exit(1)
+	}
+
 	configDir, err := config.ConfigDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "nexus tui: %v\n", err)
@@ -42,22 +51,27 @@ func runTUI() {
 		os.Exit(1)
 	}
 
-	bindHost := cfg.Daemon.Bind
-	if bindHost == "0.0.0.0" || bindHost == "::" {
-		bindHost = "127.0.0.1"
+	// Resolve base URL: CLI flag > env var > config-derived value.
+	addr := api.ResolveBaseURL(*apiURLFlag)
+	if *apiURLFlag == "" && os.Getenv(api.EnvAPIURL) == "" {
+		bindHost := cfg.Daemon.Bind
+		if bindHost == "0.0.0.0" || bindHost == "::" {
+			bindHost = "127.0.0.1"
+		}
+		addr = fmt.Sprintf("http://%s:%d", bindHost, cfg.Daemon.Port)
 	}
-	addr := fmt.Sprintf("http://%s:%d", bindHost, cfg.Daemon.Port)
-	if v := os.Getenv("NEXUS_API_URL"); v != "" {
-		addr = v
+
+	// Resolve admin token: CLI flag > env var > config file.
+	token := api.ResolveAdminToken(*tokenFlag)
+	if *tokenFlag == "" && os.Getenv(api.EnvAdminToken) == "" {
+		token = string(cfg.ResolvedAdminKey)
 	}
+
 	if cfg.Daemon.Bind != "127.0.0.1" && cfg.Daemon.Bind != "localhost" && cfg.Daemon.Bind != "0.0.0.0" && !cfg.Daemon.TLS.Enabled {
 		slog.Warn("admin key will be sent over plain HTTP (TLS not enabled, bind is not loopback)",
 			"bind", cfg.Daemon.Bind)
 	}
-	token := string(cfg.ResolvedAdminKey)
-	if v := os.Getenv("NEXUS_ADMIN_TOKEN"); v != "" {
-		token = v
-	}
+
 	client := api.NewClient(addr, token)
 	defer client.Close()
 

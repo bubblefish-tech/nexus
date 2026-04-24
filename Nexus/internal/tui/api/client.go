@@ -23,9 +23,44 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
+
+const (
+	DefaultAPIURL = "http://localhost:8080"
+	EnvAPIURL     = "NEXUS_API_URL"
+	EnvAdminToken = "NEXUS_ADMIN_TOKEN"
+)
+
+// ResolveBaseURL returns the API base URL using this priority:
+//
+//  1. cliFlag (from --api-url flag)
+//  2. NEXUS_API_URL environment variable
+//  3. DefaultAPIURL
+func ResolveBaseURL(cliFlag string) string {
+	if cliFlag != "" {
+		return cliFlag
+	}
+	if v := os.Getenv(EnvAPIURL); v != "" {
+		return v
+	}
+	return DefaultAPIURL
+}
+
+// ResolveAdminToken returns the admin bearer token using this priority:
+//
+//  1. cliFlag (from --admin-token flag)
+//  2. NEXUS_ADMIN_TOKEN environment variable
+//  3. "" (empty — no token; /api/* calls will 401)
+func ResolveAdminToken(cliFlag string) string {
+	if cliFlag != "" {
+		return cliFlag
+	}
+	return os.Getenv(EnvAdminToken)
+}
 
 // Client is an HTTP client for the Nexus admin API.
 type Client struct {
@@ -53,12 +88,23 @@ func (c *Client) Close() {
 	c.cancel()
 }
 
+// HasToken reports whether the client was configured with a bearer token.
+func (c *Client) HasToken() bool { return c.token != "" }
+
+// addAuth attaches the Bearer token to requests on /api/* paths only.
+// SSE /stream/* and unauthenticated probe endpoints do not receive the header.
+func (c *Client) addAuth(req *http.Request) {
+	if c.token != "" && strings.HasPrefix(req.URL.Path, "/api/") {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+}
+
 func (c *Client) get(path string, out any) error {
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.base+path, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	c.addAuth(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
@@ -195,4 +241,37 @@ func (c *Client) Approvals() (*ApprovalsResponse, error) {
 func (c *Client) Tasks() (*TasksResponse, error) {
 	var r TasksResponse
 	return &r, c.get("/api/control/tasks", &r)
+}
+
+// ErrorKind classifies API errors into broad categories for TUI rendering.
+type ErrorKind int
+
+const (
+	ErrKindUnknown   ErrorKind = iota
+	ErrKindNetwork             // connection refused, timeout
+	ErrKindForbidden           // HTTP 401 or 403
+	ErrKindNotFound            // HTTP 404
+	ErrKindServer              // HTTP 5xx
+)
+
+// Classify maps an error returned by any Client method to an ErrorKind.
+// It parses the error string produced by get(): "HTTP <code> from <path>".
+func Classify(err error) ErrorKind {
+	if err == nil {
+		return ErrKindUnknown
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "HTTP 401") || strings.Contains(msg, "HTTP 403") {
+		return ErrKindForbidden
+	}
+	if strings.Contains(msg, "HTTP 404") {
+		return ErrKindNotFound
+	}
+	if strings.Contains(msg, "HTTP 5") {
+		return ErrKindServer
+	}
+	if strings.Contains(msg, "connect") || strings.Contains(msg, "timeout") || strings.Contains(msg, "refused") {
+		return ErrKindNetwork
+	}
+	return ErrKindUnknown
 }

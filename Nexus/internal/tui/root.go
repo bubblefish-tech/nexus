@@ -57,6 +57,15 @@ var screenNames = []struct {
 	{StateImmuneTheater, "Immune"},
 }
 
+// authState tracks the authentication status determined by probing /api/status on startup.
+type authState int
+
+const (
+	authNone     authState = iota // no token configured
+	authOK                        // /api/status returned 200 with valid token
+	authRejected                  // /api/status returned 401/403
+)
+
 // RootModel is the top-level model for the running TUI dashboard.
 // It owns the state machine, all screen sub-models, and the global chrome
 // (header bar, tab bar, feature flags bar, command bar).
@@ -70,6 +79,8 @@ type RootModel struct {
 	dotFrame    int
 	paused      bool
 	daemonUp    bool
+	authStatus  authState
+	instanceName string
 	showHelp    bool
 	retryCount  int
 	screenInited map[AppState]bool
@@ -161,10 +172,18 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StatusRefreshMsg:
 		if msg.Err != nil {
 			dbg("STATUS_REFRESH err=%v", msg.Err)
+			if api.Classify(msg.Err) == api.ErrKindForbidden {
+				if r.client.HasToken() {
+					r.authStatus = authRejected
+				}
+				// If no token was configured, stay at authNone (zero value).
+			}
 			return r, nil
 		}
 		if msg.Data != nil {
 			r.statusCache = msg.Data
+			r.authStatus = authOK
+			r.instanceName = msg.Data.InstanceName
 			dbg("STATUS_REFRESH ok memories=%d writes_1m=%d reads_1m=%d queue=%d",
 				msg.Data.MemoriesTotal, msg.Data.Writes1m, msg.Data.Reads1m, msg.Data.QueueDepth)
 		}
@@ -493,8 +512,13 @@ func (r *RootModel) viewHeaderBar() string {
 		statusWord = "OFFLINE"
 	}
 
+	instName := r.instanceName
+	if instName == "" {
+		instName = "default"
+	}
+	authInd := r.viewAuthIndicator()
 	mini := components.MiniLogo{}
-	left := fmt.Sprintf("%s %s NEXUS %s  %s", mini.Inline(), dot.View(), ver, uptime)
+	left := fmt.Sprintf("%s %s NEXUS %s · %s · %s  %s", mini.Inline(), dot.View(), ver, instName, authInd, uptime)
 	center := "The Governed AI Cryptographic Substrate Control Plane"
 	now := time.Now().Format("15:04:05")
 	right := fmt.Sprintf("%s · %s", statusWord, now)
@@ -523,6 +547,17 @@ func (r *RootModel) viewHeaderBar() string {
 		centerStyle.Width(centerW).Align(lipgloss.Center).Render(center),
 		rightStyle.Width(rightW).Align(lipgloss.Right).Render(right),
 	)
+}
+
+func (r *RootModel) viewAuthIndicator() string {
+	switch r.authStatus {
+	case authOK:
+		return lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("\U0001F513 admin")
+	case authRejected:
+		return lipgloss.NewStyle().Foreground(styles.ColorRed).Render("\U0001F512 rejected")
+	default:
+		return lipgloss.NewStyle().Foreground(styles.ColorAmber).Render("\U0001F512 no auth")
+	}
 }
 
 func (r *RootModel) viewTabBar() string {

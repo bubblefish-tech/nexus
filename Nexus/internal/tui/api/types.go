@@ -23,6 +23,7 @@ import "time"
 // StatusResponse is the shape of GET /api/status.
 type StatusResponse struct {
 	Status              string                       `json:"status"`
+	InstanceName        string                       `json:"instance_name"`
 	Version             string                       `json:"version"`
 	QueueDepth          int                          `json:"queue_depth"`
 	ConsistencyScore    float64                      `json:"consistency_score"`

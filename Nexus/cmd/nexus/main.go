@@ -116,7 +116,7 @@ func main() {
 	case "setup":
 		runSetup()
 	case "tui":
-		runTUI()
+		runTUI(os.Args[2:])
 	case "doctor":
 		runDoctor()
 	case "self-test":

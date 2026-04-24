@@ -241,3 +241,118 @@ func TestTimeTravel_QueryParams(t *testing.T) {
 		t.Fatal("expected query params in path")
 	}
 }
+
+func TestNewClient_withToken(t *testing.T) {
+	t.Helper()
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(StatusResponse{Status: "ok", Version: "0.1.3"})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "secret-token")
+	defer c.Close()
+	_, _ = c.Status()
+	if gotAuth != "Bearer secret-token" {
+		t.Errorf("expected Authorization: Bearer secret-token, got %q", gotAuth)
+	}
+}
+
+func TestNewClient_withoutToken(t *testing.T) {
+	t.Helper()
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "")
+	defer c.Close()
+	_, _ = c.Health()
+	if gotAuth != "" {
+		t.Errorf("expected no Authorization header, got %q", gotAuth)
+	}
+}
+
+func TestAddAuth_onlyAPIPaths(t *testing.T) {
+	t.Helper()
+	c := NewClient("http://localhost", "tok")
+	defer c.Close()
+
+	tests := []struct {
+		path     string
+		wantAuth bool
+	}{
+		{"/api/status", true},
+		{"/api/config", true},
+		{"/api/security/events", true},
+		{"/health", false},
+		{"/ready", false},
+		{"/stream/retrieval", false},
+		{"/oauth/jwks", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "http://localhost"+tt.path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.addAuth(req)
+			got := req.Header.Get("Authorization")
+			if tt.wantAuth && got == "" {
+				t.Errorf("path %s: expected auth header, got none", tt.path)
+			}
+			if !tt.wantAuth && got != "" {
+				t.Errorf("path %s: expected no auth header, got %q", tt.path, got)
+			}
+		})
+	}
+}
+
+func TestResolveAdminToken_priority(t *testing.T) {
+	t.Helper()
+	tests := []struct {
+		name    string
+		cliFlag string
+		envVal  string
+		want    string
+	}{
+		{"cli beats env", "cli-tok", "env-tok", "cli-tok"},
+		{"env when no cli", "", "env-tok", "env-tok"},
+		{"empty when neither", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvAdminToken, tt.envVal)
+			got := ResolveAdminToken(tt.cliFlag)
+			if got != tt.want {
+				t.Errorf("ResolveAdminToken(%q) = %q, want %q", tt.cliFlag, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveBaseURL_priority(t *testing.T) {
+	t.Helper()
+	tests := []struct {
+		name    string
+		cliFlag string
+		envVal  string
+		want    string
+	}{
+		{"cli beats env", "http://cli:9000", "http://env:9001", "http://cli:9000"},
+		{"env when no cli", "", "http://env:9001", "http://env:9001"},
+		{"default when neither", "", "", DefaultAPIURL},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvAPIURL, tt.envVal)
+			got := ResolveBaseURL(tt.cliFlag)
+			if got != tt.want {
+				t.Errorf("ResolveBaseURL(%q) = %q, want %q", tt.cliFlag, got, tt.want)
+			}
+		})
+	}
+}
