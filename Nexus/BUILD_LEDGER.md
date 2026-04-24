@@ -2075,7 +2075,18 @@
 - Commit: 262a500
 - Exit gate: go build OK | go vet OK | full suite PASS (race)
 
-### Next: T1-5 per §11 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T1-5: COMPLETE — Fix Audit Signing Status Display
+- Daemon: new handlers_crypto.go with 4 handlers (signing, profile, master, ratchet)
+- Daemon: 4 routes registered in BuildAdminRouter (/api/crypto/*)
+- TUI: SigningStatus, CryptoProfile, MasterKeyStatus, RatchetStatus DTOs
+- TUI: 4 new client methods
+- TUI: crypto_vault.go three-state signing panel (enabled/green, awaiting config/amber, error/red)
+- TUI: crypto_vault.go now calls /api/crypto/signing via FireRefresh
+- Commit: 9610219
+- Exit gate: go build OK | go vet OK | full suite PASS (race)
+
+### TIER 1 COMPLETE — All 5 ship-blockers resolved (T1-1 through T1-5)
+### Next: §12 Tier 1 Checkpoint Gate
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
