@@ -2146,7 +2146,14 @@
 - Commit: 9d1986c (T3 batch) + 11990a3 (T2-5/6)
 - Exit gate: go build OK | full suite PASS (race)
 
-### Next: TIER 4 (§26) — T4-1 Demo Mode
+## TIER 4: COMPLETE — Award-Winning Flourishes (T4-1 through T4-3)
+- T4-1: Demo Mode (D key) — 9-step scripted walkthrough, narration panel, Esc abort
+- T4-2: Kuramoto Phase Wheel — KuramotoSim ODE, ASCII phase wheel, N=12 synthetic oscillators
+- T4-3: Free Energy Gauge — existing component wired to /api/stats.free_energy_nats
+- Commit: 4e7944f
+- Exit gate: go build OK | full suite PASS (race)
+
+### Next: TIER 5 (§30) — T5-1 Cascade SQL Preview Panel
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
