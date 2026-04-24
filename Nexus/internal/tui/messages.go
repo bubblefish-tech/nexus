@@ -63,6 +63,9 @@ type DotTickMsg time.Time
 // SplashDoneMsg signals the splash animation has completed.
 type SplashDoneMsg struct{}
 
+// cmdResultMsg is a simple text result from a slash command (e.g. /theme).
+type cmdResultMsg string
+
 
 // dataTickCmd returns a command that fires DataTickMsg after 5 seconds.
 func dataTickCmd() tea.Cmd {
