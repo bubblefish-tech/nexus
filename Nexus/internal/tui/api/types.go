@@ -212,6 +212,10 @@ type AuditRecord struct {
 	PolicyDecision string    `json:"policy_decision"`
 	PolicyReason   string    `json:"policy_reason,omitempty"`
 	LatencyMs      float64   `json:"latency_ms"`
+	PrevHash       string    `json:"prev_hash,omitempty"`
+	Hash           string    `json:"hash,omitempty"`
+	Signature      string    `json:"signature,omitempty"`
+	SignatureValid bool      `json:"signature_valid,omitempty"`
 }
 
 // AuditResponse is the shape of GET /api/audit/log.
