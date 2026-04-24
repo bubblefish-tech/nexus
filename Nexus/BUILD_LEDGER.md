@@ -2015,3 +2015,24 @@
 - writeSQL extracted to package-level const
 - Commit: 2fd21cf
 - Exit gate: Build OK | Vet OK | Full suite PASS
+
+---
+
+## Branch: feat/tui-alltier-hardening
+## PREP.1: COMPLETE — TUI API Resolver Pattern + Auth State
+
+### Prep commit — before T1-1 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+- internal/tui/api/client.go: Added DefaultAPIURL/EnvAPIURL/EnvAdminToken constants; ResolveBaseURL, ResolveAdminToken, HasToken, addAuth, ErrorKind, Classify. Replaced inline auth with c.addAuth(req) gated to /api/* paths only.
+- internal/tui/api/types.go: Added InstanceName field to StatusResponse (json:"instance_name").
+- internal/tui/api/hints.go: NEW — HintForEndpoint with §7.6 hint table (ErrKindForbidden, ErrKindNotFound per endpoint, ErrKindNetwork).
+- internal/tui/api/client_test.go: 5 new tests — TestNewClient_withToken, TestNewClient_withoutToken, TestAddAuth_onlyAPIPaths (7 subtests), TestResolveAdminToken_priority, TestResolveBaseURL_priority.
+- internal/tui/components/empty_state.go: NEW — EmptyStateFeatureGated renderer.
+- internal/tui/root.go: authState type (authNone/authOK/authRejected), authStatus+instanceName fields on RootModel, StatusRefreshMsg handler updates auth state, viewAuthIndicator(), viewHeaderBar() extended with instance name and auth indicator.
+- cmd/nexus/main.go: runTUI() → runTUI(os.Args[2:]) to enable flag parsing.
+- cmd/nexus/tui.go: flag.NewFlagSet("tui") with --api-url and --admin-token; three-level URL/token resolution (CLI > env > config file).
+- reports/2026_04_23_endpoint_truth.md: NEW — Endpoint truth report with Sections A-G, auth curl commands, Section D.1/E.1 unauthenticated probes.
+- scripts/vhs/run-tape.ps1: NEW — VHS tape runner with -Tape/-Instance params, NEXUS_ADMIN_TOKEN propagation, daemon reachability check, output path rewriting.
+- Commit: dabf01d
+- Exit gate: go build ./... OK | go vet ./... OK | CGO_ENABLED=1 go test ./... -race PASS
+
+### Next: T1-1 per §7 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
