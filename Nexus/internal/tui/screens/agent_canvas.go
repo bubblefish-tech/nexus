@@ -117,7 +117,7 @@ func (a *AgentCanvasScreen) View() string {
 		lines = append(lines, styles.MutedStyle.Render("  No active flows"))
 	} else {
 		for _, ag := range a.agents {
-			dot := agentDot(ag.Status)
+			dot := agentDot(ag.Status, ag.LastSeenAt)
 			name := lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(ag.DisplayName)
 			status := lipgloss.NewStyle().Foreground(styles.TextWhiteDim).Render(ag.Status)
 			tier := lipgloss.NewStyle().Foreground(styles.ColorTealDim).

@@ -43,7 +43,7 @@ type immuneQuarantineMsg struct {
 	hint    string
 }
 
-// ImmuneTheaterScreen is Page 9 — quarantine + threat signatures.
+// ImmuneTheaterScreen is Page 8 — quarantine + threat signatures.
 type ImmuneTheaterScreen struct {
 	width, height   int
 	securityEvents  []api.SecurityEvent
@@ -72,6 +72,8 @@ func (im *ImmuneTheaterScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			im.errKind = m.errKind
 			im.errHint = m.hint
 		} else {
+			im.errKind = api.ErrKindUnknown
+			im.errHint = ""
 			if m.events != nil {
 				im.securityEvents = m.events.Events
 			}
@@ -84,8 +86,12 @@ func (im *ImmuneTheaterScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if m.errKind != api.ErrKindUnknown {
 			im.errKind = m.errKind
 			im.errHint = m.hint
-		} else if m.data != nil {
-			im.quarantine = m.data
+		} else {
+			im.errKind = api.ErrKindUnknown
+			im.errHint = ""
+			if m.data != nil {
+				im.quarantine = m.data
+			}
 		}
 	}
 	return im, nil

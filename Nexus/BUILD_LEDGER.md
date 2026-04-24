@@ -2233,3 +2233,35 @@
 - First DataTick fired during splash, next 5s later
 - Screen switch started with empty data
 - Commit: 77239fa (+ f00c9c8 nil dereference guard)
+
+## EXTREME Code Review — TUI Performance + Correctness Fixes (2026-04-24)
+Branch: feat/tui-alltier-hardening
+
+### fix: remove dead bubbleField and kuramoto from root model
+- root.go: removed `bubbleField *components.BubbleField` (allocated but never rendered post-f38bb52)
+- root.go: removed `kuramoto *components.KuramotoSim` (2,880 sin()/sec computation, never rendered on any page)
+- root.go: removed bubbleField.SetSize() on window resize (dead grid reallocation)
+- Splash retains its own separate bubbleField — untouched
+
+### fix: clear errKind on success in governance and immune screens
+- governance.go: 3 message handlers (grants/approvals/tasks) now reset errKind to Unknown on success
+  - Bug: errKind was set on failure but never cleared — page stuck in "Feature gated" permanently
+- immune_theater.go: 2 message handlers (security/quarantine) now reset errKind on success
+  - Same sticky-error bug pattern
+- immune_theater.go: fixed "Page 9" comment → "Page 8"
+
+### fix: show accurate connection status for agents on dashboard
+- dashboard.go: agentDot() now accepts LastSeenAt; checks 2-minute staleness threshold
+  - Connected (LastSeenAt < 2min): green dot
+  - Disconnected (LastSeenAt > 2min or zero): red dot
+  - All configured agents always visible (not hidden when disconnected)
+- agent_canvas.go: updated agentDot() call to pass LastSeenAt
+
+### perf: slow DotTick to 1s, cache dashboard ANSI art
+- messages.go: DotTick 500ms → 1s (halves render rate; status dot still pulses, clock updates every second)
+- dashboard.go: RenderFishEmblem() split+center cached; invalidates only on terminal resize
+
+### Exit gate:
+- Build: OK
+- Vet: OK
+- Tests: all packages PASS (CGO_ENABLED=1, -race, -count=1) — zero failures

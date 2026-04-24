@@ -76,24 +76,36 @@ func (g *GovernanceScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		if m.errKind != api.ErrKindUnknown {
 			g.errKind = m.errKind
 			g.errHint = m.hint
-		} else if m.data != nil {
-			g.grants = m.data.Grants
+		} else {
+			g.errKind = api.ErrKindUnknown
+			g.errHint = ""
+			if m.data != nil {
+				g.grants = m.data.Grants
+			}
 		}
 	case govApprovalsMsg:
 		g.loading = false
 		if m.errKind != api.ErrKindUnknown {
 			g.errKind = m.errKind
 			g.errHint = m.hint
-		} else if m.data != nil {
-			g.approvals = m.data.Approvals
+		} else {
+			g.errKind = api.ErrKindUnknown
+			g.errHint = ""
+			if m.data != nil {
+				g.approvals = m.data.Approvals
+			}
 		}
 	case govTasksMsg:
 		g.loading = false
 		if m.errKind != api.ErrKindUnknown {
 			g.errKind = m.errKind
 			g.errHint = m.hint
-		} else if m.data != nil {
-			g.tasks = m.data.Tasks
+		} else {
+			g.errKind = api.ErrKindUnknown
+			g.errHint = ""
+			if m.data != nil {
+				g.tasks = m.data.Tasks
+			}
 		}
 	}
 	return g, nil

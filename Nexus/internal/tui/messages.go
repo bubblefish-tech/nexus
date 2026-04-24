@@ -57,7 +57,7 @@ type HealthCheckResultMsg struct {
 // DataTickMsg drives periodic API refresh (5s interval).
 type DataTickMsg time.Time
 
-// DotTickMsg drives the status dot pulse animation (500ms interval).
+// DotTickMsg drives the status dot pulse animation (1s interval).
 type DotTickMsg time.Time
 
 // SplashDoneMsg signals the splash animation has completed.
@@ -71,9 +71,9 @@ func dataTickCmd() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return DataTickMsg(t) })
 }
 
-// dotTickCmd returns a command that fires DotTickMsg every 500ms.
+// dotTickCmd returns a command that fires DotTickMsg every 1s.
 func dotTickCmd() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return DotTickMsg(t) })
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg { return DotTickMsg(t) })
 }
 
 // healthCheckCmd checks daemon availability via the API client.

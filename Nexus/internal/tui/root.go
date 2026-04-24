@@ -88,10 +88,8 @@ type RootModel struct {
 	prefs        *TUIPrefs
 	slashCmd     components.SlashCommandModel
 	palette      PaletteModel
-	splash       SplashModel
-	bubbleField  *components.BubbleField
-	demo         DemoModel
-	kuramoto     *components.KuramotoSim
+	splash SplashModel
+	demo   DemoModel
 }
 
 // NewRootModel creates the root model with the dashboard screen.
@@ -133,9 +131,7 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 			{"/test", "Run test suite"},
 			{"/quit", "Quit Nexus"},
 		}),
-		splash:      NewSplashModel(),
-		bubbleField: components.NewBubbleField(120, 40, 12),
-		kuramoto:    components.NewKuramotoSim(12, 2.0),
+		splash: NewSplashModel(),
 	}
 }
 
@@ -163,7 +159,6 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, scr := range r.screens {
 			scr.SetSize(r.width, contentH)
 		}
-		r.bubbleField.SetSize(r.width, r.height)
 		r.splash.bubbleField.SetSize(r.width, r.height)
 		r.splash.width = r.width
 		r.splash.height = r.height
@@ -205,11 +200,6 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DotTickMsg:
 		r.dotFrame++
-		if r.kuramoto != nil {
-			for i := 0; i < 10; i++ {
-				r.kuramoto.Step()
-			}
-		}
 		if r.demo.Active && r.demo.ShouldAdvance() {
 			if r.demo.Advance() {
 				step := r.demo.CurrentStep()

@@ -22,6 +22,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	"github.com/bubblefish-tech/nexus/internal/tui/components"
@@ -60,15 +61,18 @@ type dashStatsMsg struct {
 
 // DashboardScreen is Page 1 — the main overview.
 type DashboardScreen struct {
-	width, height int
-	status        *api.StatusResponse
-	stats         *api.AggregatedStats
-	agents        []api.AgentSummary
-	healthy       bool
-	curWrites     int
-	curReads      int
-	maxWrites     int
-	maxReads      int
+	width, height  int
+	status         *api.StatusResponse
+	stats          *api.AggregatedStats
+	agents         []api.AgentSummary
+	healthy        bool
+	curWrites      int
+	curReads       int
+	maxWrites      int
+	maxReads       int
+	cachedArt      string
+	cachedArtWidth int
+	cachedArtMaxH  int
 }
 
 // NewDashboardScreen creates the dashboard with initial state.
@@ -182,19 +186,23 @@ func (d *DashboardScreen) View() string {
 func (d *DashboardScreen) viewLeftColumn(w int) string {
 	var lines []string
 
-	// Truncate ANSI art to fit content area, centered above brand text.
 	artMaxLines := d.height - 18
 	if artMaxLines < 10 {
 		artMaxLines = 10
 	}
-	artLines := strings.Split(components.RenderFishEmblem(), "\n")
-	if len(artLines) > artMaxLines {
-		artLines = artLines[:artMaxLines]
+	if d.cachedArt == "" || d.cachedArtWidth != w || d.cachedArtMaxH != artMaxLines {
+		artLines := strings.Split(components.RenderFishEmblem(), "\n")
+		if len(artLines) > artMaxLines {
+			artLines = artLines[:artMaxLines]
+		}
+		for i, al := range artLines {
+			artLines[i] = lipgloss.PlaceHorizontal(w, lipgloss.Center, al+"\033[0m")
+		}
+		d.cachedArt = strings.Join(artLines, "\n")
+		d.cachedArtWidth = w
+		d.cachedArtMaxH = artMaxLines
 	}
-	for i, al := range artLines {
-		artLines[i] = lipgloss.PlaceHorizontal(w, lipgloss.Center, al+"\033[0m")
-	}
-	lines = append(lines, strings.Join(artLines, "\n"))
+	lines = append(lines, d.cachedArt)
 	lines = append(lines, "")
 
 	// Brand text
@@ -222,7 +230,7 @@ func (d *DashboardScreen) viewLeftColumn(w int) string {
 	lines = append(lines, sectionHeader("CONNECTED TOOLS", w))
 	if len(d.agents) > 0 {
 		for _, a := range d.agents {
-			dot := agentDot(a.Status)
+			dot := agentDot(a.Status, a.LastSeenAt)
 			name := lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(a.DisplayName)
 			lines = append(lines, fmt.Sprintf("  %s %s", dot, name))
 		}
@@ -371,14 +379,20 @@ func sectionHeader(title string, _ int) string {
 		Render("◈ " + title)
 }
 
-func agentDot(status string) string {
+const agentStaleThreshold = 2 * time.Minute
+
+func agentDot(status string, lastSeen time.Time) string {
+	stale := !lastSeen.IsZero() && time.Since(lastSeen) > agentStaleThreshold
+	if lastSeen.IsZero() || stale {
+		return lipgloss.NewStyle().Foreground(styles.ColorRed).Render("●")
+	}
 	switch status {
 	case "active", "online":
 		return lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("●")
 	case "idle", "partial":
 		return lipgloss.NewStyle().Foreground(styles.ColorBlue).Render("◑")
 	default:
-		return lipgloss.NewStyle().Foreground(styles.TextMuted).Render("○")
+		return lipgloss.NewStyle().Foreground(styles.ColorRed).Render("●")
 	}
 }
 
