@@ -147,7 +147,9 @@ func (p *BuiltinProvider) startProcessLocked(ctx context.Context) error {
 		"--rope-freq-scale", "0.75",
 	}
 
-	p.cmd = exec.CommandContext(ctx, p.serverPath, args...)
+	// Use background context for the process lifetime — the caller's ctx
+	// is only for the startup health-check timeout, not the process lifespan.
+	p.cmd = exec.Command(p.serverPath, args...)
 	p.cmd.Stdout = io.Discard
 	p.cmd.Stderr = io.Discard
 

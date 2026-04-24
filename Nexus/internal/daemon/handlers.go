@@ -63,9 +63,13 @@ import (
 // content is empty/whitespace, or the embed call fails.
 func (d *Daemon) embedContent(ctx context.Context, payloadID, content string) []float32 {
 	if d.embeddingClient == nil {
+		d.logger.Info("daemon: embedContent skipped — client nil",
+			"component", "daemon", "payload_id", payloadID)
 		return nil
 	}
 	if strings.TrimSpace(content) == "" {
+		d.logger.Info("daemon: embedContent skipped — empty content",
+			"component", "daemon", "payload_id", payloadID)
 		return nil
 	}
 	embedCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -79,7 +83,7 @@ func (d *Daemon) embedContent(ctx context.Context, payloadID, content string) []
 		)
 		return nil
 	}
-	d.logger.Debug("daemon: embed content success",
+	d.logger.Info("daemon: embed content success",
 		"component", "daemon",
 		"payload_id", payloadID,
 		"dimensions", len(vec),
