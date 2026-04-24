@@ -90,6 +90,8 @@ type RootModel struct {
 	palette     PaletteModel
 	splash      SplashModel
 	bubbleField *components.BubbleField
+	demo        DemoModel
+	kuramoto    *components.KuramotoSim
 }
 
 // NewRootModel creates the root model with the dashboard screen.
@@ -133,6 +135,7 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		}),
 		splash: NewSplashModel(),
 		bubbleField:  components.NewBubbleField(120, 40, 12),
+		kuramoto:     components.NewKuramotoSim(12, 2.0),
 	}
 }
 
@@ -205,7 +208,35 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if r.bubbleField != nil {
 			r.bubbleField.Tick(500 * time.Millisecond)
 		}
+		if r.kuramoto != nil {
+			for i := 0; i < 10; i++ {
+				r.kuramoto.Step()
+			}
+		}
+		if r.demo.Active && r.demo.ShouldAdvance() {
+			if r.demo.Advance() {
+				step := r.demo.CurrentStep()
+				if step != nil {
+					r.state = step.Navigate
+				}
+			} else {
+				r.demo.Active = false
+			}
+		}
 		return r, dotTickCmd()
+
+	case DemoAdvanceMsg:
+		if r.demo.Active {
+			if r.demo.Advance() {
+				step := r.demo.CurrentStep()
+				if step != nil {
+					r.state = step.Navigate
+				}
+			} else {
+				r.demo.Active = false
+			}
+		}
+		return r, nil
 
 	case splashTickMsg:
 		if r.state == StateSplash {
@@ -301,7 +332,13 @@ func (r *RootModel) View() string {
 
 	page := lipgloss.NewStyle().Width(r.width).Height(contentH).Render(content)
 
-	base := lipgloss.JoinVertical(lipgloss.Left, header, tabbar, page, flags, cmdbar)
+	var bottom string
+	if r.demo.Active {
+		bottom = r.demo.View()
+	} else {
+		bottom = cmdbar
+	}
+	base := lipgloss.JoinVertical(lipgloss.Left, header, tabbar, page, flags, bottom)
 
 	// Bubble field background overlay — renders bubble chars in blank spaces.
 	if r.bubbleField != nil && r.state != StateSplash {
@@ -343,7 +380,20 @@ func (r *RootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, r.keys.Help):
 		r.showHelp = !r.showHelp
 		return r, nil
+	case msg.String() == "D":
+		if !r.demo.Active {
+			r.demo.StartDemo()
+			r.demo.Width = r.width
+			if step := r.demo.CurrentStep(); step != nil {
+				r.state = step.Navigate
+			}
+		}
+		return r, nil
 	case key.Matches(msg, r.keys.Escape):
+		if r.demo.Active {
+			r.demo.Active = false
+			return r, nil
+		}
 		if r.showHelp {
 			r.showHelp = false
 			return r, nil
