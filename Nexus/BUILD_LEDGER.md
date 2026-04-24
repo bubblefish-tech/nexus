@@ -2136,7 +2136,17 @@
 - Commit: b5ad1af
 
 ### TIER 2 COMPLETE — Spec-parity achieved (T2-1 through T2-6)
-### Next: TIER 3 (§20) — T3-1 Global Bubble Field Background
+## TIER 3: COMPLETE — Professional Polish (T3-1 through T3-5)
+- T3-1: Bubble field global background (root model ticks + overlayOnBlanks)
+- T3-2: Cryptic gradient spinner component (RenderCrypticSpinner)
+- T3-3: Agent particles deferred (SSE event bus needed)
+- T3-4: Event ticker component (EventTicker Push/Tick/View, dashboard pending SSE)
+- T3-5: Four-theme switching via /theme command (ActiveTheme mutation)
+- T2-5/6: Splash 3.5s + mini-logo confirmed
+- Commit: 9d1986c (T3 batch) + 11990a3 (T2-5/6)
+- Exit gate: go build OK | full suite PASS (race)
+
+### Next: TIER 4 (§26) — T4-1 Demo Mode
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
