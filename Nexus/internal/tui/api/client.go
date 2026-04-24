@@ -269,3 +269,27 @@ func (c *Client) GetMemory(id string) (*MemoryDetail, error) {
 	return &r, c.get("/api/memories/"+url.PathEscape(id), &r)
 }
 
+// SigningStatus fetches GET /api/crypto/signing.
+func (c *Client) SigningStatus() (*SigningStatus, error) {
+	var r SigningStatus
+	return &r, c.get("/api/crypto/signing", &r)
+}
+
+// CryptoProfileStatus fetches GET /api/crypto/profile.
+func (c *Client) CryptoProfileStatus() (*CryptoProfile, error) {
+	var r CryptoProfile
+	return &r, c.get("/api/crypto/profile", &r)
+}
+
+// MasterKeyStatusInfo fetches GET /api/crypto/master.
+func (c *Client) MasterKeyStatusInfo() (*MasterKeyStatus, error) {
+	var r MasterKeyStatus
+	return &r, c.get("/api/crypto/master", &r)
+}
+
+// RatchetStatusInfo fetches GET /api/crypto/ratchet.
+func (c *Client) RatchetStatusInfo() (*RatchetStatus, error) {
+	var r RatchetStatus
+	return &r, c.get("/api/crypto/ratchet", &r)
+}
+

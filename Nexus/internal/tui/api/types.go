@@ -442,3 +442,36 @@ type MemoryListResponse struct {
 	Memories []Memory           `json:"memories"`
 	Admin    MemoryListEnvelope `json:"_admin"`
 }
+
+// SigningStatus is the shape of GET /api/crypto/signing.
+type SigningStatus struct {
+	Enabled        bool   `json:"enabled"`
+	Reason         string `json:"reason,omitempty"`
+	ConfigHint     string `json:"config_hint,omitempty"`
+	PublicKeyHash  string `json:"public_key_hash,omitempty"`
+	SignedCount    int64  `json:"signed_count"`
+	VerifyFailures int64  `json:"verify_failures"`
+}
+
+// CryptoProfile is the shape of GET /api/crypto/profile.
+type CryptoProfile struct {
+	Symmetric string `json:"symmetric"`
+	Signing   string `json:"signing"`
+	KDF       string `json:"kdf"`
+	Hash      string `json:"hash"`
+	Ratchet   string `json:"ratchet"`
+}
+
+// MasterKeyStatus is the shape of GET /api/crypto/master.
+type MasterKeyStatus struct {
+	Derived   bool   `json:"derived"`
+	Algorithm string `json:"algorithm"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// RatchetStatus is the shape of GET /api/crypto/ratchet.
+type RatchetStatus struct {
+	Position       int64  `json:"position"`
+	DestroyedCount int64  `json:"destroyed_count"`
+	Algorithm      string `json:"algorithm"`
+}

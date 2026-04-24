@@ -257,6 +257,12 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Get("/api/agents/{agent_id}/activity", d.handleAgentActivity)
 		r.Post("/api/agents/{agent_id}/heartbeat", d.handleAgentHeartbeat)
 
+		// Crypto status endpoints (T1-5)
+		r.Get("/api/crypto/signing", d.handleCryptoSigning)
+		r.Get("/api/crypto/profile", d.handleCryptoProfile)
+		r.Get("/api/crypto/master", d.handleCryptoMaster)
+		r.Get("/api/crypto/ratchet", d.handleCryptoRatchet)
+
 		// BF-Sketch substrate endpoints (BS.9)
 		r.Get("/api/substrate/status", d.handleSubstrateStatus)
 		r.Post("/api/substrate/rotate-ratchet", d.handleSubstrateRotateRatchet)
