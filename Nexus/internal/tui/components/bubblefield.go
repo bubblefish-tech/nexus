@@ -46,6 +46,7 @@ type BubbleField struct {
 	Width   int
 	Height  int
 	rng     *rand.Rand
+	grid    [][]rune // reusable render buffer
 }
 
 // NewBubbleField creates a field with n bubbles.
@@ -81,8 +82,16 @@ func (bf *BubbleField) spawnBubble(randomY bool) Bubble {
 func (bf *BubbleField) SetSize(w, h int) {
 	bf.Width = w
 	bf.Height = h
+	bf.allocGrid()
 	for i := range bf.Bubbles {
 		bf.Bubbles[i] = bf.spawnBubble(true)
+	}
+}
+
+func (bf *BubbleField) allocGrid() {
+	bf.grid = make([][]rune, bf.Height)
+	for y := range bf.grid {
+		bf.grid[y] = make([]rune, bf.Width)
 	}
 }
 
@@ -106,11 +115,13 @@ func (bf *BubbleField) Render() string {
 		return ""
 	}
 
-	grid := make([][]rune, bf.Height)
-	for y := range grid {
-		grid[y] = make([]rune, bf.Width)
-		for x := range grid[y] {
-			grid[y][x] = ' '
+	// Reuse grid buffer; reallocate only if dimensions changed.
+	if len(bf.grid) != bf.Height || (len(bf.grid) > 0 && len(bf.grid[0]) != bf.Width) {
+		bf.allocGrid()
+	}
+	for y := range bf.grid {
+		for x := range bf.grid[y] {
+			bf.grid[y][x] = ' '
 		}
 	}
 
@@ -119,14 +130,14 @@ func (bf *BubbleField) Render() string {
 		bx := int(b.x + drift)
 		by := int(b.y)
 		if bx >= 0 && bx < bf.Width && by >= 0 && by < bf.Height {
-			grid[by][bx] = b.char
+			bf.grid[by][bx] = b.char
 		}
 	}
 
 	style := lipgloss.NewStyle().Foreground(styles.ColorTealDim)
-	var lines []string
-	for _, row := range grid {
-		lines = append(lines, style.Render(string(row)))
+	lines := make([]string, len(bf.grid))
+	for i, row := range bf.grid {
+		lines[i] = style.Render(string(row))
 	}
 	return strings.Join(lines, "\n")
 }

@@ -28,12 +28,15 @@ import (
 )
 
 // KuramotoSim simulates N coupled oscillators via the Kuramoto ODE.
+// KuramotoSim simulates N coupled oscillators. Complexity is O(N²) per step
+// due to all-to-all coupling. At N=12, this is ~144 sin() ops per step.
 type KuramotoSim struct {
 	N        int
 	Phases   []float64
 	Omegas   []float64
 	Coupling float64
 	DT       float64
+	scratch  []float64 // reusable buffer for new phases
 }
 
 // NewKuramotoSim creates a new Kuramoto simulator with N oscillators.
@@ -41,8 +44,9 @@ func NewKuramotoSim(n int, couplingK float64) *KuramotoSim {
 	rng := rand.New(rand.NewSource(42))
 	ks := &KuramotoSim{
 		N: n, Coupling: couplingK, DT: 0.05,
-		Phases: make([]float64, n),
-		Omegas: make([]float64, n),
+		Phases:  make([]float64, n),
+		Omegas:  make([]float64, n),
+		scratch: make([]float64, n),
 	}
 	for i := 0; i < n; i++ {
 		ks.Phases[i] = rng.Float64() * 2 * math.Pi
@@ -53,18 +57,17 @@ func NewKuramotoSim(n int, couplingK float64) *KuramotoSim {
 
 // Step advances phases by dt via the Kuramoto ODE.
 func (ks *KuramotoSim) Step() {
-	newPhases := make([]float64, ks.N)
 	for i := 0; i < ks.N; i++ {
 		sum := 0.0
 		for j := 0; j < ks.N; j++ {
 			sum += math.Sin(ks.Phases[j] - ks.Phases[i])
 		}
-		newPhases[i] = math.Mod(ks.Phases[i]+(ks.Omegas[i]+ks.Coupling/float64(ks.N)*sum)*ks.DT, 2*math.Pi)
-		if newPhases[i] < 0 {
-			newPhases[i] += 2 * math.Pi
+		ks.scratch[i] = math.Mod(ks.Phases[i]+(ks.Omegas[i]+ks.Coupling/float64(ks.N)*sum)*ks.DT, 2*math.Pi)
+		if ks.scratch[i] < 0 {
+			ks.scratch[i] += 2 * math.Pi
 		}
 	}
-	ks.Phases = newPhases
+	copy(ks.Phases, ks.scratch)
 }
 
 // OrderParameter returns R (synchronization magnitude) and Psi (mean angle).
