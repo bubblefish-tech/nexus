@@ -337,7 +337,7 @@ func buildDaemonTOML(configDir, mode, adminKey, mcpKey, oauthIssuer string) (str
 	walIntegrity := "crc32"
 	walEncryption := false
 	rateLimit := 2000
-	embeddingEnabled := false
+	embeddingEnabled := true
 	webPort := 8081
 
 	switch mode {
@@ -391,6 +391,8 @@ global_requests_per_minute = %d
 
 [daemon.embedding]
 enabled = %t
+provider = "builtin"
+dimensions = 768
 
 [daemon.mcp]
 enabled = true
