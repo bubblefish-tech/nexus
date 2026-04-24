@@ -53,10 +53,16 @@ type dashAgentsMsg struct {
 	errKind api.ErrorKind
 }
 
+type dashStatsMsg struct {
+	data    *api.AggregatedStats
+	errKind api.ErrorKind
+}
+
 // DashboardScreen is Page 1 — the main overview.
 type DashboardScreen struct {
 	width, height int
 	status        *api.StatusResponse
+	stats         *api.AggregatedStats
 	agents        []api.AgentSummary
 	healthy       bool
 	curWrites     int
@@ -107,6 +113,11 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 		} else {
 			sdbg("AgentsMsg errKind=%d", m.errKind)
 		}
+	case dashStatsMsg:
+		if m.errKind == api.ErrKindUnknown && m.data != nil {
+			d.stats = m.data
+			sdbg("StatsMsg received: memories=%d agents=%d/%d", m.data.MemoryCount, m.data.AgentsConnected, m.data.AgentsKnown)
+		}
 	default:
 		sdbg("unhandled msg type: %T", msg)
 	}
@@ -114,15 +125,26 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (d *DashboardScreen) FireRefresh(client *api.Client) tea.Cmd {
-	return func() tea.Msg {
-		agents, err := client.Agents()
-		if err != nil {
-			kind := api.Classify(err)
-			sdbg("Agents failed kind=%d err=%v", kind, err)
-			return dashAgentsMsg{errKind: kind}
-		}
-		return dashAgentsMsg{data: agents}
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			agents, err := client.Agents()
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("Agents failed kind=%d err=%v", kind, err)
+				return dashAgentsMsg{errKind: kind}
+			}
+			return dashAgentsMsg{data: agents}
+		},
+		func() tea.Msg {
+			stats, err := client.Stats()
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("Stats failed kind=%d err=%v", kind, err)
+				return dashStatsMsg{errKind: kind}
+			}
+			return dashStatsMsg{data: stats}
+		},
+	)
 }
 
 func (d *DashboardScreen) View() string {
@@ -215,70 +237,80 @@ func (d *DashboardScreen) viewRightColumn(w int) string {
 	var lines []string
 	s := d.status
 
-	// ── Stat cards row ──
+	// ── 3×2 Stat cards grid ──
 	cardW := (w - 6) / 3
 	if cardW < 14 {
 		cardW = 14
 	}
+	cardH := 7
+	loaded := d.stats != nil || s != nil
 
 	memVal, auditVal, agentVal := "—", "—", "—"
 	memSub, auditSub, agentSub := "total stored", "chain entries", "connected"
 	healthVal, quarVal, walVal := "—", "—", "—"
-	healthSub, quarSub, walSub := "subsystems", "items", "fsync"
+	healthSub, quarSub, walSub := "subsystems", "items held", "fsync verified ✓"
 
-	if s != nil {
-		memVal = fmt.Sprintf("%d", s.MemoriesTotal)
-		if s.AuditEnabled {
-			auditVal = "enabled"
+	if d.stats != nil {
+		memVal = fmt.Sprintf("%d", d.stats.MemoryCount)
+		memSub = fmt.Sprintf("↑ %d this session", d.stats.SessionWrites)
+		auditVal = fmt.Sprintf("%d", d.stats.AuditCount)
+		if d.stats.Health.ChainIntact {
+			auditSub = "chain intact ✓"
 		} else {
-			auditVal = "disabled"
+			auditSub = "⚠ verify pending"
 		}
-		auditSub = "chain ✓"
-		agentSub = "conn/disc"
+		agentVal = fmt.Sprintf("%d / %d", d.stats.AgentsConnected, d.stats.AgentsKnown)
+		agentSub = "connected / discovered"
+		healthVal = strings.ToUpper(d.stats.Health.State)
+		healthSub = "all subsystems"
+		if d.stats.Health.State != "nominal" {
+			healthSub = "degraded"
+		}
+		quarVal = fmt.Sprintf("%d", d.stats.QuarantineTotal)
+		quarSub = "items held"
+		if d.stats.WALLagMs < 1 {
+			walVal = "< 1ms"
+		} else {
+			walVal = fmt.Sprintf("%.0fms", d.stats.WALLagMs)
+		}
+		if d.stats.WALFsyncOK {
+			walSub = "fsync verified ✓"
+		} else {
+			walSub = "⚠ fsync pending"
+		}
+	} else if s != nil {
+		memVal = fmt.Sprintf("%d", s.MemoriesTotal)
+		quarVal = fmt.Sprintf("%d", s.QuarantineTotal)
+		if d.healthy {
+			healthVal = "NOMINAL"
+			healthSub = "all subsystems"
+		}
 	}
-	if len(d.agents) > 0 {
+
+	if len(d.agents) > 0 && d.stats == nil {
 		connected := 0
-		total := len(d.agents)
 		for _, a := range d.agents {
 			if a.Status == "active" || a.Status == "online" {
 				connected++
 			}
 		}
-		agentVal = fmt.Sprintf("%d / %d", connected, total)
-	}
-
-	if d.healthy {
-		healthVal = "NOMINAL"
-		healthSub = "all subsys"
-	} else {
-		healthVal = "DOWN"
-		healthSub = "check daemon"
-	}
-
-	if s != nil {
-		quarVal = fmt.Sprintf("%d", s.QuarantineTotal)
-		quarSub = "quarantined"
-		if s.WAL.PendingEntries == 0 {
-			walVal = "<1ms"
-		} else {
-			walVal = fmt.Sprintf("%d pend", s.WAL.PendingEntries)
-		}
-		walSub = "WAL lag"
+		agentVal = fmt.Sprintf("%d / %d", connected, len(d.agents))
+		agentSub = "connected / discovered"
 	}
 
 	row1 := lipgloss.JoinHorizontal(lipgloss.Top,
-		components.StatCard{Label: "Memories", Value: memVal, Subtitle: memSub, Color: styles.ColorTeal, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "Audit", Value: auditVal, Subtitle: auditSub, Color: styles.ColorPurple, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "Agents", Value: agentVal, Subtitle: agentSub, Color: styles.ColorBlue, Width: cardW}.View(),
+		components.StatCard(components.StatCardProps{Label: "Memories", Value: memVal, SubLabel: memSub, Accent: styles.ColorTeal, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "Audit Events", Value: auditVal, SubLabel: auditSub, Accent: styles.ColorGreen, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "AI Agents", Value: agentVal, SubLabel: agentSub, Accent: styles.ColorPurple, Width: cardW, Height: cardH, Loaded: loaded}),
 	)
 	row2 := lipgloss.JoinHorizontal(lipgloss.Top,
-		components.StatCard{Label: "Health", Value: healthVal, Subtitle: healthSub, Color: styles.ColorGreen, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "Quarantine", Value: quarVal, Subtitle: quarSub, Color: styles.ColorAmber, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "WAL Lag", Value: walVal, Subtitle: walSub, Color: styles.ColorGray, Width: cardW}.View(),
+		components.StatCard(components.StatCardProps{Label: "Health", Value: healthVal, SubLabel: healthSub, Accent: styles.ColorGreen, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "Quarantine", Value: quarVal, SubLabel: quarSub, Accent: styles.ColorAmber, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "WAL Lag", Value: walVal, SubLabel: walSub, Accent: styles.ColorGreen, Width: cardW, Height: cardH, Loaded: loaded}),
 	)
 
 	lines = append(lines, row1, "", row2, "")

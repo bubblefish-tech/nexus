@@ -475,3 +475,21 @@ type RatchetStatus struct {
 	DestroyedCount int64  `json:"destroyed_count"`
 	Algorithm      string `json:"algorithm"`
 }
+
+// AggregatedStats is the shape of GET /api/stats.
+type AggregatedStats struct {
+	MemoryCount     int64   `json:"memory_count"`
+	SessionWrites   int64   `json:"session_writes"`
+	AuditCount      int64   `json:"audit_count"`
+	QuarantineTotal int64   `json:"quarantine_total"`
+	AgentsConnected int     `json:"agents_connected"`
+	AgentsKnown     int     `json:"agents_known"`
+	WALLagMs        float64 `json:"wal_lag_ms"`
+	WALFsyncOK      bool    `json:"wal_fsync_ok"`
+	CacheHitRate    float64 `json:"cache_hit_rate"`
+	Health          struct {
+		State       string `json:"state"`
+		ChainIntact bool   `json:"chain_intact"`
+	} `json:"health"`
+	FreeEnergyNats float64 `json:"free_energy_nats"`
+}

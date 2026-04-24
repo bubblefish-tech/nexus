@@ -269,6 +269,12 @@ func (c *Client) GetMemory(id string) (*MemoryDetail, error) {
 	return &r, c.get("/api/memories/"+url.PathEscape(id), &r)
 }
 
+// Stats fetches GET /api/stats — aggregated dashboard statistics.
+func (c *Client) Stats() (*AggregatedStats, error) {
+	var r AggregatedStats
+	return &r, c.get("/api/stats", &r)
+}
+
 // SigningStatus fetches GET /api/crypto/signing.
 func (c *Client) SigningStatus() (*SigningStatus, error) {
 	var r SigningStatus

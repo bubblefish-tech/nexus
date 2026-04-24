@@ -257,6 +257,9 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 		r.Get("/api/agents/{agent_id}/activity", d.handleAgentActivity)
 		r.Post("/api/agents/{agent_id}/heartbeat", d.handleAgentHeartbeat)
 
+		// Aggregated stats (T2-1)
+		r.Get("/api/stats", d.handleStats)
+
 		// Crypto status endpoints (T1-5)
 		r.Get("/api/crypto/signing", d.handleCryptoSigning)
 		r.Get("/api/crypto/profile", d.handleCryptoProfile)
