@@ -2086,7 +2086,16 @@
 - Exit gate: go build OK | go vet OK | full suite PASS (race)
 
 ### TIER 1 COMPLETE — All 5 ship-blockers resolved (T1-1 through T1-5)
-### Next: §12 Tier 1 Checkpoint Gate
+
+## §12 CHECKPOINT GATE: PASSED
+- go build: PASS | go vet: PASS | go test -race: PASS (194 TUI tests)
+- §7.7 grep verification: all 4 patterns clean
+- api coverage: 66.7% | components: 37.9% | screens: 15.6%
+- Checkpoint report: reports/2026_04_23_tier1_checkpoint.md
+- Regression tape: scripts/vhs/T1_checkpoint.tape (8-tab walkthrough)
+- Commit: c537585
+
+### Next: TIER 2 (§13) — T2-1 Dashboard 6-Stat-Card Grid
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
