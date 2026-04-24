@@ -205,9 +205,6 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DotTickMsg:
 		r.dotFrame++
-		if r.bubbleField != nil {
-			r.bubbleField.Tick(500 * time.Millisecond)
-		}
 		if r.kuramoto != nil {
 			for i := 0; i < 10; i++ {
 				r.kuramoto.Step()
@@ -340,11 +337,7 @@ func (r *RootModel) View() string {
 	}
 	base := lipgloss.JoinVertical(lipgloss.Left, header, tabbar, page, flags, bottom)
 
-	// Bubble field background overlay — renders bubble chars in blank spaces.
-	if r.bubbleField != nil && r.state != StateSplash {
-		bg := r.bubbleField.Render()
-		base = overlayOnBlanks(base, bg)
-	}
+
 
 	// Palette overlay.
 	if r.palette.Active() {
@@ -720,27 +713,3 @@ func (r *RootModel) viewHelp() string {
 	}.View()
 }
 
-// overlayOnBlanks places background characters from bg into positions
-// where fg has a plain space. Both strings are treated as line-based grids.
-// This lets the bubble field show through blank areas without occluding data.
-func overlayOnBlanks(fg, bg string) string {
-	fgLines := strings.Split(fg, "\n")
-	bgLines := strings.Split(bg, "\n")
-	for i := range fgLines {
-		if i >= len(bgLines) {
-			break
-		}
-		fgRunes := []rune(fgLines[i])
-		bgRunes := []rune(bgLines[i])
-		for j := range fgRunes {
-			if j >= len(bgRunes) {
-				break
-			}
-			if fgRunes[j] == ' ' && bgRunes[j] != ' ' {
-				fgRunes[j] = bgRunes[j]
-			}
-		}
-		fgLines[i] = string(fgRunes)
-	}
-	return strings.Join(fgLines, "\n")
-}
