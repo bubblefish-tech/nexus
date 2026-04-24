@@ -20,8 +20,10 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -31,7 +33,8 @@ import (
 
 type memorySearchMsg struct {
 	records []api.TimeTravelRecord
-	err     error
+	errKind api.ErrorKind
+	hint    string
 }
 
 var memoryKeys = struct {
@@ -53,7 +56,9 @@ type MemoryBrowserScreen struct {
 	searching     bool
 	records       []api.TimeTravelRecord
 	selectedIdx   int
-	err           error
+	errKind       api.ErrorKind
+	errHint       string
+	loading       bool
 }
 
 // NewMemoryBrowserScreen creates the memory browser.
@@ -66,6 +71,7 @@ func NewMemoryBrowserScreen() *MemoryBrowserScreen {
 	ti.TextStyle = lipgloss.NewStyle().Foreground(styles.TextPrimary)
 	return &MemoryBrowserScreen{
 		searchInput: ti,
+		loading:     true,
 	}
 }
 
@@ -80,8 +86,10 @@ func (m *MemoryBrowserScreen) ShortHelp() []key.Binding {
 func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case memorySearchMsg:
-		m.err = msg.err
-		if msg.err == nil {
+		m.loading = false
+		m.errKind = msg.errKind
+		m.errHint = msg.hint
+		if msg.errKind == api.ErrKindUnknown {
 			m.records = msg.records
 			m.selectedIdx = 0
 		}
@@ -139,7 +147,9 @@ func (m *MemoryBrowserScreen) FireRefresh(client *api.Client) tea.Cmd {
 			Limit: 50,
 		})
 		if err != nil {
-			return memorySearchMsg{err: err}
+			kind := api.Classify(err)
+			sdbg("TimeTravel failed kind=%d err=%v", kind, err)
+			return memorySearchMsg{errKind: kind, hint: api.HintForEndpoint("/api/timetravel", kind)}
 		}
 		return memorySearchMsg{records: data.Records}
 	}
@@ -150,9 +160,16 @@ func (m *MemoryBrowserScreen) View() string {
 		return ""
 	}
 
+	if m.loading {
+		frame := int(time.Now().UnixMilli()/150) % 8
+		return components.Render(loadingOpts(m.width, m.height, frame))
+	}
+	if m.errKind != api.ErrKindUnknown {
+		return components.Render(emptyStateOpts(m.errKind, m.errHint, m.width, m.height))
+	}
+
 	var lines []string
 
-	// Search bar.
 	lines = append(lines, sectionHeader("SEARCH", m.width))
 	if m.searching {
 		lines = append(lines, "  "+m.searchInput.View())
@@ -166,7 +183,6 @@ func (m *MemoryBrowserScreen) View() string {
 	}
 	lines = append(lines, "")
 
-	// Split: results list (left) + detail pane (right).
 	listW := m.width * 35 / 100
 	if listW < 25 {
 		listW = 25
@@ -181,10 +197,6 @@ func (m *MemoryBrowserScreen) View() string {
 		lipgloss.NewStyle().Width(detailW).Render(right),
 	)
 	lines = append(lines, body)
-
-	if m.err != nil {
-		lines = append(lines, styles.ErrorStyle.Render("  error: "+m.err.Error()))
-	}
 
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).
 		Render(strings.Join(lines, "\n"))
@@ -269,7 +281,6 @@ func (m *MemoryBrowserScreen) viewDetail(w int) string {
 	lines = append(lines, "  "+sep)
 	lines = append(lines, "")
 
-	// Content.
 	content := rec.Content
 	contentW := w - 4
 	if contentW < 20 {
@@ -283,7 +294,6 @@ func (m *MemoryBrowserScreen) viewDetail(w int) string {
 	lines = append(lines, "  "+sep)
 	lines = append(lines, "")
 
-	// Actions.
 	actions := lipgloss.NewStyle().Foreground(styles.TextMuted).
 		Render("  [e] edit  [d] delete  [p] proof")
 	lines = append(lines, actions)

@@ -20,7 +20,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -111,7 +110,7 @@ func (c *Client) get(path string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, path)
+		return &HTTPError{Status: resp.StatusCode, Path: path}
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
@@ -243,35 +242,3 @@ func (c *Client) Tasks() (*TasksResponse, error) {
 	return &r, c.get("/api/control/tasks", &r)
 }
 
-// ErrorKind classifies API errors into broad categories for TUI rendering.
-type ErrorKind int
-
-const (
-	ErrKindUnknown   ErrorKind = iota
-	ErrKindNetwork             // connection refused, timeout
-	ErrKindForbidden           // HTTP 401 or 403
-	ErrKindNotFound            // HTTP 404
-	ErrKindServer              // HTTP 5xx
-)
-
-// Classify maps an error returned by any Client method to an ErrorKind.
-// It parses the error string produced by get(): "HTTP <code> from <path>".
-func Classify(err error) ErrorKind {
-	if err == nil {
-		return ErrKindUnknown
-	}
-	msg := err.Error()
-	if strings.Contains(msg, "HTTP 401") || strings.Contains(msg, "HTTP 403") {
-		return ErrKindForbidden
-	}
-	if strings.Contains(msg, "HTTP 404") {
-		return ErrKindNotFound
-	}
-	if strings.Contains(msg, "HTTP 5") {
-		return ErrKindServer
-	}
-	if strings.Contains(msg, "connect") || strings.Contains(msg, "timeout") || strings.Contains(msg, "refused") {
-		return ErrKindNetwork
-	}
-	return ErrKindUnknown
-}

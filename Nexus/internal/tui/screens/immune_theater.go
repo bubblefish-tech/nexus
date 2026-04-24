@@ -20,8 +20,10 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,13 +33,15 @@ import (
 type immuneSecurityMsg struct {
 	events  *api.SecurityEventsResponse
 	summary *api.SecuritySummaryResponse
-	err     error
+	errKind api.ErrorKind
+	hint    string
 }
 
 type immuneQuarantineMsg struct {
-	items *api.QuarantineResponse
-	count *api.QuarantineCountResponse
-	err   error
+	items   *api.QuarantineResponse
+	count   *api.QuarantineCountResponse
+	errKind api.ErrorKind
+	hint    string
 }
 
 // ImmuneTheaterScreen is Page 9 — quarantine + threat signatures.
@@ -47,12 +51,14 @@ type ImmuneTheaterScreen struct {
 	securitySummary  *api.SecuritySummaryResponse
 	quarantineItems  []api.QuarantineRecord
 	quarantineCount  *api.QuarantineCountResponse
-	err              error
+	errKind          api.ErrorKind
+	errHint          string
+	loading          bool
 }
 
 // NewImmuneTheaterScreen creates the immune theater.
 func NewImmuneTheaterScreen() *ImmuneTheaterScreen {
-	return &ImmuneTheaterScreen{}
+	return &ImmuneTheaterScreen{loading: true}
 }
 
 func (im *ImmuneTheaterScreen) Name() string            { return "Immune" }
@@ -63,26 +69,30 @@ func (im *ImmuneTheaterScreen) ShortHelp() []key.Binding { return nil }
 func (im *ImmuneTheaterScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case immuneSecurityMsg:
-		if m.err == nil {
+		im.loading = false
+		if m.errKind != api.ErrKindUnknown {
+			im.errKind = m.errKind
+			im.errHint = m.hint
+		} else {
 			if m.events != nil {
 				im.securityEvents = m.events.Events
 			}
 			if m.summary != nil {
 				im.securitySummary = m.summary
 			}
-		} else {
-			im.err = m.err
 		}
 	case immuneQuarantineMsg:
-		if m.err == nil {
+		im.loading = false
+		if m.errKind != api.ErrKindUnknown {
+			im.errKind = m.errKind
+			im.errHint = m.hint
+		} else {
 			if m.items != nil {
 				im.quarantineItems = m.items.Items
 			}
 			if m.count != nil {
 				im.quarantineCount = m.count
 			}
-		} else {
-			im.err = m.err
 		}
 	}
 	return im, nil
@@ -93,18 +103,32 @@ func (im *ImmuneTheaterScreen) FireRefresh(client *api.Client) tea.Cmd {
 		func() tea.Msg {
 			events, err := client.SecurityEvents(50)
 			if err != nil {
-				return immuneSecurityMsg{err: err}
+				kind := api.Classify(err)
+				sdbg("SecurityEvents failed kind=%d err=%v", kind, err)
+				return immuneSecurityMsg{errKind: kind, hint: api.HintForEndpoint("/api/security/events", kind)}
 			}
 			summary, err := client.SecuritySummary()
-			return immuneSecurityMsg{events: events, summary: summary, err: err}
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("SecuritySummary failed kind=%d err=%v", kind, err)
+				return immuneSecurityMsg{events: events, errKind: kind, hint: api.HintForEndpoint("/api/security/summary", kind)}
+			}
+			return immuneSecurityMsg{events: events, summary: summary}
 		},
 		func() tea.Msg {
 			items, err := client.QuarantineList(50)
 			if err != nil {
-				return immuneQuarantineMsg{err: err}
+				kind := api.Classify(err)
+				sdbg("QuarantineList failed kind=%d err=%v", kind, err)
+				return immuneQuarantineMsg{errKind: kind, hint: api.HintForEndpoint("/api/quarantine", kind)}
 			}
 			count, err := client.QuarantineCount()
-			return immuneQuarantineMsg{items: items, count: count, err: err}
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("QuarantineCount failed kind=%d err=%v", kind, err)
+				return immuneQuarantineMsg{items: items, errKind: kind, hint: api.HintForEndpoint("/api/quarantine/count", kind)}
+			}
+			return immuneQuarantineMsg{items: items, count: count}
 		},
 	)
 }
@@ -112,6 +136,14 @@ func (im *ImmuneTheaterScreen) FireRefresh(client *api.Client) tea.Cmd {
 func (im *ImmuneTheaterScreen) View() string {
 	if im.width < 40 || im.height < 10 {
 		return ""
+	}
+
+	if im.loading {
+		frame := int(time.Now().UnixMilli()/150) % 8
+		return components.Render(loadingOpts(im.width, im.height, frame))
+	}
+	if im.errKind != api.ErrKindUnknown {
+		return components.Render(emptyStateOpts(im.errKind, im.errHint, im.width, im.height))
 	}
 
 	leftW := im.width / 2
@@ -127,7 +159,6 @@ func (im *ImmuneTheaterScreen) View() string {
 		lipgloss.NewStyle().Width(rightW).Render(right),
 	)
 
-	// Footer stats
 	var footer string
 	if im.quarantineCount != nil {
 		footer = lipgloss.NewStyle().Foreground(styles.TextMuted).
@@ -143,10 +174,6 @@ func (im *ImmuneTheaterScreen) View() string {
 	}
 
 	result := lipgloss.JoinVertical(lipgloss.Left, body, footer)
-
-	if im.err != nil {
-		result += "\n" + styles.ErrorStyle.Render("  error: "+im.err.Error())
-	}
 
 	return lipgloss.NewStyle().Width(im.width).Height(im.height).Render(result)
 }

@@ -33,7 +33,6 @@ import (
 type RetrievalTheaterScreen struct {
 	width, height int
 	status        *api.StatusResponse
-	err           error
 }
 
 // NewRetrievalTheaterScreen creates the retrieval theater.
@@ -142,11 +141,6 @@ func (r *RetrievalTheaterScreen) View() string {
 		lines = append(lines, components.InlineBar{Label: "  Semantic", Value: r.status.Cache.SemanticRate, Width: barW, Color: styles.ColorBlue}.View())
 	} else {
 		lines = append(lines, styles.MutedStyle.Render("  Waiting for cascade data..."))
-	}
-
-	if r.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, styles.ErrorStyle.Render("  error: "+r.err.Error()))
 	}
 
 	return lipgloss.NewStyle().Width(r.width).Height(r.height).

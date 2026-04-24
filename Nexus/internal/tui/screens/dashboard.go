@@ -49,8 +49,8 @@ func sdbg(format string, args ...interface{}) {
 }
 
 type dashAgentsMsg struct {
-	data []api.AgentSummary
-	err  error
+	data    []api.AgentSummary
+	errKind api.ErrorKind
 }
 
 // DashboardScreen is Page 1 — the main overview.
@@ -59,7 +59,6 @@ type DashboardScreen struct {
 	status        *api.StatusResponse
 	agents        []api.AgentSummary
 	healthy       bool
-	statusErr     error
 	curWrites     int
 	curReads      int
 	maxWrites     int
@@ -87,7 +86,6 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	case api.StatusBroadcastMsg:
 		if m.Data != nil {
 			d.status = m.Data
-			d.statusErr = nil
 			d.curWrites = m.Data.Writes1m
 			d.curReads = m.Data.Reads1m
 			if m.Data.Writes1m > d.maxWrites {
@@ -103,11 +101,11 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			sdbg("StatusBroadcast received with nil data")
 		}
 	case dashAgentsMsg:
-		if m.err == nil {
+		if m.errKind == api.ErrKindUnknown {
 			d.agents = m.data
 			sdbg("AgentsMsg received: count=%d", len(m.data))
 		} else {
-			sdbg("AgentsMsg error: %v", m.err)
+			sdbg("AgentsMsg errKind=%d", m.errKind)
 		}
 	default:
 		sdbg("unhandled msg type: %T", msg)
@@ -118,7 +116,12 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 func (d *DashboardScreen) FireRefresh(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		agents, err := client.Agents()
-		return dashAgentsMsg{data: agents, err: err}
+		if err != nil {
+			kind := api.Classify(err)
+			sdbg("Agents failed kind=%d err=%v", kind, err)
+			return dashAgentsMsg{errKind: kind}
+		}
+		return dashAgentsMsg{data: agents}
 	}
 }
 
@@ -148,10 +151,6 @@ func (d *DashboardScreen) View() string {
 		lipgloss.NewStyle().Width(rightW).Render(right),
 	)
 	sections = append(sections, body)
-
-	if d.statusErr != nil {
-		sections = append(sections, styles.ErrorStyle.Render("  status: "+d.statusErr.Error()))
-	}
 
 	return lipgloss.NewStyle().Width(d.width).Height(d.height).Render(
 		strings.Join(sections, "\n"),

@@ -32,7 +32,6 @@ import (
 type CryptoVaultScreen struct {
 	width, height int
 	status        *api.StatusResponse
-	err           error
 }
 
 // NewCryptoVaultScreen creates the crypto vault page.
@@ -133,11 +132,6 @@ func (c *CryptoVaultScreen) View() string {
 	lines = append(lines, sectionHeader("DELETION CERTIFICATES", c.width))
 	lines = append(lines, "")
 	lines = append(lines, styles.MutedStyle.Render("  No deletions this session. [g] generate GDPR report"))
-
-	if c.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, styles.ErrorStyle.Render("  error: "+c.err.Error()))
-	}
 
 	return lipgloss.NewStyle().Width(c.width).Height(c.height).
 		Render(strings.Join(lines, "\n"))

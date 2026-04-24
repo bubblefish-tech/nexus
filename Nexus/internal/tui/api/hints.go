@@ -44,7 +44,7 @@ func HintForEndpoint(endpoint string, kind ErrorKind) string {
 			return "Feature not available"
 		}
 	}
-	if kind == ErrKindNetwork {
+	if kind == ErrKindConnection {
 		return "Cannot reach daemon — is it running? Try: nexus start"
 	}
 	return ""

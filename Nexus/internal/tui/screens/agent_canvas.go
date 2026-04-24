@@ -20,8 +20,10 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,20 +31,23 @@ import (
 )
 
 type agentListMsg struct {
-	agents []api.AgentSummary
-	err    error
+	agents  []api.AgentSummary
+	errKind api.ErrorKind
+	hint    string
 }
 
 // AgentCanvasScreen is Page 5 — A2A orchestration flow.
 type AgentCanvasScreen struct {
 	width, height int
 	agents        []api.AgentSummary
-	err           error
+	errKind       api.ErrorKind
+	errHint       string
+	loading       bool
 }
 
 // NewAgentCanvasScreen creates the agent canvas.
 func NewAgentCanvasScreen() *AgentCanvasScreen {
-	return &AgentCanvasScreen{}
+	return &AgentCanvasScreen{loading: true}
 }
 
 func (a *AgentCanvasScreen) Name() string            { return "Agents" }
@@ -52,10 +57,11 @@ func (a *AgentCanvasScreen) ShortHelp() []key.Binding { return nil }
 
 func (a *AgentCanvasScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	if m, ok := msg.(agentListMsg); ok {
-		if m.err == nil {
+		a.loading = false
+		a.errKind = m.errKind
+		a.errHint = m.hint
+		if m.errKind == api.ErrKindUnknown {
 			a.agents = m.agents
-		} else {
-			a.err = m.err
 		}
 	}
 	return a, nil
@@ -64,7 +70,12 @@ func (a *AgentCanvasScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 func (a *AgentCanvasScreen) FireRefresh(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		agents, err := client.Agents()
-		return agentListMsg{agents: agents, err: err}
+		if err != nil {
+			kind := api.Classify(err)
+			sdbg("Agents failed kind=%d err=%v", kind, err)
+			return agentListMsg{errKind: kind, hint: api.HintForEndpoint("/api/control/agents", kind)}
+		}
+		return agentListMsg{agents: agents}
 	}
 }
 
@@ -73,11 +84,18 @@ func (a *AgentCanvasScreen) View() string {
 		return ""
 	}
 
+	if a.loading {
+		frame := int(time.Now().UnixMilli()/150) % 8
+		return components.Render(loadingOpts(a.width, a.height, frame))
+	}
+	if a.errKind != api.ErrKindUnknown {
+		return components.Render(emptyStateOpts(a.errKind, a.errHint, a.width, a.height))
+	}
+
 	var lines []string
 	lines = append(lines, sectionHeader("AGENT ORCHESTRATION", a.width))
 	lines = append(lines, "")
 
-	// Canvas area (top 70%) — agent node graph.
 	canvasH := a.height * 70 / 100
 	if canvasH < 8 {
 		canvasH = 8
@@ -91,7 +109,6 @@ func (a *AgentCanvasScreen) View() string {
 		lines = append(lines, a.viewNodeGraph(canvasH))
 	}
 
-	// Message log (bottom 30%).
 	lines = append(lines, "")
 	lines = append(lines, sectionHeader("ACTIVE FLOWS", a.width))
 	lines = append(lines, "")
@@ -109,11 +126,6 @@ func (a *AgentCanvasScreen) View() string {
 		}
 	}
 
-	if a.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, styles.ErrorStyle.Render("  error: "+a.err.Error()))
-	}
-
 	return lipgloss.NewStyle().Width(a.width).Height(a.height).
 		Render(strings.Join(lines, "\n"))
 }
@@ -121,7 +133,6 @@ func (a *AgentCanvasScreen) View() string {
 func (a *AgentCanvasScreen) viewNodeGraph(height int) string {
 	var lines []string
 
-	// Simple node layout: arrange agents in a grid pattern.
 	nodeStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.BorderStrong).
@@ -143,20 +154,16 @@ func (a *AgentCanvasScreen) viewNodeGraph(height int) string {
 		agentNodes = append(agentNodes, node)
 	}
 
-	// Center Nexus node.
 	lines = append(lines, lipgloss.PlaceHorizontal(a.width, lipgloss.Center, nexusNode))
 
-	// Arrow down.
 	arrow := lipgloss.NewStyle().Foreground(styles.ColorTeal).Render("│")
 	lines = append(lines, lipgloss.PlaceHorizontal(a.width, lipgloss.Center, arrow))
 
-	// Agent nodes in a row.
 	if len(agentNodes) > 0 {
 		row := lipgloss.JoinHorizontal(lipgloss.Top, agentNodes...)
 		lines = append(lines, lipgloss.PlaceHorizontal(a.width, lipgloss.Center, row))
 	}
 
-	// Pad to target height.
 	for len(lines) < height {
 		lines = append(lines, "")
 	}
