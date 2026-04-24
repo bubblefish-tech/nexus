@@ -140,6 +140,15 @@ func (r *RetrievalTheaterScreen) View() string {
 	// Cascade details + cache performance
 	sections = append(sections, r.viewCascadeDetails())
 	sections = append(sections, "")
+
+	// SQL Preview panel — shows the structured SQL from Stage 3.
+	sections = append(sections, components.RenderSQLPreview(components.SQLPreviewProps{
+		SQL:    "",
+		Params: nil,
+		Width:  r.width,
+	}))
+	sections = append(sections, "")
+
 	sections = append(sections, r.viewCachePerformance())
 
 	return lipgloss.NewStyle().Width(r.width).Height(r.height).
