@@ -2111,7 +2111,15 @@
 - Commit: 8c5fa24
 - Exit gate: go build OK | go vet OK | full suite PASS (race)
 
-### Next: T2-3 per §15 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T2-3: COMPLETE — Audit Walker Entry Card + Merkle Proof Components
+- components/chain_walker.go: RenderEntryCard with prev_hash→content→hash→signature flow
+- components/merkle_tree.go: RenderMerkleTree ASCII proof renderer
+- audit_walker.go: uses RenderEntryCard for selected entry, merkle proof stub
+- types.go: PrevHash, Hash, Signature, SignatureValid added to AuditRecord
+- Commit: 14e5184
+- Exit gate: go build OK | TUI tests PASS (race)
+
+### Next: T2-4 per §16 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
