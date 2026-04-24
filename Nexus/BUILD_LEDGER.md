@@ -2047,7 +2047,18 @@
 - Commit: 1477851
 - Exit gate: go build OK | go vet OK | full suite PASS (race)
 
-### Next: T1-2 per §8 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T1-2: COMPLETE — Fix Memory Page API Contract
+- Case C: /api/timetravel is a temporal query (requires RFC3339 as_of); default listing uses /api/memories
+- Daemon: added GET /api/memories route (alias for handleAdminList) in BuildAdminRouter admin group
+- api/client.go: ListMemories, SearchMemories, GetMemory methods
+- api/types.go: Memory, MemoryDetail, MemoryListEnvelope, MemoryListResponse types
+- screens/memory_browser.go: switched from TimeTravel(AsOf:"now") to ListMemories(50,0)
+- api/client_test.go: 6 new tests (empty, populated, 404, 500, malformed, query encoding)
+- grep "timetravel" in TUI screens/pages: zero hits
+- Commit: 65fdf55
+- Exit gate: go build OK | go vet OK | full suite PASS (race)
+
+### Next: T1-3 per §9 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
