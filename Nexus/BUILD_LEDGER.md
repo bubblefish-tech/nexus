@@ -2058,7 +2058,15 @@
 - Commit: 65fdf55
 - Exit gate: go build OK | go vet OK | full suite PASS (race)
 
-### Next: T1-3 per §9 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T1-3: COMPLETE — Fix Governance Page API Contract
+- Case B: all 3 endpoints already exist in daemon (server.go:128-139), gated on grantStore
+- T1-1 already handles 404 → EmptyStateFeatureGated with "Governance not enabled"
+- Updated empty-list hints to match §9.4 wording (grants CLI hint, approvals explanation, tasks)
+- Added 6 client_test.go tests (Grants 200/404, Approvals 200/500, Tasks 200/404)
+- Commit: 390b876
+- Exit gate: go build OK | go vet OK | full suite PASS (race)
+
+### Next: T1-4 per §10 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
