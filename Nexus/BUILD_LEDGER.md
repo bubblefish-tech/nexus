@@ -2119,7 +2119,24 @@
 - Commit: 14e5184
 - Exit gate: go build OK | TUI tests PASS (race)
 
-### Next: T2-4 per §16 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T2-4: COMPLETE — Memory Browser Full Search
+- memory_browser.go: search wiring via SearchMemories, score display in detail panel
+- Commit: a9820c4
+
+## T2-5/T2-6: COMPLETE — Mini-Logo + Splash Timing
+- Mini-logo: inline MiniLogo already on every page header (from PREP.1)
+- Splash: splashDuration 13500ms → 3500ms; timeline phases already fit within 3.5s
+- Commit: 11990a3
+
+## §19 CHECKPOINT GATE: PASSED
+- 194 TUI tests, race detector, all pass
+- api coverage 65.6%, §7.7 grep clean
+- Checkpoint report: reports/2026_04_23_tier2_checkpoint.md
+- Regression tape: scripts/vhs/T2_checkpoint.tape
+- Commit: b5ad1af
+
+### TIER 2 COMPLETE — Spec-parity achieved (T2-1 through T2-6)
+### Next: TIER 3 (§20) — T3-1 Global Bubble Field Background
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
