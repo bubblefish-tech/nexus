@@ -116,6 +116,15 @@ func TestRunReportGeneration(t *testing.T) {
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"queue_depth": 0,
+			"wal": map[string]interface{}{
+				"pending_entries": 0,
+			},
+		})
+	})
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
