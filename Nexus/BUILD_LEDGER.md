@@ -2066,7 +2066,16 @@
 - Commit: 390b876
 - Exit gate: go build OK | go vet OK | full suite PASS (race)
 
-### Next: T1-4 per §10 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T1-4: COMPLETE — Reconcile Immune Theater Data
+- Daemon: handleQuarantineList enhanced to include total/pending from Count() in same response
+- TUI: QuarantineResponse unified with Total/Pending/Records in single struct
+- TUI: immune_theater.go consolidated from 2 messages to 1, single im.quarantine field
+- Footer bar and queue panel both read from same QuarantineResponse — cannot disagree
+- Context-aware hints: pending-but-gated vs no-items per §10.4
+- Commit: 262a500
+- Exit gate: go build OK | go vet OK | full suite PASS (race)
+
+### Next: T1-5 per §11 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
 
 ## Branch: feat/builtin-embedding
 ## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
