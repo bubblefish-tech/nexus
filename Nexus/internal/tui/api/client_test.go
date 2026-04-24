@@ -469,3 +469,108 @@ func TestSearchMemories_queryEncoding(t *testing.T) {
 		t.Errorf("expected URL-encoded query, got path %q", gotPath)
 	}
 }
+
+func TestGrants_200(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"grants":[{"agent_id":"a1","capability":"read","scope":"default"}]}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Grants()
+	if err != nil {
+		t.Fatalf("Grants() unexpected error: %v", err)
+	}
+	if len(resp.Grants) != 1 {
+		t.Errorf("expected 1 grant, got %d", len(resp.Grants))
+	}
+}
+
+func TestGrants_404(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.Grants()
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if Classify(err) != ErrKindNotFound {
+		t.Errorf("Classify(err) = %d, want ErrKindNotFound", Classify(err))
+	}
+}
+
+func TestApprovals_200(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"approvals":[{"agent_id":"a1","capability":"write","decision":"pending"}]}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Approvals()
+	if err != nil {
+		t.Fatalf("Approvals() unexpected error: %v", err)
+	}
+	if len(resp.Approvals) != 1 {
+		t.Errorf("expected 1 approval, got %d", len(resp.Approvals))
+	}
+}
+
+func TestApprovals_500(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.Approvals()
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	if Classify(err) != ErrKindServer {
+		t.Errorf("Classify(err) = %d, want ErrKindServer", Classify(err))
+	}
+}
+
+func TestTasks_200(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tasks":[{"agent_id":"a1","capability":"execute","status":"running"}]}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Tasks()
+	if err != nil {
+		t.Fatalf("Tasks() unexpected error: %v", err)
+	}
+	if len(resp.Tasks) != 1 {
+		t.Errorf("expected 1 task, got %d", len(resp.Tasks))
+	}
+}
+
+func TestTasks_404(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.Tasks()
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if Classify(err) != ErrKindNotFound {
+		t.Errorf("Classify(err) = %d, want ErrKindNotFound", Classify(err))
+	}
+}

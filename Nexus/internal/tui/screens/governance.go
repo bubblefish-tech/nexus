@@ -150,7 +150,7 @@ func (g *GovernanceScreen) View() string {
 	lines = append(lines, "")
 
 	if len(g.grants) == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No active grants"))
+		lines = append(lines, styles.MutedStyle.Render("  No active grants. Grants are issued via CLI: nexus grant ..."))
 	} else {
 		for _, gr := range g.grants {
 			agent := lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(gr.AgentID)
@@ -172,7 +172,7 @@ func (g *GovernanceScreen) View() string {
 	}
 
 	if pending == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No pending approvals"))
+		lines = append(lines, styles.MutedStyle.Render("  No pending approvals. Approvals appear here when agents request gated actions."))
 	} else {
 		for _, a := range g.approvals {
 			if a.Decision != "" && a.Decision != "pending" {
@@ -196,7 +196,7 @@ func (g *GovernanceScreen) View() string {
 	}
 
 	if activeTasks == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No active tasks"))
+		lines = append(lines, styles.MutedStyle.Render("  No active tasks."))
 	} else {
 		for _, t := range g.tasks {
 			if t.Status != "running" && t.Status != "pending" {
