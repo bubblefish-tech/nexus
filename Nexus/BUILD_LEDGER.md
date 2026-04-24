@@ -2035,4 +2035,85 @@
 - Commit: dabf01d
 - Exit gate: go build ./... OK | go vet ./... OK | CGO_ENABLED=1 go test ./... -race PASS
 
-### Next: T1-1 per §7 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+## T1-1: COMPLETE — Hide HTTP Errors (Graceful Empty States)
+- api/errors.go: HTTPError typed error, ErrorKind (7 kinds), Classify using errors.As
+- api/client.go: get() returns *HTTPError; old ErrorKind/Classify moved to errors.go
+- components/empty_state.go: Full §7.4 — EmptyStateKind (4 kinds), EmptyStateOptions, Render(), LoadingTick
+- components/empty_state_test.go: 4 kinds × 3 widths × 2 heights + edge cases
+- api/errors_test.go: HTTP errors, context, net, serialization, nil, wrapped
+- screens/common.go: translateKindToEmpty, emptyStateOpts, loadingOpts
+- All 7 screens updated: errKind/hint fields, loading state, empty state View(), classified FireRefresh
+- §7.7 grep verification: all 4 patterns clean (zero matches)
+- Commit: 1477851
+- Exit gate: go build OK | go vet OK | full suite PASS (race)
+
+### Next: T1-2 per §8 of 2026_04_23_NEXUS_TUI_BUILDPLAN_ALLTIER.md
+
+## Branch: feat/builtin-embedding
+## EMBED-BIN.1: COMPLETE — Model + Binary Acquisition
+- Model: nomic-embed-text-v1.5 Q4_K_S GGUF (75MB, Apache 2.0)
+- Binary: llama-server b8907 from ggml-org/llama.cpp (MIT)
+- Fetch scripts for Windows (.ps1) and Linux/macOS (.sh)
+- models/.gitignore excludes binaries and GGUF files
+- Commit: e9542ce
+
+## EMBED-BIN.2: COMPLETE — BuiltinProvider Implementation
+- BuiltinProvider manages llama-server as subprocess on random localhost port
+- Speaks OpenAI-compatible /v1/embeddings API
+- Health check polling (60s startup timeout, 250ms interval)
+- Auto-restart on crash (max 3 retries, exponential backoff 2s→30s)
+- Wired into embedding factory as provider = "builtin"
+- Task prefix "search_query: " prepended automatically
+- 7 unit tests + 1 integration test (768 dims verified live)
+- Commit: 9df90bf
+
+## EMBED-BIN.3: COMPLETE — Auto-Download at Install Time
+- EnsureModelDownloaded/EnsureServerDownloaded with progress callbacks
+- extractBinaryFromZip for cross-platform ZIP extraction
+- Default daemon.toml changed: embedding.enabled=true, provider="builtin"
+- Tests: 4 new download helper tests
+- Commit: 81bd47f
+
+## fix(chaos): add /api/status mock handler
+- Eliminated 30s false drain timeout in chaos test
+- Test time: 53s → 23s
+- Commit: 4d7c18c
+
+## fix(builtin): exec.Command instead of exec.CommandContext
+- Factory's deferred context cancel was killing llama-server after startup
+- Fix: process lifetime uses background context, caller's ctx only for health polling
+- Added INFO-level embedContent logging for write-path debugging
+- Commit: df3d09e
+
+## Branch: v0.1.3-bombproof
+## BP.0: COMPLETE — storage.Backend interface with SQLite implementation
+- internal/storage/backend.go: unified Backend interface + Capabilities struct
+- internal/storage/sqlite.go: SQLiteBackend adapter (pure delegation)
+- internal/storage/dialect/builder.go: SQL dialect builder (SQLite ? vs PG $1)
+- daemon.go: 3 SQLite type assertions migrated to d.backend calls
+- Tests: 6 new tests (interface conformance, dialect, capabilities)
+- Commit: 861f937
+
+## fix(discover): skip probeGeneralPorts when scanner defs is nil
+- Pre-existing env-dependent test failure on dev machines with Ollama/Nexus running
+- Commit: 0593706
+
+## Branch: feat/optimization-sprint
+## TUI: Phase 0-6 COMPLETE — Reference-grade TUI dashboard
+- 9-page state machine replacing 7-tab Model architecture
+- Splash screen (3.5s harmonica spring animations)
+- Bubble field physics background, free energy gauge, ANSI fish emblem
+- Command palette (Ctrl+K), help overlay, slash commands
+- All screens: Dashboard, Memory, Retrieval, Audit, Agents, Crypto, Gov, Immune
+- Old tabs/ directory deleted
+- Commits: fd79cbe → cdaeaf8
+
+## fix: MCP nexus_search accepts both "query" and "q"
+- Schema/code field name mismatch causing cascade degradation
+- Commit: 4408739
+
+## fix: 4 critical TUI data-flow bugs + debug logging
+- Status never reached dashboard after splash
+- First DataTick fired during splash, next 5s later
+- Screen switch started with empty data
+- Commit: 77239fa (+ f00c9c8 nil dereference guard)
