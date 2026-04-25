@@ -246,11 +246,12 @@ func TestSupervisor_MultipleGoroutines(t *testing.T) {
 		t.Errorf("exit code: want 3, got %d", exitCalled.Load())
 	}
 
+	// Stop the supervisor before reading logs to avoid data race on logBuf.
+	s.Shutdown()
+	s.Stop()
+
 	logs := logBuf.String()
 	if !strings.Contains(logs, "worker-b") {
 		t.Errorf("log should identify worker-b as stalled; logs:\n%s", logs)
 	}
-
-	s.Shutdown()
-	s.Stop()
 }

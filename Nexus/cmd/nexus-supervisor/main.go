@@ -15,19 +15,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with BubbleFish Nexus. If not, see <https://www.gnu.org/licenses/>.
 
-// nexus-supervisor: watchdog for non-service installs.
-// Spawns nexus, captures stderr on crash, respawns with exponential backoff.
-// Gives up after 5 crashes in 60 seconds.
+// nexus-supervisor: sidecar watchdog with tiered degradation.
+// Spawns nexus, monitors via pipe, escalates through T0–T3 tiers.
+// T0: instant restart (<3 failures/60s)
+// T1: reduced features (disable embedding)
+// T2: read-only mode
+// T3: emergency shutdown
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
+
+	"github.com/bubblefish-tech/nexus/internal/supervisor"
 )
 
 func main() {
@@ -37,42 +45,50 @@ func main() {
 		os.Exit(1)
 	}
 
-	var crashes []time.Time
-	var lastStderr string
-	backoff := 5 * time.Second
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
 
-	for {
-		cutoff := time.Now().Add(-60 * time.Second)
-		var recent []time.Time
-		for _, t := range crashes {
-			if t.After(cutoff) {
-				recent = append(recent, t)
-			}
+	cfg := supervisor.DefaultSidecarConfig()
+
+	spawner := func(ctx context.Context, tier supervisor.DegradationTier, pipe supervisor.Pipe) error {
+		args := []string{"start", "--foreground"}
+		if tier >= supervisor.TierReducedFeatures {
+			args = append(args, "--disable-embedding")
 		}
-		crashes = recent
-
-		if len(crashes) >= 5 {
-			writeCrashFile(lastStderr)
-			fmt.Fprintf(os.Stderr, "nexus crashed %d times in 60s — giving up. See .crash file.\n", len(crashes))
-			os.Exit(1)
+		if tier >= supervisor.TierReadOnly {
+			args = append(args, "--read-only")
 		}
 
-		cmd := exec.Command(nexusBin, "start", "--foreground")
+		cmd := exec.CommandContext(ctx, nexusBin, args...)
 		cmd.Stdout = os.Stdout
 		stderrBuf := &circularBuffer{max: 2048}
 		cmd.Stderr = io.MultiWriter(os.Stderr, stderrBuf)
 
+		// Send ready signal to supervisor.
+		_ = pipe.Send(supervisor.PipeMsg{
+			Type:      supervisor.PipeMsgReady,
+			Timestamp: time.Now(),
+		})
+
 		if err := cmd.Run(); err != nil {
-			crashes = append(crashes, time.Now())
-			lastStderr = stderrBuf.String()
-			slog.Warn("nexus exited", "err", err, "backoff", backoff)
-			time.Sleep(backoff)
-			if backoff < 60*time.Second {
-				backoff *= 2
-			}
-		} else {
-			break
+			writeCrashFile(stderrBuf.String())
+			return err
 		}
+		return nil
+	}
+
+	sidecar := supervisor.NewSidecar(cfg, spawner, logger)
+
+	// Handle OS signals for clean shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := sidecar.Run(ctx); err != nil {
+		logger.Error("nexus-supervisor: fatal",
+			"error", err,
+		)
+		os.Exit(1)
 	}
 }
 
