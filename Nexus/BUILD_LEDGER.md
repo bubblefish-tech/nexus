@@ -2264,6 +2264,82 @@ Branch: feat/tui-alltier-hardening
 ### Exit gate:
 - Build: OK
 - Vet: OK
+
+## WAVE 1 — MAXIMUM PARALLEL BUILD (2026-04-25)
+6 agents, 4 merged to main, 1 BubbleClaw (separate repo), 1 deferred (Chaos+TLA+).
+
+### Agent 6 — Launch Prep (MP11.1–11.3)
+- 0f2d2f1: security: pre-public secret audit — scrub 7 leaks
+  - bfn_mcp_ token in cursor example, bubblefish.ai→bubblefish.sh (4 refs), hardcoded paths
+- d369af7: docs: launch-ready README with quickstart and architecture overview
+- ab7976d: docs: CHANGELOG v0.1.3 + 4 demo scripts (scripts/demo/*.ps1)
+
+### Agent 4 — Bombproof Infrastructure (MP5.6–5.8)
+- 00bc695: bp: BP.5 — observability expansion with Prometheus metrics
+  - internal/observability/prometheus.go: hand-rolled text format, 8 metrics, sync/atomic
+  - internal/observability/deadman.go: dead-man's switch with HTTP POST heartbeat
+  - 29 tests (22 prometheus + 7 deadman)
+- 6398c39: bp: BP.7 — cluster scaffolding (feature-locked for Enterprise)
+  - internal/cluster/ha.go: 4 interfaces (HACluster, LeaderElection, Replicator, ConsensusProtocol)
+  - internal/cluster/standalone.go: no-op returns ErrFeatureLocked
+  - 21 tests
+- 63fd079: bp: BP.10 — license compliance + KNOWN_LIMITATIONS.md
+
+### Agent 2 — Cryptographic Standards (MP2.2–2.6)
+- 458a66a: standards: MT.10 — RFC 9421 HTTP message signatures
+  - internal/auth/httpsig.go: SignRequest(), VerifyRequest(), Ed25519
+  - 27 tests
+- 31ba27c: crypto: MT.11 — cryptographic query transcripts
+  - internal/crypto/transcript.go: BuildTranscript(), VerifyTranscript()
+  - 21 tests
+- 2860866: crypto: MT.12 — OpenTimestamps Bitcoin anchoring for audit roots
+  - internal/crypto/ots.go: AnchorRoot(), VerifyAnchor(), calendar server fallback
+  - 14 tests
+- e3db204: crypto: MT.13 — Merkle inclusion proofs in query responses
+  - internal/crypto/merkle_proof.go: GenerateProof(), VerifyProof()
+  - internal/query/cascade.go: +MerkleRoot field on CascadeResult
+  - 15 tests
+- e367cb2: observability: MT.14 — OTLP exporter for enterprise monitoring
+  - internal/observability/otlp.go: 7 metrics, OTLP/HTTP JSON push
+  - 15 tests
+- 688bc0d: fix: rename OTLPMetricType to avoid collision with prometheus MetricType
+
+### Agent 1 — Bombproof Core (MP5.2–5.5)
+- 9d02bf0: bp: BP.4 — per-subsystem watchdog with configurable timeouts
+  - internal/watchdog/registry.go: WatchdogRegistry, SubsystemStatus, DefaultTimeouts
+  - 30 tests
+- 1035e57: bp: BP.1 — sidecar supervisor with tiered degradation
+  - internal/supervisor/tiers.go: DegradationTier T0-T3 state machine
+  - internal/supervisor/pipe.go + pipe_unix.go + pipe_windows.go: cross-platform health pipe
+  - internal/supervisor/sidecar.go: Sidecar with heartbeat monitoring
+  - cmd/nexus-supervisor/main.go extended
+  - 29 tests
+- beda881: bp: BP.2 — OS service integration (systemd/launchd/Windows Service)
+  - internal/supervisor/service_{linux,darwin,windows}.go with build tags
+  - 13 tests (template generation only)
+- 7150342: bp: BP.3 — in-daemon supervision tree with circuit breakers
+  - internal/supervisor/tree.go: Erlang-style Tree with sony/gobreaker/v2
+  - 18 tests
+
+### Agent 3 — BubbleClaw (separate repo, WSL2)
+- Repo: \\wsl.localhost\Ubuntu\home\shawn\bubblefish\openclaw-fork
+- 3fb2ebce: fix: a2a self-registration retries with exponential backoff + NEXUS_ADMIN_KEY auth
+- Remote configured: github.com/bubblefish-tech/bubbleclaw (private, NOT pushed)
+- All A2A phases (O.0–O.12) already implemented
+- BubbleClaw branding + dual license (AGPL+MIT) already in place
+
+### Agent 5 — Chaos + TLA+ (deferred)
+- Not started — depends on Agent 1 supervisor (now merged)
+- Will create: internal/chaos/ (5 fault scenarios) + specs/tla/ (3 TLA+ specs)
+
+### Wave 1 exit gate:
+- Build: OK
+- Vet: OK
+- Tests: 110 packages, 0 failures
+- Binary: 57.3 MB (60,153,344 bytes)
+- New tests: ~205
+- Architecture update: .claude/architecture/2026_04_25_WAVE1_ARCHITECTURE_UPDATE.md
+- Dependabot: 2 low-severity alerts (gh CLI not installed to inspect)
 - Tests: all packages PASS (CGO_ENABLED=1, -race, -count=1) — zero failures
 
 ## Branch: v0.1.3-bombproof (continued)
