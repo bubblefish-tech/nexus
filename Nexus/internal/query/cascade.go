@@ -26,6 +26,7 @@ import (
 
 	"github.com/bubblefish-tech/nexus/internal/cache"
 	"github.com/bubblefish-tech/nexus/internal/config"
+	"github.com/bubblefish-tech/nexus/internal/crypto"
 	"github.com/bubblefish-tech/nexus/internal/destination"
 	"github.com/bubblefish-tech/nexus/internal/embedding"
 	"github.com/bubblefish-tech/nexus/internal/firewall"
@@ -109,6 +110,12 @@ type CascadeResult struct {
 
 	// ClusterCount is the number of distinct clusters in the result set.
 	ClusterCount int
+
+	// MerkleRoot is the hex-encoded Merkle root of the result content hashes.
+	// Populated when results are non-empty. Allows downstream consumers to
+	// verify result integrity via inclusion proofs.
+	// Reference: Tech Spec MT.13 — Merkle Inclusion Proofs.
+	MerkleRoot string
 }
 
 // DebugInfo holds per-stage diagnostic data for the _nexus.debug response.
@@ -808,6 +815,19 @@ func (cr *CascadeRunner) Run(ctx context.Context, src *config.Source, q Canonica
 		ClusterExpanded: clusterExpanded,
 		Conflict:        clusterConflict,
 		ClusterCount:    clusterCount,
+	}
+
+	// ── Merkle Root — MT.13 ────────────────────────────────────────────────
+	// Compute a Merkle root over result content hashes so consumers can
+	// request inclusion proofs for individual results.
+	if len(finalRecords) > 0 {
+		leaves := make([][]byte, len(finalRecords))
+		for i, r := range finalRecords {
+			leaves[i] = []byte(r.Content)
+		}
+		if root, err := crypto.ComputeMerkleRoot(leaves); err == nil {
+			result.MerkleRoot = fmt.Sprintf("%x", root)
+		}
 	}
 
 	// Populate debug info for the non-cache path.
