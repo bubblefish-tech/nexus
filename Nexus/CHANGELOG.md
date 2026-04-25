@@ -4,151 +4,233 @@ All notable changes to BubbleFish Nexus are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## v0.1.3 — Memory Operating System (2026-04-14)
+## v0.1.3 — Memory Operating System (2026-04-25)
 
-One memory pool for all your AI apps. Proactive ingestion, cryptographic provenance, bulk import, four moat phases, and extreme durability hardening.
+One memory pool for every AI app you use. 97 packages, 2,900+ tests,
+zero data loss under kill -9. This release adds a governed agent control
+plane, agent-to-agent communication, hybrid BM25 search, a full terminal
+UI, encryption at rest, and a built-in embedding provider so there is
+nothing to configure on first install.
 
-### Ingest (Proactive Ingestion)
-- **Filesystem watcher framework** with fsnotify, per-file debouncing (500ms), bounded parse worker pool (4 goroutines)
-- **Claude Code parser** — `~/.claude/projects/**/*.jsonl`, offset-based incremental parsing, handles string and array content formats
-- **Cursor parser** — `~/.cursor/chat-history/*.json`, whole-file hash comparison for rewrite detection
-- **Generic JSONL parser** — fallback for any `{role, content, timestamp}` JSONL file, user-configured paths
-- **Scaffolded parsers** for ChatGPT Desktop, Claude Desktop, LM Studio, Open WebUI, Perplexity Comet (detection and interface only; real parsers in v0.1.4)
-- **File position tracking** — `ingest_file_state` SQLite table persists (watcher, path, offset, hash) for crash-safe resume without re-ingesting
-- **Truncation detection** — SHA-256 hash of last 64 bytes detects file replacement or truncation, triggers full re-parse
-- **Path allowlist policy** — enterprise deployments can restrict which paths Ingest reads
-- **Security** — symlinks never followed, MaxFileSize (100MB) and MaxLineLength (4MB) enforced, read-only file handles only
-- **`nexus ingest status|pause|resume|reset`** CLI commands
-- **Prometheus metrics** — `nexus_ingest_ingestions_total`, `nexus_ingest_parse_errors_total`, `nexus_ingest_parse_duration_seconds`, `nexus_ingest_active_files`, `nexus_ingest_watchers_total`
-- **Config** — `[ingest]` TOML section with `enabled`, `kill_switch`, per-watcher toggles, `generic_jsonl_paths`
+### Governed Agent Control Plane
 
-### Importer (Bulk Historical Ingest)
-- **`nexus import <path>`** with auto-format detection
-- Supports Claude export ZIP, ChatGPT export ZIP, Claude Code project directories, Cursor directories, generic JSONL
-- Idempotent via existing content hash layer
-- `--dry-run`, `--source-name`, `--format` flags
-- Coming in v0.1.4: Slack exports, Codex CLI, LM Studio, Open WebUI bulk
+A complete grant/approval/task governance layer for AI agents:
 
-### Phase 1 — Foundation Layer (Hardened)
-- **Group commit ring buffer** — single-consumer goroutine batches WAL writes with one fsync per batch. Configurable max_batch (256) and max_delay (500us)
-- **Dual integrity sentinels** — 8-byte start/end sentinels (BF/FB) on every WAL entry for torn-sector-write detection, in addition to CRC32. Backward compatible with v0.1.2 entries. Fail-closed on corrupt sentinel. `SentinelFailures()` Prometheus counter
-- **Incremental replay with consistent checkpoints** — checkpoint validation (CRC32 + state_hash + applied_count); any failure triggers full genesis replay
-- **Audit log as WAL entry type** — `EntryTypeAudit` with group commit durability. `nexus audit export --format jsonl --since --until`
-- **Bytes/sec rate limiting** — per-source token bucket with distinct 429 code `bytes_rate_limit_exceeded`
-- **fsync verification on startup** — write/fsync/read-back test detects broken fsync (network storage, consumer SSDs). `nexus doctor --fsync-test`
-- **Disk-full pre-batch reservation** — verifies (batch_size x max_entry_size) bytes available before every group commit. Pre-allocates next segment at 80% fill
-- **Goroutine heartbeat supervisor** — `internal/supervisor` package. 30s stall detection, stack dump to `logs/deadlock-*.log`, exit code 3. Graceful shutdown suppresses stall detection during drain
-- **Monotonic sequence counter** — `internal/seq` package. Atomic int64 ordering independent of wall-clock time. Persisted to `$BUBBLEFISH_HOME/seq.state` on shutdown
-- **WAL zstd compression** — 3-5x size reduction. Auto-detected on replay; mixed segments work. Config: `compress_enabled = true`
-- **WAL watchdog heartbeat fix** — moved heartbeat inside ticker case to prevent false supervisor kill (`61d37bd`)
+- **Agent registration** -- `agents` SQLite table, UUID-based identity, `nexus agent register|list|suspend|retire|show` CLI
+- **Capability grants** -- 17 reserved capability prefixes (`nexus_write`, `nexus_delete`, `nexus_search`, ...) with configurable default policies (auto-allow, approve-once-per-scope, always-approve). Glob patterns for flexible matching. Deny always wins
+- **Approval workflow** -- agents request capabilities they lack, admins approve or deny via CLI or web UI. Expired and revoked grants enforced at runtime
+- **Task lifecycle** -- agents create tasks referencing their grants. Tasks track state (pending, running, completed, failed) with full input/output audit
+- **Policy engine** -- deterministic policy resolution, destructive-skill escalation, compiled zero-allocation runtime lookup
+- **Per-agent rate limiting and quotas** -- requests/min, bytes/sec, writes/day, tool_calls/day per agent TOML. Quota state persisted hourly, resets at UTC midnight
+- **Agent activity telemetry** -- WAL-backed activity log, `GET /api/agents/{id}/activity`, dashboard Agents tab, 7-day retention with background pruning
+- **Agent health and lifecycle** -- heartbeat tracking, stale/inactive/dormant state transitions, `nexus agent health` CLI, dashboard color-coded status
+- **Credential gateway** -- synthetic API keys (`bfn_sk_`) route to real provider keys. OpenAI-compatible `/v1/chat/completions` and Anthropic-compatible `/v1/messages` proxy endpoints. Model allowlist, per-key rate limiting, streaming passthrough. Real keys never in logs
+- **Tool-use policy enforcement** -- per-agent tool allowlist/denylist in agent TOML, parameter limits, hot-reloadable
+- **Lineage endpoint** -- `GET /api/control/lineage/{task_id}` returns the full decision chain (grants, approvals, actions) for any task
 
-### Phase 2 — Trust Boundary Layer
-- **Tier partitions** — `tier` column (0-3) with SQL-layer `AND tier <= ?` enforcement. Non-destructive migration. Admin tokens bypass; source tokens see only `tier <= source.Tier`
-- **LSH tier-scoped buckets** — `internal/lsh` package. Per-tier seeds (32 bytes each, persisted at 0600), 16-hyperplane SimHash. Cross-tier collision impossible by construction
-- **Review token classes** — `bfn_review_list_` and `bfn_review_read_` with constant-time comparison. `GET /api/review/quarantine` and `GET /api/review/quarantine/{id}`
-- **Per-tier rate limiting** — `[[daemon.tiers]]` config blocks with `level`, `requests_per_minute`, `bytes_per_second`. Precedence: source > tier > global
-- **Embedding validation envelope** — shape check, content-hash integrity, provider-identity stamping, 3-sigma Welford drift detection, fresh baseline rule (1000 warmup), quarantine state
-- **Secrets directory** — `internal/secrets` package. `$BUBBLEFISH_HOME/secrets/` (0700), atomic temp-file + rename (0600), path traversal guard
+### A2A Protocol (Agent-to-Agent Communication)
 
-### Phase 3 — Cluster Mechanism
-- **SimHash LSH prefilter** — 16 hyperplanes per tier, bucket ID as 16-bit integer
-- **Cluster columns** — `cluster_id`, `cluster_role` (primary/member/superseded), `lsh_bucket` with indexes
-- **Async cluster assignment** — cosine similarity >= 0.92, cluster cap 16, deterministic overflow by timestamp, never spans tiers
-- **Cluster-aware retrieval** — `cluster-aware` profile with `_nexus.conflict` and `_nexus.cluster_expanded` metadata fields
+Bidirectional agent communication, wire-compatible with the public A2A v1.0 specification:
 
-### Phase 4 — Cryptographic Provenance
-- **Per-source Ed25519 keys** — `[source.signing] mode = "local"`, key rotation chain. CLIs: `nexus source rotate-key`, `nexus source pubkey`
-- **Signed write envelopes** — Ed25519 signature over `{source_name, timestamp, idempotency_key, content_hash}`. Daemon signs on write path
-- **Hash-chained audit log** — genesis entry with daemon identity, `prev_audit_hash` chain, fail-closed on mismatch (exit code 2)
-- **`nexus audit recover`** — forensic inspection of corrupted chain, truncate-or-abort operator choice
-- **Automatic MCP idempotency** — `SHA-256(session_id || content || timestamp_second)` auto-generated for `nexus_write` calls without explicit key
-- **Verify endpoint + CLI** — `GET /verify/{memory_id}` returns proof bundle. `nexus verify <proof.json>` with parallel chain verification
-- **Python verifier** — `tools/verify-python/verify.py`, independent implementation proving the proof format is spec, not trick
-- **Daily Merkle root** — midnight UTC computation, daemon-signed, persisted to `data/merkle-roots/`. `nexus anchor setup --gist` for external anchoring
-- **Query attestation** — `POST /api/prove` returns daemon-signed proof of query result set
-- **Timeline command** — `nexus timeline <memory_id>` for forensic audit history
-- **Dashboard Proofs tab** — live chain status, verification, proof export
-- **60-second cross-vendor demo** — `examples/cryptographic-provenance/` with demo.sh, demo.ps1, agent configs
-
-### Nexus A2A (Agent-to-Agent Protocol)
-- **Governed agent-to-agent protocol** — register an agent once with Nexus, grant it scoped capabilities, and any MCP-compatible AI assistant can invoke it through Nexus. Wire-compatible with the public A2A v1.0 specification
-- **Capability-scope grant model** — 17 reserved capability prefixes with configurable default policies (auto-allow, approve-once-per-scope, always-approve). Glob patterns for flexible grant matching. Deny always wins
-- **Four physical transports** — local subprocess (stdio), direct HTTP, Cloudflare-style tunnel, and Windows-host-to-WSL2 loopback
-- **MCP-to-NA2A bridge** — nine MCP tools (`a2a_list_agents`, `a2a_send_to_agent`, `a2a_stream_to_agent`, etc.) expose A2A agents to Claude Desktop, ChatGPT, Perplexity, LM Studio, and Open WebUI with zero code changes on the AI side
-- **Governance engine** — SQLite-backed grant store, deterministic policy resolution, destructive skill escalation, expired/revoked grant enforcement
-- **Agent registry** — SQLite-backed registry with TOML hot-reload, Ed25519 Agent Card signing, periodic health checks via `agent/ping`
-- **NA2A client** — connection pool with lazy creation, `input-required` resumption, cancel/resubscribe support
-- **Bidirectional `agent/invoke`** — chain-depth limiting (max 4) prevents infinite callback loops between agents
-- **Web UI: A2A Permissions page** — registered agents, editable grant table, live pending approvals, audit feed with filters
-- **Web UI: OpenClaw Agent Control page** — connection panel, skill catalog with grant state, channel-aware grants, two-step ALL consent flow with reading-time delay and re-authentication
-- **`nexus a2a` CLI** — `agent add|list|show|test|suspend|retire|pin`, `grant add|list|revoke|elevate`, `task get|cancel|list`, `audit tail|verify`
-- **End-to-end integration tests** — Claude Desktop fixture, multi-transport roundtrip, chain callback, governance deny/escalate/resume paths
-- **Chaos and soak tests** — 20 chaos tests (agent kill/recovery, transport faults, flood, concurrent grant mutations), 4 soak tests (24-hour sustained load, burst recovery, memory stability, mixed workload)
-- **Cross-platform CI** — GitHub Actions workflow running A2A tests on Ubuntu, Windows, and macOS
+- **Register once, invoke from anywhere** -- register an agent with Nexus and any MCP-compatible AI assistant (Claude Desktop, ChatGPT, Perplexity, LM Studio, Open WebUI) can invoke it with zero code changes
+- **Four physical transports** -- local subprocess (stdio), direct HTTP, Cloudflare-style tunnel, Windows-host-to-WSL2 loopback
+- **MCP-to-NA2A bridge** -- nine MCP tools (`a2a_list_agents`, `a2a_send_to_agent`, `a2a_stream_to_agent`, ...) bridging MCP clients to A2A agents
+- **Governance engine** -- SQLite-backed grant store, deterministic policy resolution, destructive skill escalation
+- **Agent registry** -- TOML hot-reload, Ed25519 Agent Card signing, periodic health checks via `agent/ping`
+- **NA2A client** -- connection pool with lazy creation, `input-required` resumption, cancel/resubscribe support
+- **Bidirectional `agent/invoke`** -- chain-depth limiting (max 4) prevents infinite callback loops
+- **`nexus a2a` CLI** -- `agent add|list|show|test|suspend|retire|pin`, `grant add|list|revoke|elevate`, `task get|cancel|list`, `audit tail|verify`
+- **Web UI** -- A2A Permissions page (registered agents, editable grant table, live pending approvals) and Agent Control page (connection panel, skill catalog, channel-aware grants)
+- **Chaos and soak tests** -- 20 chaos tests, 4 soak tests (24-hour sustained load, burst recovery, memory stability), cross-platform CI (Ubuntu, Windows, macOS)
 - Disabled by default. Enable with `[a2a] enabled = true` in `daemon.toml`
 
-### Agent Gateway (AG.1–AG.8)
-- **Agent identity and registration** — `agents` SQLite table, UUID-based identity, `nexus agent register|list|suspend|retire|show` CLI
-- **Agent session management** — in-memory session tracking per agent, idle timeout, `GET /api/agents/{id}/sessions`, Prometheus gauge
-- **Credential gateway** — synthetic API keys (`bfn_sk_`) route to real provider keys. OpenAI-compatible `/v1/chat/completions` and Anthropic-compatible `/v1/messages` proxy endpoints. Model allowlist, per-key rate limiting, streaming passthrough. Real keys never in logs
-- **Tool-use policy enforcement** — per-agent tool allowlist/denylist in agent TOML, parameter limits (max_content_bytes, max_limit, allowed_profiles), hot-reloadable
-- **Agent-to-agent coordination** — `agent_broadcast`, `agent_pull_signals`, `agent_status_query` MCP tools. Ephemeral signal queue (max 1000) with optional persistent signals via WAL
-- **Per-agent rate limiting and quotas** — requests/min, bytes/sec, writes/day, tool_calls/day per agent TOML. Quota state persisted hourly, resets at UTC midnight
-- **Agent activity telemetry** — `EntryTypeAgentActivity` WAL entry, `GET /api/agents/{id}/activity`, dashboard Agents tab, 7-day retention with background pruning
-- **Agent health and lifecycle** — heartbeat tracking (inferred from requests), stale/inactive/dormant state transitions, `nexus agent health` CLI, dashboard color-coded status
+### BM25 Hybrid Search + Temporal Bins
 
-### Chaos A+B Verification
-- Two complementary verification paths: direct SQLite DB read (ground truth) + admin API cursor walk
-- New `GET /admin/memories` endpoint with stable `(created_at, payload_id)` tuple cursor
-- Cross-check distinguishes durability bugs, read-path bugs, phantom data, cursor instability
-- `waitForDrain()` polls queue depth before verification to prevent false positives
-- Required `-db` flag pointing at memories.db; removes old `-destination` flag
+Full-text search alongside embedding-based semantic search:
+
+- **BM25 sparse retrieval** -- FTS5 virtual table with porter stemming, auto-sync triggers, integrated as Stage 3.75 in the 6-stage retrieval cascade
+- **Reciprocal Rank Fusion (RRF)** -- merges BM25 and dense embedding results with k=60, wired into Stage 5
+- **Temporal bins** -- every memory tagged with a temporal bin (today, yesterday, this week, this month, ...). `temporal_bin`, `temporal_label`, `age_human` metadata in query responses
+- **Temporal query hints** -- natural language like "what did I say yesterday" automatically filters to the correct bin (11 bin patterns recognized)
+- **Hourly bin refresh** -- background goroutine keeps bin assignments current
+- Zero new dependencies (FTS5 built into modernc.org/sqlite)
+
+### Built-in Embedding Provider
+
+Zero-config embeddings out of the box:
+
+- **nomic-embed-text-v1.5** (Q4_K_S GGUF, 75 MB, Apache 2.0) managed as a subprocess via llama-server
+- **Auto-download at install time** -- `EnsureModelDownloaded` / `EnsureServerDownloaded` with progress callbacks
+- **OpenAI-compatible API** -- speaks `/v1/embeddings` on a random localhost port
+- **Health check polling** -- 60s startup timeout, 250ms interval
+- **Auto-restart on crash** -- max 3 retries, exponential backoff (2s to 30s)
+- **Batch embedding** -- native batch via array input for OpenAI-compatible providers; sequential loop for Ollama
+- **Hedged embedding** -- optional fallback provider via cristalhq/hedgedhttp for latency-sensitive deployments
+- Default in new installs: `embedding.provider = "builtin"`. No API key, no external service, no configuration
+
+### TUI (Bubble Tea Terminal Interface)
+
+Full-featured terminal dashboard built on the Charm ecosystem:
+
+- **9-page state machine** -- Dashboard, Memory Browser, Retrieval Theater, Audit Walker, Agents, Crypto Vault, Governance, Immune Theater, and Splash
+- **Dashboard** -- 6-stat-card grid (memories, audit events, agents, health, quarantine, WAL lag) with gradient styling
+- **Memory Browser** -- list + search + detail panel with score display
+- **Retrieval Theater** -- live waterfall visualization of the 6-stage retrieval cascade, SQL preview with keyword highlighting
+- **Audit Walker** -- entry card with prev_hash/content/hash/signature flow, Merkle proof tree
+- **Crypto Vault** -- three-state signing panel (enabled/awaiting config/error), master key status, ratchet status
+- **Governance** -- grants, approvals, and tasks panels with context-aware empty states
+- **Immune Theater** -- quarantine list with pending/total counts, security event feed
+- **Command palette** (Ctrl+K), help overlay, slash commands, four-theme switching via `/theme`
+- **Bubble field physics background**, ANSI fish emblem, harmonica spring animations on splash
+- **Demo mode** (D key) -- 9-step scripted walkthrough with narration panel
+- **Kuramoto phase wheel** -- ODE-based phase synchronization visualization
+- **Free energy gauge** -- wired to `/api/stats.free_energy_nats`
+- `nexus tui` with `--api-url` and `--admin-token` flags. DEBUG env var enables `tea.LogToFile`
+
+### Encryption at Rest
+
+11-layer encryption with MasterKeyManager:
+
+- **MasterKeyManager** -- derives per-purpose keys via HKDF-SHA-256 (RFC 5869) from a single master secret (`NEXUS_PASSWORD` env var)
+- **WAL encryption** -- AES-256-GCM with per-entry nonce
+- **WAL HMAC integrity** -- optional HMAC-SHA256 tamper detection
+- **Per-memory cryptographic erasure** -- every embedding encrypted at rest with AES-256-GCM, key derived from forward-secure ratchet state
+- **Forward-secure deletion** -- HMAC-SHA-256 hash ratchet with seed shredding. `nexus substrate prove-deletion <id>` provides mathematical proof
+- **FTS5 indexes plaintext before encryption** -- full-text search works even with encryption enabled
+- **Agent registry encryption** -- AES-256-GCM on registry rows
+- **Secrets directory** -- `$BUBBLEFISH_HOME/secrets/` (0700), atomic temp-file + rename (0600), path traversal guard
+- **Config signing** -- HMAC-SHA256 signatures for signed-mode deployments
+
+### WAL Crash Safety
+
+Kill-9 survival verified across all platforms:
+
+- **WAL-first architecture** -- WAL fsync, then queue, then database. Always in that order
+- **Group commit ring buffer** -- single-consumer goroutine batches writes with one fsync per batch. Configurable max_batch (256) and max_delay (500us)
+- **Dual integrity sentinels** -- 8-byte start/end sentinels (BF/FB) on every entry for torn-sector-write detection, plus CRC32 checksums
+- **Incremental replay with consistent checkpoints** -- checkpoint validation (CRC32 + state_hash + applied_count); any failure triggers full genesis replay
+- **fsync verification on startup** -- write/fsync/read-back test detects broken fsync (network storage, consumer SSDs). `nexus doctor --fsync-test`
+- **Disk-full pre-batch reservation** -- verifies space available before every group commit. Pre-allocates next segment at 80% fill
+- **WAL zstd compression** -- 3-5x size reduction. Auto-detected on replay; mixed segments work
+- **Monotonic sequence counter** -- atomic int64 ordering independent of wall-clock time
+- **Goroutine heartbeat supervisor** -- 120s stall detection, stack dump, exit code 3
+- **Instance lock** -- gofrs/flock prevents two-daemon corruption
+- **Backup-on-start** -- `.lastgood` snapshot gated on clean shutdown
+
+### Worm Auto-Discovery
+
+Automatic detection and connection of AI tools on your machine:
+
+- **30-connector registry** -- Claude Desktop, Cursor, Windsurf, ChatGPT Desktop, Ollama, LM Studio, and 24 more
+- **Digital twin environment model** -- tracks tool state (running/stopped/unknown), config paths, drift, health
+- **Behavioral protocol fingerprinting** -- 6 probes identify OpenAI-compat, Ollama, TGI, KoboldCpp, Tabby endpoints
+- **Convergence reconciliation loop** -- Kubernetes-style declarative control: detect drift, select known-issue recipe, execute transactional fix, learn from outcome
+- **ACID transaction engine** -- journaled rollback, crash recovery via `RecoverIncomplete()`
+- **Adaptive fix learning** -- decay-adjusted success rate (7-day half-life) prioritizes fixes that worked before
+- **Network topology resolver** -- Docker networks, WSL2 bridge IP, proxy detection, port probing
+- **Transparent AI API proxy** -- SSRF-safe allowlist (loopback only), `X-Nexus-Proxy` header injection
+- **Worm auto-connect** -- generates source TOML for discovered tools after successful reconcile (gated behind `AutoConnect` config flag)
+- `nexus maintain status|fix|watch|registry` CLI commands
+
+### OAuth 2.1
+
+Full RFC 8414 compliant OAuth server, verified with ChatGPT:
+
+- **Authorization server** -- `/.well-known/oauth-authorization-server`, `/oauth/authorize`, `/oauth/token`, `/oauth/jwks`
+- **RSA-2048 key management** -- auto-generated on first start, PEM storage with 0600 permissions
+- **JWT access tokens** -- RS256 signed, 1hr TTL, `bfn_source` claim for source mapping
+- **PKCE (S256)** -- `subtle.ConstantTimeCompare` verification, single-use auth codes
+- **Self-contained consent page** -- branded HTML, XSS-safe via `html/template`
+- **CORS on OAuth endpoints** -- localhost/127.0.0.1 allowed, external origins rejected
+- OAuth routes unregistered when disabled -- zero disabled-code attack surface
+
+### Web Dashboard
+
+Admin-authenticated browser UI:
+
+- **Security tab, metrics, pipeline visualization**
+- **A2A Permissions page** -- registered agents, editable grant table, live pending approvals
+- **Agent Control page** -- connection panel, skill catalog with grant state
+- **Proofs tab** -- live chain status, verification, proof export
+- **Memory graph** -- `GET /dashboard/memgraph` with D3 visualization
+- **Memory health panel** -- continuity score, freshness, anomaly detection
+- **Aggregated stats endpoint** -- `GET /api/stats` for dashboard stat cards
+
+### Ingest (Proactive Ingestion)
+
+- **Filesystem watcher framework** with fsnotify, per-file debouncing, bounded parse worker pool
+- **6 fully implemented parsers** -- Claude Code, Cursor, Claude Desktop, ChatGPT Desktop, Open WebUI, Perplexity Comet
+- **Generic JSONL parser** -- fallback for any `{role, content, timestamp}` JSONL file
+- **Markdown diary importer** -- `nexus import` supports markdown diaries with heading-based segmentation
+- **Bulk importer** -- `nexus import <path>` with auto-format detection (Claude ZIP, ChatGPT ZIP, Cursor dirs, generic JSONL). `--dry-run`, `--source-name`, `--format` flags
+- **File position tracking** -- crash-safe resume without re-ingesting
+- **Truncation detection** -- SHA-256 hash detects file replacement, triggers full re-parse
+
+### Substrate (BF-Sketch, experimental)
+
+- Sketch-based compact embedding representation (~160 bytes per memory)
+- Embedding canonicalization pipeline (dimension normalization, L2 normalization, anisotropy correction)
+- Cuckoo filter deletion oracle
+- Forward-secure deletion via seed shredding with mathematical proof
+- Behind `[substrate] enabled` feature flag
+
+### Performance and Hardening
+
+- **Projection engine** -- 9.9x faster (866us to 87us), 4.4x fewer allocations
+- **JWT validation cache** -- 68x faster on cache hit (31us to 459ns)
+- **SQLite tuning** -- synchronous=NORMAL, mmap 256MiB, cache 128MiB, prepared statements on hot paths
+- **Circuit breakers** -- sony/gobreaker on destinations (5 failures trips, 10s open timeout)
+- **sync.Pool** -- for JSON encode buffers and io.Copy buffers (oversized eviction)
+- **Write deduplication** -- content-hash cache prevents identical writes within 24h
+- **Panic recovery boundaries** -- safego.Go wrapper on 6 daemon goroutines
+- **Structured error codes** -- 8 sentinel error types with IsInfrastructureError()
+- **Log rotation** -- lumberjack (100MiB max, 5 backups, 30 day retention, compressed)
+- **automaxprocs + GOMEMLIMIT** -- container/WSL2/cgroup aware
+- **TLS cipher allowlist** -- ECDHE+AEAD only, TLS 1.2 minimum
+- **nexus-supervisor** -- watchdog binary with exponential backoff (5s to 60s)
+- **nexus doctor** -- 5 new checks (cloud-sync, disk space, ports, permissions, filesystem type), `--repair` flag, auto-run at startup
+- **nexus self-test** -- non-destructive smoke test on live daemon
+- **nexus trace** -- captures runtime/trace from pprof
 
 ### Testing Infrastructure
-- **`nexus chaos`** — fault injection tool. Concurrent writers + random faults (network timeout, connection reset, write burst). Machine-readable JSON report with A+B cross-check
-- **`nexus simulate`** — FoundationDB-style deterministic testing. Real WAL + real SQLite in temp dirs. Seeded fault injection. `--seed N` for reproduction
-- **`nexus drift`** — continuous drift detection. Samples delivered entries, verifies existence in destination. Prometheus metrics
-- **Pluggable audit sinks** — syslog (RFC 5424), Fluent Bit (JSON forward), OpenTelemetry (OTLP/HTTP JSON). No new dependencies
-- **`nexus backup verify`** — full checksum verification against manifest
-- **`nexus destination rebuild`** — replays WAL into fresh destination
 
-### Substrate (BF-Sketch, experimental, disabled by default)
-- **Sketch-based compact embedding representation** alongside full-precision storage. Binary quantization with 1-bit signs and a small set of correction factors per sketch, producing approximately 160 bytes per memory at canonical_d=1024. Sketches participate in the retrieval cascade as a prefilter stage on corpora above 200 memories
-- **Embedding canonicalization pipeline** — dimension normalization, L2 normalization, and per-source anisotropy correction. Consistent sketches regardless of embedding source (OpenAI, Cohere, BGE, Voyage, custom)
-- **Per-memory cryptographic erasure** — every embedding encrypted at rest with AES-256-GCM. Per-memory encryption key derived via HKDF-SHA-256 (RFC 5869) from the current forward-secure ratchet state. When the ratchet is advanced past a state and the associated state is shredded, the key cannot be re-derived
-- **Forward-secure deletion via seed shredding** — sketch projection seeded by a forward-secure HMAC-SHA-256 hash ratchet. When a memory is deleted with `--shred-seed`, the ratchet advances and the prior state is zeroed on disk and in memory. Sketch-based retrieval for memories under the shredded state becomes mathematically impossible
-- **Cuckoo filter deletion oracle** — live memories tracked in a cuckoo filter for defense-in-depth set membership. Deletion removes entries in O(1)
-- **Audit log composition** — every substrate operation (sketch write, ratchet advance, shred, cuckoo rebuild) logged via the hash-chained audit log
-- `nexus substrate status`, `nexus substrate rotate-ratchet`, `nexus substrate prove-deletion <id>` CLI commands
-- New SQLite columns: `sketch`, `embedding_ciphertext`, `embedding_nonce` on `memories` table
-- New SQLite tables: `substrate_ratchet_states`, `substrate_memory_state`, `substrate_canonical_whitening`, `substrate_cuckoo_filter`
-- All substrate functionality behind `[substrate] enabled` feature flag. When disabled, the daemon is bit-for-bit identical to a pre-substrate build
+- **2,900+ tests** across 97 packages, all passing with `-race`
+- **`nexus chaos`** -- concurrent writers + random faults, A+B cross-check verification
+- **`nexus simulate`** -- FoundationDB-style deterministic testing with seeded faults
+- **`nexus drift`** -- continuous drift detection with Prometheus metrics
+- **20 A2A chaos tests** + 4 soak tests (24-hour sustained load)
+- **Pluggable audit sinks** -- syslog (RFC 5424), Fluent Bit, OpenTelemetry
+- **Cross-platform CI** -- GitHub Actions on Ubuntu, Windows, macOS
+
+### Subscriptions
+
+- **`nexus_subscribe` MCP tool** -- subscribe to topics with filter embeddings
+- **`nexus_unsubscribe` / `nexus_subscriptions`** -- manage and list subscriptions
+- **Subscription matcher** -- cached filter embeddings, similarity threshold
+- **Search boost** -- subscribed content ranks higher in retrieval
+- **Audit chain integration** -- subscription events logged in hash-chained audit
+
+### Memory Health
+
+- **Memory health calculator** -- continuity, freshness, anomaly detection
+- **`nexus doctor --memory-health`** CLI
+- **`GET /api/health/memory`** endpoint + dashboard panel
 
 ### Other
-- **`nexus_status` MCP auto-teaching tool** — returns daemon version, available tools with examples, retrieval profiles, active sources, and ingest state in one call
-- **`wake` retrieval profile** — alias for `fast` with `top_k=20`, tuned for low-latency critical-context loading (~170 tokens)
-- **Release rehearsal scripts** — `scripts/release/rehearsal.ps1`, `capture_benchmark.ps1`, `capture_chaos.ps1`, `sign_artifacts.ps1`
-- **OAuth routes unregistered when disabled** — zero disabled-code attack surface
-- **Test deadline flush tolerance** — increased to 500ms for Windows scheduler (`ac991b6`)
 
-### Security (OAuth 2.1 Hardening)
-- **Consent page XSS fixed** — untrusted OAuth query parameters migrated from `fmt.Fprintf` to `html/template`. All user-supplied values HTML-escaped
-- **CORS on OAuth endpoints** — `Access-Control-Allow-Origin` headers on all `/oauth/*` and `/.well-known/oauth-*` endpoints
-- `scopes_supported` in OAuth server metadata, `OPTIONS` preflight on all OAuth endpoints
-- `handleAllow` and `handleDeny` now strictly validate `state` and `code_challenge` presence
+- **`nexus_status` MCP tool** -- returns version, available tools, retrieval profiles, sources, ingest state, temporal awareness, search modes
+- **`wake` retrieval profile** -- alias for `fast` with `top_k=20` (~170 tokens)
+- **CORS middleware** -- localhost/127.0.0.1 on any port, no wildcard
+- **System tray** -- Windows tray icon with status and dashboard launch
+- **Release rehearsal scripts** -- `scripts/release/`
+- **Blessed integration configs** -- pre-built templates for Claude Code, Claude Desktop, Open WebUI, Perplexity
 
-### Release (Shawn)
-- **RL.2** — 24-hour chaos run with Ingest active (release gate, Sunday night)
-- **SX.5** — Discord server live with #general, #install-help, #showcase, #bugs, #roadmap channels. Invite link in README
-- **RL.3** — Tag v0.1.3, build binaries for Windows/macOS(Intel+ARM)/Linux, GitHub release page with SHA-256 checksums and Ed25519-signed artifacts
-- **SX.4** — Python pipx launcher at `python/bubblefish_nexus/` (deferred until after RL.3 — wrapper needs release download URL)
-- **RL.4** — HN post (Tuesday 7am Pacific), LinkedIn (Wednesday), r/LocalLLaMA and r/programming cross-posts
+### Known Issues
 
-### Measured (fill in after release rehearsal)
-- Writes: TBD/sec steady state, p99 TBD ms
-- Queries: TBD/sec steady state, p99 TBD ms
-- Resident: ~TBD MB after 10K writes + 10K reads
-- Chaos: TBD kill-9 iterations, zero data loss
+- Go 1.26.1 race detector linker bug affects packages that import `modernc.org/sqlite` -- see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md)
+- SQLite enforces single-writer semantics; PostgreSQL recommended for high-throughput
+- In-memory caches (exact + semantic) are lost on restart; persistent cache planned for future release
+- Source config hot reload only; destination changes require restart
 
 ---
 
