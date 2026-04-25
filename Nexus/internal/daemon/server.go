@@ -222,7 +222,8 @@ func (d *Daemon) buildRouter() http.Handler {
 		r.Get("/api/review/quarantine/{id}", d.handleReviewRead)
 	})
 
-	return r
+	// Global request timeout: catches rogue handlers that don't respect context cancellation.
+	return http.TimeoutHandler(r, 60*time.Second, `{"error":"request_timeout","message":"request exceeded 60s deadline"}`)
 }
 
 // BuildAdminRouter creates a chi router with all admin API routes and their
@@ -307,6 +308,9 @@ func (d *Daemon) BuildAdminRouter() http.Handler {
 			d.metrics.Registry(),
 			promhttp.HandlerOpts{EnableOpenMetrics: false},
 		).ServeHTTP)
+
+		// Secure pprof — uses chi's self-contained subrouter, NOT http.DefaultServeMux.
+		r.Mount("/debug", middleware.Profiler())
 	})
 
 	// NA2A JSON-RPC endpoint — no daemon-level auth; methods authenticate

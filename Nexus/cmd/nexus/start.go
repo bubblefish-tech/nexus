@@ -19,12 +19,17 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"log/slog"
+	"math/big"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/crypto"
@@ -33,6 +38,9 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/tray"
 	"github.com/bubblefish-tech/nexus/internal/version"
 	"github.com/bubblefish-tech/nexus/internal/web"
+	"github.com/shirou/gopsutil/v3/mem"
+	_ "go.uber.org/automaxprocs"
+	"gopkg.in/lumberjack.v2"
 	dashboardui "github.com/bubblefish-tech/nexus/web/dashboard"
 )
 
@@ -44,11 +52,54 @@ import (
 //
 // Reference: Tech Spec Section 13.1.
 func runStart() {
+	// Startup jitter: prevent thundering-herd when multiple services start at login/boot.
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(500*time.Millisecond)))
+	if n != nil {
+		time.Sleep(time.Duration(n.Int64()))
+	}
+
+	// Runtime governor: GODEBUG + GOMEMLIMIT.
+	setGodebugDefaults()
+	setMemoryGovernor()
+
+	// Entropy pool check: verify crypto/rand is responsive.
+	t0 := time.Now()
+	buf := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+		slog.Error("crypto/rand failed", "err", err)
+		os.Exit(1)
+	}
+	if d := time.Since(t0); d > time.Second {
+		slog.Warn("entropy pool slow — crypto/rand took over 1s", "duration", d)
+	}
+
 	// Resolve config directory — os.UserHomeDir failure is fatal.
 	configDir, err := config.ConfigDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "nexus start: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Acquire instance lock — prevents two daemons from running simultaneously.
+	fl, err := daemon.AcquireLock(configDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nexus start: %v\n", err)
+		os.Exit(1)
+	}
+	defer fl.Unlock()
+
+	// Auto-run doctor checks: CRITICAL blocks startup, WARN is logged.
+	results := RunAllChecks(configDir)
+	criticals := results.Criticals()
+	if len(criticals) > 0 {
+		for _, c := range criticals {
+			slog.Error("pre-flight check CRITICAL", "check", c.Name, "message", c.Message)
+		}
+		fmt.Fprintf(os.Stderr, "nexus doctor found %d critical issues — run `nexus doctor` for details\n", len(criticals))
+		os.Exit(1)
+	}
+	for _, w := range results.Warnings() {
+		slog.Warn("pre-flight check warning", "check", w.Name, "message", w.Message)
 	}
 
 	// Set up structured logger based on config (pre-load default).
@@ -229,12 +280,18 @@ func buildLogger(cfg *config.Config, configDir string) *slog.Logger {
 	}
 
 	// File handler — always JSON, for nexus logs command to parse.
+	// Uses lumberjack for automatic rotation: 100 MiB max, 5 backups, 30 day retention.
 	if configDir != "" {
 		logPath := filepath.Join(configDir, "logs", "nexus.log")
-		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
-			fileHandler := slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug})
-			return slog.New(logging.NewSanitizingHandler(newTeeHandler(stderrHandler, fileHandler)))
+		fileWriter := &lumberjack.Logger{
+			Filename:   logPath,
+			MaxSize:    100,
+			MaxBackups: 5,
+			MaxAge:     30,
+			Compress:   true,
 		}
+		fileHandler := slog.NewJSONHandler(fileWriter, &slog.HandlerOptions{Level: slog.LevelDebug})
+		return slog.New(logging.NewSanitizingHandler(newTeeHandler(stderrHandler, fileHandler)))
 	}
 
 	return slog.New(logging.NewSanitizingHandler(stderrHandler))
@@ -272,5 +329,36 @@ func (h *teeHandler) WithGroup(name string) slog.Handler {
 	return &teeHandler{
 		primary:   h.primary.WithGroup(name),
 		secondary: h.secondary.WithGroup(name),
+	}
+}
+
+// setMemoryGovernor sets GOMEMLIMIT to 75% of system RAM, floored at 512 MiB,
+// capped at 8 GiB. Respects operator override via GOMEMLIMIT env var.
+func setMemoryGovernor() {
+	if os.Getenv("GOMEMLIMIT") != "" {
+		return
+	}
+	v, err := mem.VirtualMemory()
+	if err != nil || v.Total == 0 {
+		slog.Warn("could not read system memory; GOMEMLIMIT not set")
+		return
+	}
+	limit := int64(v.Total) * 3 / 4
+	const floor = int64(512) << 20
+	const cap_ = int64(8) << 30
+	if limit < floor {
+		limit = floor
+	}
+	if limit > cap_ {
+		limit = cap_
+	}
+	debug.SetMemoryLimit(limit)
+	slog.Info("memory governor set", "limit_gib", float64(limit)/float64(int64(1)<<30), "system_gib", float64(v.Total)/float64(int64(1)<<30))
+}
+
+// setGodebugDefaults sets GODEBUG=madvdontneed=1 to return freed memory to OS.
+func setGodebugDefaults() {
+	if os.Getenv("GODEBUG") == "" {
+		os.Setenv("GODEBUG", "madvdontneed=1")
 	}
 }

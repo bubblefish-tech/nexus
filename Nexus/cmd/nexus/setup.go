@@ -36,6 +36,14 @@ func runSetup() {
 	configDir := filepath.Join(home, "BubbleFish", "Nexus")
 
 	app := tui.NewSetupApp(configDir)
+
+	if os.Getenv("DEBUG") != "" {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err == nil {
+			defer f.Close()
+		}
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "nexus setup: %v\n", err)

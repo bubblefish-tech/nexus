@@ -25,7 +25,6 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/tui"
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
-	"github.com/bubblefish-tech/nexus/internal/tui/tabs"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -48,29 +47,33 @@ func runTUI() {
 		bindHost = "127.0.0.1"
 	}
 	addr := fmt.Sprintf("http://%s:%d", bindHost, cfg.Daemon.Port)
+	if v := os.Getenv("NEXUS_API_URL"); v != "" {
+		addr = v
+	}
 	if cfg.Daemon.Bind != "127.0.0.1" && cfg.Daemon.Bind != "localhost" && cfg.Daemon.Bind != "0.0.0.0" && !cfg.Daemon.TLS.Enabled {
 		slog.Warn("admin key will be sent over plain HTTP (TLS not enabled, bind is not loopback)",
 			"bind", cfg.Daemon.Bind)
 	}
-	client := api.NewClient(addr, string(cfg.ResolvedAdminKey))
-	defer client.Close()
-
-	tabList := []tabs.Tab{
-		tabs.NewControlTab(),
-		tabs.NewAuditTab(),
-		tabs.NewSecurityTab(),
-		tabs.NewPipelineTab(),
-		tabs.NewConflictsTab(),
-		tabs.NewTimeTravelTab(),
-		tabs.NewSettingsTab(),
+	token := string(cfg.ResolvedAdminKey)
+	if v := os.Getenv("NEXUS_ADMIN_TOKEN"); v != "" {
+		token = v
 	}
+	client := api.NewClient(addr, token)
+	defer client.Close()
 
 	prefs, err := tui.LoadPrefs(configDir)
 	if err != nil {
 		slog.Warn("failed to load tui prefs, using defaults", "err", err)
 	}
 
-	app := tui.NewRunningApp(client, tabList, prefs)
+	app := tui.NewRunningApp(client, prefs)
+
+	if os.Getenv("DEBUG") != "" {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err == nil {
+			defer f.Close()
+		}
+	}
 
 	p := tea.NewProgram(app,
 		tea.WithAltScreen(),

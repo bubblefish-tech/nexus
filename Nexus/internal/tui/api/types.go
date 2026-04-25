@@ -316,3 +316,81 @@ type AgentSummary struct {
 type AgentsResponse struct {
 	Agents []AgentSummary `json:"agents"`
 }
+
+// StatusBroadcastMsg is sent by the root model to forward cached status to screens.
+type StatusBroadcastMsg struct {
+	Data *StatusResponse
+}
+
+// HealthBroadcastMsg is sent by the root model to forward health state to screens.
+type HealthBroadcastMsg struct {
+	OK bool
+}
+
+// QuarantineRecord is a quarantined memory record.
+type QuarantineRecord struct {
+	ID         string    `json:"id"`
+	Source     string    `json:"source"`
+	Content    string    `json:"content"`
+	Rule       string    `json:"rule"`
+	Status     string    `json:"status"`
+	ReviewedBy string    `json:"reviewed_by,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// QuarantineResponse is the shape of GET /api/quarantine.
+type QuarantineResponse struct {
+	Items []QuarantineRecord `json:"items"`
+}
+
+// QuarantineCountResponse is the shape of GET /api/quarantine/count.
+type QuarantineCountResponse struct {
+	Total   int `json:"total"`
+	Pending int `json:"pending"`
+}
+
+// Grant is a governance grant record.
+type Grant struct {
+	ID         string `json:"id"`
+	AgentID    string `json:"agent_id"`
+	Capability string `json:"capability"`
+	Scope      string `json:"scope"`
+	GrantedBy  string `json:"granted_by"`
+	ExpiresAt  int64  `json:"expires_at_ms"`
+}
+
+// GrantsResponse is the shape of GET /api/control/grants.
+type GrantsResponse struct {
+	Grants []Grant `json:"grants"`
+}
+
+// Approval is a pending approval request.
+type Approval struct {
+	ID         string `json:"id"`
+	AgentID    string `json:"agent_id"`
+	Capability string `json:"capability"`
+	Action     string `json:"action"`
+	Decision   string `json:"decision"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// ApprovalsResponse is the shape of GET /api/control/approvals.
+type ApprovalsResponse struct {
+	Approvals []Approval `json:"approvals"`
+}
+
+// Task is a governance task.
+type Task struct {
+	ID           string `json:"id"`
+	AgentID      string `json:"agent_id"`
+	ParentTaskID string `json:"parent_task_id,omitempty"`
+	Capability   string `json:"capability"`
+	Status       string `json:"status"`
+	Input        string `json:"input,omitempty"`
+	Output       string `json:"output,omitempty"`
+}
+
+// TasksResponse is the shape of GET /api/control/tasks.
+type TasksResponse struct {
+	Tasks []Task `json:"tasks"`
+}

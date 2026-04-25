@@ -26,6 +26,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/bubblefish-tech/nexus/internal/httputil"
 )
 
 const defaultOllamaURL = "http://localhost:11434"
@@ -61,7 +63,7 @@ func newOllamaClient(baseURL, model string, dimensions int, timeout time.Duratio
 		baseURL = defaultOllamaURL
 	}
 	return &ollamaClient{
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: httputil.NewClient(timeout),
 		baseURL:    baseURL,
 		model:      model,
 		dimensions: dimensions,

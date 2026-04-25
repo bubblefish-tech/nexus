@@ -179,6 +179,7 @@ type healthResponse struct {
 	Status     string                     `json:"status"`
 	Version    string                     `json:"version"`
 	Subsystems map[string]healthSubsystem `json:"subsystems,omitempty"`
+	Reasons    []string                   `json:"reasons,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1396,19 +1397,33 @@ func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Overall: degraded if any subsystem is degraded.
+	// Collect reasons for degraded subsystems.
+	var reasons []string
 	overall := "ok"
-	for _, s := range subs {
+	for name, s := range subs {
 		if s.Status == "degraded" {
 			overall = "degraded"
-			break
+			reasons = append(reasons, name+":"+s.Status)
 		}
+	}
+
+	// Saturation metrics: goroutines and heap.
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	subs["goroutines"] = healthSubsystem{
+		Status:  "ok",
+		Details: fmt.Sprintf("count=%d", runtime.NumGoroutine()),
+	}
+	subs["heap"] = healthSubsystem{
+		Status:  "ok",
+		Details: fmt.Sprintf("inuse=%dMiB gc_pause_ns=%d num_gc=%d", memStats.HeapInuse/(1<<20), memStats.PauseTotalNs, memStats.NumGC),
 	}
 
 	d.writeJSON(w, http.StatusOK, healthResponse{
 		Status:     overall,
 		Version:    version.Version,
 		Subsystems: subs,
+		Reasons:    reasons,
 	})
 }
 

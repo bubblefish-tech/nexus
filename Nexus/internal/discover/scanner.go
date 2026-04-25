@@ -84,7 +84,9 @@ func (s *Scanner) fullScanWithDefs(_ context.Context, defs []ToolDefinition) ([]
 	launch(func() []DiscoveredTool { return s.runFilesystemTier(defs) })
 	launch(func() []DiscoveredTool { return s.runMCPConfigTier(defs) })
 	launch(func() []DiscoveredTool { return s.runDockerTier(defs) })
-	launch(func() []DiscoveredTool { return probeGeneralPorts(s.timeout) })
+	if len(defs) > 0 {
+		launch(func() []DiscoveredTool { return probeGeneralPorts(s.timeout) })
+	}
 
 	go func() {
 		wg.Wait()

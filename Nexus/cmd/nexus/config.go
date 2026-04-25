@@ -58,60 +58,82 @@ func runConfig(args []string) {
 	}
 }
 
-// runConfigSetPassword implements `nexus config set-password`.
-// It prompts the user for a password (with confirmation), derives a master key,
-// and stores the Argon2id salt at the canonical salt path.
+// runConfigSetPassword implements `nexus config set-password` (also `nexus set-password`).
+// It prompts the user for a password (with confirmation), retrying on mismatch,
+// derives a master key, and stores the Argon2id salt at the canonical salt path.
 func runConfigSetPassword() {
 	saltPath, err := defaultSaltPath()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config set-password: resolve salt path: %v\n", err)
+		fmt.Fprintf(os.Stderr, "set-password: cannot resolve salt path: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Print("Set encryption password: ")
-	pw1, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config set-password: read password: %v\n", err)
-		os.Exit(1)
+	const maxAttempts = 3
+	var password string
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		fmt.Print("Enter encryption password: ")
+		pw1, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "set-password: read password: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(pw1) == 0 {
+			fmt.Fprintln(os.Stderr, "  Password must not be empty. Try again.")
+			continue
+		}
+
+		fmt.Print("Confirm password: ")
+		pw2, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "set-password: read confirmation: %v\n", err)
+			os.Exit(1)
+		}
+
+		if string(pw1) != string(pw2) {
+			remaining := maxAttempts - attempt
+			if remaining > 0 {
+				fmt.Fprintf(os.Stderr, "  Passwords do not match. %d attempt(s) remaining.\n\n", remaining)
+				continue
+			}
+			fmt.Fprintln(os.Stderr, "  Passwords do not match. No attempts remaining.")
+			os.Exit(1)
+		}
+
+		password = string(pw1)
+		break
 	}
 
-	fmt.Print("Re-enter password: ")
-	pw2, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config set-password: read confirmation: %v\n", err)
-		os.Exit(1)
-	}
-
-	if string(pw1) != string(pw2) {
-		fmt.Fprintln(os.Stderr, "config set-password: passwords do not match")
-		os.Exit(1)
-	}
-
-	if len(pw1) == 0 {
-		fmt.Fprintln(os.Stderr, "config set-password: password must not be empty")
+	if password == "" {
+		fmt.Fprintln(os.Stderr, "set-password: no valid password entered")
 		os.Exit(1)
 	}
 
 	// Remove any existing salt so a fresh one is generated.
 	if err := os.Remove(saltPath); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "config set-password: remove old salt: %v\n", err)
+		fmt.Fprintf(os.Stderr, "set-password: remove old salt: %v\n", err)
 		os.Exit(1)
 	}
 
-	mgr, err := crypto.NewMasterKeyManager(string(pw1), saltPath)
+	mgr, err := crypto.NewMasterKeyManager(password, saltPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config set-password: derive master key: %v\n", err)
+		fmt.Fprintf(os.Stderr, "set-password: derive master key: %v\n", err)
 		os.Exit(1)
 	}
 	if !mgr.IsEnabled() {
-		fmt.Fprintln(os.Stderr, "config set-password: key derivation failed unexpectedly")
+		fmt.Fprintln(os.Stderr, "set-password: key derivation failed unexpectedly")
 		os.Exit(1)
 	}
 
-	fmt.Printf("Encryption password set. Salt stored at: %s\n", saltPath)
-	fmt.Println("Start Nexus with NEXUS_PASSWORD=<your-password> or enter it at the prompt.")
+	fmt.Println()
+	fmt.Printf("✓ Encryption password set. Salt stored at: %s\n", saltPath)
+	fmt.Println()
+	fmt.Println("To enable encryption, start the daemon with:")
+	fmt.Println("  $env:NEXUS_PASSWORD = \"<your-password>\"")
+	fmt.Println("  nexus start")
 }
 
 // defaultSaltPath returns the canonical salt file path (~/.nexus/crypto.salt).

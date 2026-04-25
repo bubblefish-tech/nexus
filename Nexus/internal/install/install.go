@@ -83,6 +83,9 @@ func Install(opts Options) (*InstallResult, error) {
 		}
 	}
 
+	// Fsync sanity audit: verify the data directory honors fsync.
+	FsyncAudit(configDir)
+
 	adminKey := GenerateKey("bfn_admin_")
 	sourceKey := GenerateKey("bfn_data_")
 	mcpKey := GenerateKey("bfn_mcp_")

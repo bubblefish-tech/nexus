@@ -18,15 +18,40 @@
 package components
 
 import (
+	_ "embed"
 	"strings"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/lipgloss"
 )
 
+//go:embed assets/bubblefish.ansi
+var fishEmblem string
+
+//go:embed assets/bubblefish_splash.ansi
+var splashEmblem string
+
+//go:embed assets/bubblefish_dash.ansi
+var dashEmblem string
+
 // Logo renders the BubbleFish ASCII art logo with lipgloss colors.
 type Logo struct {
 	Width int
+}
+
+// RenderSplashEmblem returns the small ANSI fish/shield art for the splash screen.
+func RenderSplashEmblem() string {
+	return splashEmblem
+}
+
+// RenderFishEmblem returns the half-height ANSI fish art for the dashboard.
+func RenderFishEmblem() string {
+	return dashEmblem
+}
+
+// RenderFishEmblemFull returns the full-size ANSI fish art.
+func RenderFishEmblemFull() string {
+	return fishEmblem
 }
 
 // fishLines is the ASCII fish with bubbles. Teal body, green bubbles (°/·).
@@ -108,6 +133,48 @@ func (l Logo) fullView() string {
 	)
 
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// nexusBannerLines is the NEXUS block-letter banner (same font as BUBBLEFISH).
+var nexusBannerLines = []struct {
+	text  string
+	color lipgloss.Color
+}{
+	{`  ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗`, styles.ColorTeal},
+	{`  ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝`, styles.ColorTeal},
+	{`  ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗`, styles.ColorTeal},
+	{`  ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║`, styles.ColorCyan},
+	{`  ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║`, styles.ColorCyan},
+	{`  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝`, styles.ColorCyan},
+}
+
+// RenderSplashBanners returns the two-line block-letter splash:
+// line 1 = BUBBLEFISH, line 2 = NEXUS, centered within the given width.
+// Each banner is rendered at 125% height by duplicating the middle row.
+func RenderSplashBanners(width int) string {
+	if width < 1 {
+		width = 82
+	}
+	var lines []string
+
+	for i, row := range bannerLines {
+		line := lipgloss.NewStyle().Foreground(row.color).Render(row.text)
+		lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		if i == 2 {
+			lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, "")
+	for i, row := range nexusBannerLines {
+		line := lipgloss.NewStyle().Foreground(row.color).Render(row.text)
+		lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		if i == 2 {
+			lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (l Logo) compactView() string {

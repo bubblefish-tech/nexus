@@ -272,6 +272,12 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// HTTP/2 server push: pre-push API resources for faster initial load.
+	// Only works over TLS (HTTP/2 requirement). Non-TLS connections silently skip.
+	if pusher, ok := w.(http.Pusher); ok {
+		_ = pusher.Push("/api/dashboard/status", nil)
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 

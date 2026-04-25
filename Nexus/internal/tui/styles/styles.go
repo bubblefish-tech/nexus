@@ -55,6 +55,20 @@ var (
 	ColorGray   = lipgloss.Color("#4a6072")
 )
 
+// Extended DeepOcean palette (spec v2).
+var (
+	ColorCyan      = lipgloss.Color("#00ffff")
+	ColorTealDim   = lipgloss.Color("#005f73")
+	ColorGreenDim  = lipgloss.Color("#166534")
+	ColorPurpleViv = lipgloss.Color("#7c3aed")
+	ColorPurpleDim = lipgloss.Color("#4c1d95")
+	ColorMagenta   = lipgloss.Color("#c026d3")
+	BgPanelAlt     = lipgloss.Color("#141c28")
+	BorderStrong   = lipgloss.Color("#1a2540")
+	TextWhite      = lipgloss.Color("#e2e8f0")
+	TextWhiteDim   = lipgloss.Color("#94a3b8")
+)
+
 // Heat grid gradient.
 var (
 	HeatLow    = lipgloss.Color("#1a4a2e")

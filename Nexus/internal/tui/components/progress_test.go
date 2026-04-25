@@ -40,6 +40,15 @@ func TestProgressBar_DeterminateContainsPercent(t *testing.T) {
 	}
 }
 
+func TestProgressBar_DeterminateContainsLabel(t *testing.T) {
+	t.Helper()
+	pb := ProgressBar{Total: 10, Current: 5, Label: "Scanning", Width: 60}
+	v := pb.View()
+	if !strings.Contains(v, "Scanning") {
+		t.Fatalf("expected label 'Scanning' in view, got:\n%s", v)
+	}
+}
+
 func TestProgressBar_Indeterminate(t *testing.T) {
 	t.Helper()
 	pb := ProgressBar{Spinning: true, Label: "Loading", Frame: 0}
@@ -47,21 +56,51 @@ func TestProgressBar_Indeterminate(t *testing.T) {
 	if v == "" {
 		t.Fatal("expected non-empty spinner view")
 	}
+	if !strings.Contains(v, "Loading") {
+		t.Fatalf("expected label 'Loading' in spinner view")
+	}
 }
 
 func TestProgressBar_SpinnerFrameWraps(t *testing.T) {
 	t.Helper()
-	// Should not panic on frame > len(spinFrames).
 	pb := ProgressBar{Spinning: true, Label: "x", Frame: 1000}
 	_ = pb.View()
 }
 
 func TestProgressBar_ZeroTotal(t *testing.T) {
 	t.Helper()
-	// Total=0 → 0% fill, should not panic.
 	pb := ProgressBar{Total: 0, Current: 0, Label: "Wait", Width: 60}
 	v := pb.View()
 	if v == "" {
 		t.Fatal("expected output even at Total=0")
+	}
+}
+
+func TestProgressBar_ProgressChangesView(t *testing.T) {
+	t.Helper()
+	pb0 := ProgressBar{Total: 10, Current: 0, Label: "Work", Width: 60}
+	pb5 := ProgressBar{Total: 10, Current: 5, Label: "Work", Width: 60}
+	pb10 := ProgressBar{Total: 10, Current: 10, Label: "Work", Width: 60}
+
+	v0 := pb0.View()
+	v5 := pb5.View()
+	v10 := pb10.View()
+
+	if v0 == v5 {
+		t.Fatal("expected view to differ between 0% and 50%")
+	}
+	if v5 == v10 {
+		t.Fatal("expected view to differ between 50% and 100%")
+	}
+}
+
+func TestProgressBar_SpinnerFrameChangesView(t *testing.T) {
+	t.Helper()
+	pb0 := ProgressBar{Spinning: true, Label: "x", Frame: 0}
+	pb1 := ProgressBar{Spinning: true, Label: "x", Frame: 1}
+	v0 := pb0.View()
+	v1 := pb1.View()
+	if v0 == v1 {
+		t.Fatal("expected different spinner frames to produce different views")
 	}
 }

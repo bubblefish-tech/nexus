@@ -26,6 +26,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/coordination"
 	"github.com/bubblefish-tech/nexus/internal/credentials"
+	"github.com/bubblefish-tech/nexus/internal/destination"
 	"github.com/bubblefish-tech/nexus/internal/mcp"
 	"github.com/bubblefish-tech/nexus/internal/policy"
 
@@ -57,6 +58,10 @@ func (d *Daemon) startAgentGateway() {
 			"error", err,
 		)
 		return
+	}
+	if pragmaErr := destination.ApplySQLitePRAGMAs(agentDB); pragmaErr != nil {
+		d.logger.Warn("daemon: agent gateway: PRAGMAs failed (non-fatal)",
+			"component", "daemon", "error", pragmaErr)
 	}
 	d.agentDB = agentDB
 

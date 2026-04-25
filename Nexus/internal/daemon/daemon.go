@@ -89,6 +89,7 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/secrets"
 	"github.com/bubblefish-tech/nexus/internal/securitylog"
 	"github.com/bubblefish-tech/nexus/internal/signing"
+	"github.com/bubblefish-tech/nexus/internal/storage"
 	"github.com/bubblefish-tech/nexus/internal/subscribe"
 	"github.com/bubblefish-tech/nexus/internal/substrate"
 	"github.com/bubblefish-tech/nexus/internal/supervisor"
@@ -118,6 +119,7 @@ type Daemon struct {
 	idem            *idempotency.Store
 	dest            destination.Destination
 	querier         destination.Querier
+	backend         storage.Backend              // BP.0: unified storage interface
 	embeddingClient embedding.EmbeddingClient // nil when embedding disabled
 	exactCache      *cache.ExactCache         // Stage 1 — Phase 4
 	semanticCache   *cache.SemanticCache      // Stage 2 — Phase 6
@@ -329,6 +331,9 @@ type Daemon struct {
 	lastDiscovery   []discover.DiscoveredTool
 	lastDiscoveryAt time.Time
 
+	// writeNotify receives a signal after each write for idle maintenance tracking.
+	writeNotify chan struct{}
+
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	shutdownReq chan struct{} // closed by RequestShutdown; start.go selects on it
@@ -357,6 +362,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		liteBus:         events.NewLiteBus(512),
 		pipeMetrics:     newPipelineMetrics(),
 		subsystemHealth: safego.NewStatusTracker(),
+		writeNotify:     make(chan struct{}, 1),
 		stopped:         make(chan struct{}),
 		shutdownReq:     make(chan struct{}),
 	}
@@ -588,6 +594,16 @@ func (d *Daemon) Start() error {
 		"name", destCfg.Name,
 	)
 
+	// Backup-on-start: snapshot .lastgood before opening destination (gated on clean shutdown).
+	if destCfg.Type == "sqlite" && destCfg.DBPath != "" {
+		if expandedPath, expandErr := expandPath(destCfg.DBPath); expandErr == nil {
+			if snapErr := snapshotLastGood(configDir, expandedPath); snapErr != nil {
+				d.logger.Warn("daemon: .lastgood snapshot failed (non-fatal)",
+					"component", "daemon", "error", snapErr)
+			}
+		}
+	}
+
 	openedDest, err := destfactory.OpenByType(destCfg, d.logger, configDir)
 	if err != nil {
 		return fmt.Errorf("daemon: open destination: %w", err)
@@ -597,20 +613,37 @@ func (d *Daemon) Start() error {
 		d.querier = q
 	}
 
+	// BP.0: wrap destination in storage.Backend for unified access.
+	if sqliteDest, ok := openedDest.(*destination.SQLiteDestination); ok {
+		d.backend = storage.NewSQLiteBackend(sqliteDest)
+	}
+
+	// Startup integrity check: PRAGMA integrity_check + audit chain + encryption canary.
+	if d.backend != nil {
+		if intErr := RunIntegrityCheck(d.backend.RawDB(), nil, nil); intErr != nil {
+			d.logger.Error("daemon: startup integrity check failed", "component", "daemon", "error", intErr)
+			return fmt.Errorf("daemon: startup integrity check failed: %w", intErr)
+		}
+		d.logger.Info("daemon: startup integrity check passed", "component", "daemon")
+	}
+
 	// WIRE.3: run schema migrations on startup (idempotent, records in nexus_migrations).
 	if migrateErr := openedDest.Migrate(context.Background(), 0); migrateErr != nil {
 		d.logger.Warn("daemon: schema migration failed (non-fatal)",
 			"component", "daemon", "error", migrateErr)
 	}
 
-	// Wire BM25 searcher and start temporal bin refresh for SQLite destinations.
-	if sqliteDest, ok := openedDest.(*destination.SQLiteDestination); ok {
-		d.bm25Searcher = &query.SQLBM25Searcher{DB: sqliteDest.DB()}
-		if refreshErr := temporal.RefreshBins(context.Background(), sqliteDest.DB()); refreshErr != nil {
+	// Wire BM25 searcher and start temporal bin refresh via Backend.
+	// TODO(BP.4): Express BM25 and temporal bin refresh as Backend methods
+	// instead of using RawDB().
+	if d.backend != nil {
+		d.bm25Searcher = &query.SQLBM25Searcher{DB: d.backend.RawDB()}
+		if refreshErr := temporal.RefreshBins(context.Background(), d.backend.RawDB()); refreshErr != nil {
 			d.logger.Warn("daemon: initial temporal bin refresh failed (non-fatal)",
 				"component", "daemon", "error", refreshErr)
 		}
-		safego.Go("temporal-bin-refresher", d.logger, d.subsystemHealth, func() { d.temporalBinRefresher(sqliteDest.DB()) })
+		safego.Go("temporal-bin-refresher", d.logger, d.subsystemHealth, func() { d.temporalBinRefresher(d.backend.RawDB()) })
+		safego.Go("idle-maintenance", d.logger, d.subsystemHealth, func() { d.idleMaintenance(context.Background()) })
 		d.logger.Info("daemon: BM25 search and temporal bins enabled",
 			"component", "daemon")
 	}
@@ -633,8 +666,8 @@ func (d *Daemon) Start() error {
 				return fmt.Errorf("daemon: encryption self-test failed — refusing to start: %w", selfErr)
 			}
 			d.mkm = mkm // shared with control-plane encryption (CU.0.4)
-			if sqliteDst, ok := d.dest.(*destination.SQLiteDestination); ok {
-				sqliteDst.SetEncryption(mkm)
+			if d.backend != nil {
+				d.backend.SetEncryption(mkm)
 			}
 			if mkm.IsEnabled() {
 				d.logger.Info("daemon: memory content encryption enabled (self-test passed)",
@@ -700,6 +733,14 @@ func (d *Daemon) Start() error {
 				)
 			} else {
 				d.embeddingClient = ec
+
+				// Pre-warm embedding connection so first real query doesn't pay cold-start tax.
+				go func() {
+					warmCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					_, _ = ec.Embed(warmCtx, "warm-start probe")
+					d.logger.Debug("embedding connection warmed", "component", "daemon")
+				}()
 			}
 		}
 	}
@@ -1513,6 +1554,14 @@ func (d *Daemon) Stop() error {
 			d.supervisor.Stop()
 		}
 
+		// Write clean-shutdown marker for next startup's snapshot logic.
+		if cd, cdErr := config.ConfigDir(); cdErr == nil {
+			if markerErr := writeCleanShutdownMarker(cd); markerErr != nil {
+				d.logger.Warn("daemon: could not write clean-shutdown marker",
+					"component", "daemon", "error", markerErr)
+			}
+		}
+
 		d.logger.Info("daemon: stage 3 complete — daemon stopped",
 			"component", "daemon",
 		)
@@ -1878,6 +1927,43 @@ func (d *Daemon) temporalBinRefresher(db *sql.DB) {
 					"component", "daemon", "error", err)
 			}
 		}
+	}
+}
+
+// idleMaintenance runs PRAGMA optimize and WAL checkpoint during quiet periods.
+func (d *Daemon) idleMaintenance(ctx context.Context) {
+	idle := time.NewTimer(5 * time.Minute)
+	defer idle.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.stopped:
+			return
+		case <-d.writeNotify:
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(5 * time.Minute)
+		case <-idle.C:
+			if sqlDest, ok := d.dest.(interface{ DB() *sql.DB }); ok {
+				db := sqlDest.DB()
+				_, _ = db.Exec("PRAGMA optimize")
+				_, _ = db.Exec("PRAGMA wal_checkpoint(PASSIVE)")
+			}
+			idle.Reset(5 * time.Minute)
+		}
+	}
+}
+
+// notifyWrite sends a non-blocking signal on writeNotify for idle maintenance.
+func (d *Daemon) notifyWrite() {
+	select {
+	case d.writeNotify <- struct{}{}:
+	default:
 	}
 }
 

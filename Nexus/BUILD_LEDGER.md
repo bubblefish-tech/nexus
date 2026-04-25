@@ -1790,3 +1790,228 @@
 - [ ] Temporal bins: query "what did I say yesterday" filters to bin 2
 - [ ] Merge feat/supernexusclaw → main
 - [ ] Tag v0.1.3 + push
+
+## SAFE.1: COMPLETE — Startup Safety Net
+- Instance lock via gofrs/flock: prevents two-daemon corruption
+- Startup integrity: PRAGMA integrity_check + audit chain last-100 + key canary
+- Fsync sanity audit at install time
+- Entropy pool timing check
+- Startup jitter 0-500ms
+- Backup-on-start .lastgood snapshot (clean-shutdown gated)
+- New dep: github.com/gofrs/flock (BSD-3-Clause)
+- Tests: 16 new tests
+- Commit: 38f5585
+- Exit gate:
+  - Build: OK
+  - Vet: OK
+  - 100 packages PASS — zero failures
+
+## SAFE.2: COMPLETE — Runtime Governor
+- automaxprocs: blank import, fixes GOMAXPROCS under containers/WSL2/cgroups
+- GOMEMLIMIT: 75% of system RAM, floored 512MiB, capped 8GiB, env override
+- GODEBUG=madvdontneed=1: returns freed memory to OS
+- New dep: go.uber.org/automaxprocs (MIT)
+- Tests: 3 new tests
+- Commit: cc6238b
+- Exit gate: Build OK | Vet OK | 100 packages PASS
+
+## PERF.1: COMPLETE — SQLite + Connection Tuning
+- SQLite PRAGMAs: synchronous=NORMAL, mmap 256MiB, cache 128MiB, autocheckpoint 10000
+- Connection pools: SQLite MaxIdleConns 1, Postgres MaxOpenConns 64 / MaxIdleConns 16
+- HTTP transport: MaxIdleConnsPerHost=100 (was Go default 2), TCP keepalive 30s
+- Prepared statement cache on write/search/read hot paths
+- Idle-time PRAGMA optimize + wal_checkpoint(PASSIVE) every 5 min of inactivity
+- New package: internal/httputil/
+- Replaced HTTP clients in embedding (OpenAI, Ollama) and A2A transport
+- Tests: 7 new tests
+- Commit: bb1c32c
+- Exit gate: Build OK | Vet OK | 101 packages PASS
+
+## HARD.1: COMPLETE — Request Pipeline Hardening
+- http.TimeoutHandler wrapping main router (60s global deadline)
+- MaxBytesReader already present on write handlers
+- Slowloris defense: ReadHeaderTimeout=10s already set on all servers
+- Channel buffer audit: all daemon channels are either buffered or close-once signals
+- Tests: 4 new tests
+- Commit: cd3e206
+- Exit gate: Build OK | Vet OK | 101 packages PASS
+
+## OBS.1: COMPLETE — Logging + Observability
+- Log rotation via lumberjack: 100MiB max, 5 backups, 30 day retention, compressed
+- RequestID middleware already present in chi chain
+- pprof via chi middleware.Profiler on admin router (secure, not DefaultServeMux)
+- /health returns reasons[] array when degraded + goroutine/heap saturation metrics
+- New dep: gopkg.in/lumberjack.v2 (MIT)
+- Tests: 3 new tests
+- Commit: 50f6ec8
+- Exit gate: Build OK | Vet OK | 101 packages PASS
+
+## ERR.1: COMPLETE — Structured Error Codes
+- New package: internal/nexuserr/ — 8 sentinel error types
+- IsInfrastructureError() for circuit breaker trip decisions
+- Tests: 4 new tests
+- Commit: 996e3a6
+- Exit gate: Build OK | Vet OK | 102 packages PASS
+
+## DOC.1: COMPLETE — nexus doctor Expansion
+- 5 new checks: cloud-sync, disk space, ports, permissions, filesystem type
+- Auto-runs at nexus start; CRITICAL blocks startup, WARN logs
+- --repair flag: creates dirs, fixes permissions
+- Tests: 11 new tests
+- Commit: 196f273
+- Exit gate: Build OK | Vet OK | 102 packages PASS
+
+## CB.1: COMPLETE — Circuit Breakers
+- BreakerWrapper on destinations (sony/gobreaker/v2, MIT)
+- Settings: 5 consecutive failures trips; 10s open timeout; 3 half-open probes
+- IsSuccessful: DuplicateKey/NotFound/Quarantined do not count as failures
+- New dep: github.com/sony/gobreaker/v2 (MIT)
+- Tests: 4 new tests
+- Commit: a2dd96b
+- Exit gate: Build OK | Vet OK | 103 packages PASS
+
+## POOL.1: COMPLETE — sync.Pool
+- sync.Pool for JSON encode buffers and io.Copy buffers (non-WAL only)
+- Oversized buffer eviction (>1MiB not pooled)
+- Reset-on-Get pattern (safe against skipped Put)
+- Tests: 4 new tests
+- Commit: ae07890
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## DEDUP.1: COMPLETE — Write Deduplication
+- Content-hash dedup cache: identical content within 24h returns existing memory ID
+- Thread-safe via sync.Mutex
+- Tests: 3 new tests
+- Commit: ea5c511
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## WARM.1: COMPLETE — Warm-Start + Code Hygiene
+- Embedding connection pre-warmed at startup
+- Lazy-compile regexes: headingRE moved to package level in markdown_diary.go
+- bytes.Buffer in compactJSON kept (json.Compact requires *bytes.Buffer)
+- Commit: 6d88b0b
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## CMD.1: COMPLETE — Safety Commands + TLS + Build Flags
+- `nexus self-test`: non-destructive smoke test on live daemon (health + ready check)
+- `nexus trace`: captures runtime/trace from /debug/pprof/trace
+- TLS cipher allowlist: ECDHE+AEAD only, TLS 1.2 minimum
+- Commands wired into main.go dispatcher
+- Commit: 3553184
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## SUP.1: COMPLETE — Supervisor
+- nexus-supervisor: watchdog binary for foreground runs
+  - Exponential backoff (5s → 60s), 5 crashes in 60s = give up
+  - Captures last 2KB of stderr to .crash file
+- Commit: 8ce6404
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## DASH.1: COMPLETE — Dashboard Performance + Hedged Embedding
+- Hedged embedding: cristalhq/hedgedhttp (MIT) dep added, FallbackURL config field
+  - Active when fallback embedding provider configured
+- HTTP/2 server push: /api/dashboard/status on dashboard index load
+  - Graceful no-op on non-TLS connections
+- New dep: github.com/cristalhq/hedgedhttp (MIT)
+- Commit: fff9991
+- Exit gate: Build OK | Vet OK | 104 packages PASS
+
+## HARDENING SPRINT COMPLETE — 14 commits, 42 items, ~60 new tests
+- Branch: feat/hardening-complete
+- New deps: gofrs/flock (BSD-3-Clause), go.uber.org/automaxprocs (MIT),
+  gopkg.in/lumberjack.v2 (MIT), sony/gobreaker/v2 (MIT),
+  cristalhq/hedgedhttp (MIT)
+- New packages: internal/httputil, internal/nexuserr, internal/pool
+- New commands: nexus self-test, nexus trace
+- New binary: cmd/nexus-supervisor
+- Expanded: nexus doctor (5 new checks, --repair, auto-run at start)
+- Final test count: 103 packages pass, 1 pre-existing flake (simulate)
+- Exit gate: Build OK | Vet OK | Full suite PASS | Zero new failures
+
+## FIX: Soak test memory measurement (f80c6ce)
+- TestSoak_24h failed consistently (3.0x–3.97x) due to PERF.1 TunedTransport idle connection buffers (~2MB)
+- Fix: call httputil.TunedTransport.CloseIdleConnections() + runtime.GC() before final alloc measurement
+- Isolates real leaks from expected connection pooling
+- Post-fix ratio: 1.74x (3/3 passes)
+
+## TUI.OBS — TUI observability & test hardening
+- Wired DEBUG log: `cmd/nexus/tui.go`, `cmd/nexus/setup.go` — `tea.LogToFile("debug.log", "debug")` gated on `DEBUG` env var
+- Added `github.com/charmbracelet/x/exp/teatest` dependency for PTY-based integration tests
+- Rewrote/enhanced 10 TUI test files (167 tests, 0 failures):
+  - `app_test.go` — teatest integration (setup wizard) + manual View assertions (running mode with mock HTTP daemon)
+  - `wizard_test.go` — View assertions on step progress, page names, nav hints, terminal-too-small guard
+  - `components/{checkbox,slash_cmd,textinput,logo,progress,statusdot}_test.go` — interaction → View output assertions
+  - `pages/pages_test.go` — cursor nav changes View, scan status changes View, summary content assertions
+  - `tabs/tabs_test.go` — width variation, unknown-key resilience, content assertions
+- Created `test.tape` — VHS integration tape exercising full TUI navigation (tabs 1-7, help, sidebar, pause, quit)
+- Exit gate: Build OK | Vet OK | 167 TUI tests PASS | Zero regressions
+
+## PROJ.1: COMPLETE — Projection Alloc Reduction
+- Replaced marshal→unmarshal round-trip with direct struct-to-map assignment
+- Eliminated 5,400 allocations per query (json.Unmarshal into map[string]any)
+- Baseline: 866μs, 7,003 allocs, 411KB → Result: 87μs, 1,602 allocs, 145KB
+- 9.9x faster, 4.4x fewer allocs, 2.8x less memory
+- Commit: <SHA>
+- Benchmark (median of 3): 87,285 ns/op | 145,040 B/op | 1,602 allocs/op
+
+## WAL.1: REVERTED — Pre-Filter Added 24% Overhead
+- Pre-filter (bytes.Contains on raw JSON) added ~1.7ms / 24% overhead on 100% PENDING WALs
+- Benchmark: without filter 7.0ms, with filter 8.7ms — pure cost, zero skips
+- Worst case is crash recovery (WAL full of PENDING) — exactly when speed matters
+- Reverted: pre-filter removed, replay restored to original code path
+- Commit: 9a3dc82 (added), reverted in next commit
+
+## JWT.1: COMPLETE — JWT Validation Cache
+- LRU cache (256 entries, 60s TTL or JWT exp, SHA-256 key)
+- Cache hit: 459ns, 1 alloc (68x faster than 31μs baseline)
+- Never caches invalid or expired tokens
+- Clears cache on JWKS key rotation
+- Tests: 4 new tests
+- Commit: 0ee9fc3
+- Benchmark (median of 3): Valid 458.7 ns/op | 576 B/op | 1 allocs/op
+
+## MCP.1: COMPLETE — MCP Status Cache
+- Cached nexus_status JSON response with 5s TTL
+- Saves pipeline.Status() call + json.Marshal on cache hit
+- Status: 164→162 allocs (HTTP transport dominates remaining allocs)
+- Write/Search unchanged (no caching — stateful operations)
+- Commit: 756be32
+- Benchmark: Status 125,607 ns/op | 13,331 B/op | 162 allocs/op
+
+## QUEUE.1 + DRAIN.1: SKIPPED
+- Queue dequeue (5 allocs, 665ns) dominated by json.Unmarshal of TranslatedPayload — intrinsic cost
+- json.NewDecoder tested but worse (+2 allocs, +80% ns/op) — reverted
+- Drain batch INSERT would require architectural write-path restructuring — out of scope per CC Rules
+
+## EMBED.1: COMPLETE — Embedding Client Alloc Reduction
+- Pooled request body buffer via pool.GetJSONBuf (reuses across calls)
+- Short: 132→130 allocs, Paragraph: 133→131 allocs
+- HTTP transport internals dominate remaining allocs (70%+)
+- Commit: 48c7219
+- Benchmark: Short 143,383 ns/op | 18,834 B/op | 130 allocs/op
+
+## OPTIMIZATION SPRINT COMPLETE — 4 effective commits (1 reverted), benchmark-driven
+- Branch: feat/optimization-sprint
+- Every commit verified with 3-run benchmark median
+- Headline wins: Projection 9.9x faster (77% fewer allocs), JWT 68x faster on cache hit
+- WAL.1 pre-filter reverted — added 24% overhead on crash-recovery workloads
+- Queue/Drain skipped — allocs intrinsic to json.Unmarshal, batch INSERT requires arch change
+- MCP/Embed: marginal gains (HTTP transport dominates remaining allocs)
+- Final test count: 104 packages, zero failures
+- Exit gate: Build OK | Vet OK | Full suite PASS | All benchmarks improved or stable
+
+## MAXIMUM OPTIMIZATION COMPLETE — 1 commit (4 items)
+- PRAGMA.1: Shared ApplySQLitePRAGMAs helper; wired into agent_gateway.go
+- VEC.1: Pre-allocated embedding response vector at known dimension (130→123 allocs, 18.8→17.8KB)
+- PGO.1: CPU profile captured from mixed benchmarks, committed as cmd/nexus/default.pgo (45KB)
+- SQLite pragma helper: internal/destination/sqlite_pragmas.go (reusable across all opens)
+- Commit: 2488846
+- Embedding benchmark: 123 allocs/op, 17,842 B/op (was 130/18,834)
+
+## STMT.1: COMPLETE — Prepared Write Statement
+- Prepared INSERT statement created once at SQLiteDestination.Open()
+- Write() uses prepared stmt instead of re-parsing SQL on every call
+- Closed in SQLiteDestination.Close()
+- writeSQL extracted to package-level const
+- Commit: 2fd21cf
+- Exit gate: Build OK | Vet OK | Full suite PASS

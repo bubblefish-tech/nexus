@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/a2a/jsonrpc"
+	"github.com/bubblefish-tech/nexus/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -60,9 +61,7 @@ func (t *HTTPTransport) Dial(ctx context.Context, config TransportConfig) (Conn,
 		streamEndpoint:  config.StreamEndpoint(),
 		authType:        config.AuthType,
 		authToken:       token,
-		client: &http.Client{
-			Timeout: timeout,
-		},
+		client: httputil.NewClient(timeout),
 	}, nil
 }
 

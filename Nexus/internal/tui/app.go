@@ -25,7 +25,6 @@ import (
 	"github.com/bubblefish-tech/nexus/internal/tui/commands"
 	"github.com/bubblefish-tech/nexus/internal/tui/components"
 	"github.com/bubblefish-tech/nexus/internal/tui/pages"
-	"github.com/bubblefish-tech/nexus/internal/tui/tabs"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -73,8 +72,7 @@ var commandRegistry = map[string]commands.Command{
 type App struct {
 	mode       appMode
 	wizard     WizardModel
-	running    Model
-	slashCmd   components.SlashCommandModel
+	running    *RootModel
 	client     *api.Client
 	width      int
 	cmdResult  string // last slash-command result text
@@ -96,25 +94,17 @@ func NewSetupApp(configDir string) App {
 		pages.NewSummaryPage(),
 	}
 	return App{
-		mode:     modeSetup,
-		wizard:   NewWizardModel(state, pgs),
-		slashCmd: components.NewSlashCommandModel(allSlashCommands()),
+		mode:   modeSetup,
+		wizard: NewWizardModel(state, pgs),
 	}
 }
 
-// NewRunningApp creates an App in modeRunning backed by the existing Model.
-func NewRunningApp(client *api.Client, tabList []tabs.Tab, prefs *TUIPrefs) App {
-	// Wire client into tabs that need it for manual queries.
-	for _, t := range tabList {
-		if tt, ok := t.(*tabs.TimeTravelTab); ok {
-			tt.SetClient(client)
-		}
-	}
+// NewRunningApp creates an App in modeRunning backed by the new RootModel.
+func NewRunningApp(client *api.Client, prefs *TUIPrefs) App {
 	return App{
-		mode:     modeRunning,
-		running:  NewModel(client, tabList, prefs),
-		slashCmd: components.NewSlashCommandModel(allSlashCommands()),
-		client:   client,
+		mode:    modeRunning,
+		running: NewRootModel(client, prefs),
+		client:  client,
 	}
 }
 
@@ -136,33 +126,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Decrement command result display counter on ticks.
-	if _, ok := msg.(dotTickMsg); ok && a.cmdResultT > 0 {
+	if _, ok := msg.(DotTickMsg); ok && a.cmdResultT > 0 {
 		a.cmdResultT--
 	}
 
-	// In running mode: route to slash command overlay when active.
+	// In running mode: handle slash command results.
 	if a.mode == modeRunning {
-		// Handle slash activation.
-		if k, ok := msg.(tea.KeyMsg); ok && !a.slashCmd.Active() && k.String() == "/" {
-			a.slashCmd.Activate(a.width)
-			return a, nil
-		}
-
-		// Slash command overlay consumes keys only.
-		if a.slashCmd.Active() {
-			if sel, ok := msg.(components.SlashCommandSelectedMsg); ok {
-				a.slashCmd, _ = a.slashCmd.Update(msg)
-				return a, a.dispatchCommand(sel.Name)
-			}
-			if _, ok := msg.(tea.KeyMsg); ok {
-				updated, cmd := a.slashCmd.Update(msg)
-				a.slashCmd = updated
-				return a, cmd
-			}
-			// Non-key messages (ticks, health checks) fall through to running model.
-		}
-
-		// Handle slash command result messages.
 		switch m := msg.(type) {
 		case commands.DoctorResultMsg:
 			if m.Err != nil {
@@ -214,12 +183,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.cmdResultT = 10
 			return a, nil
+		case components.SlashCommandSelectedMsg:
+			return a, a.dispatchCommand(m.Name)
 		}
 	}
 
 	switch a.mode {
 	case modeSetup:
-		// WindowSizeMsg: track width for slash cmd overlay.
 		if ws, ok := msg.(tea.WindowSizeMsg); ok {
 			a.width = ws.Width
 		}
@@ -231,8 +201,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.width = ws.Width
 		}
 		updated, cmd := a.running.Update(msg)
-		if m, ok := updated.(Model); ok {
-			a.running = m
+		if rm, ok := updated.(*RootModel); ok {
+			a.running = rm
 		}
 		return a, cmd
 	}
@@ -249,41 +219,39 @@ func (a App) dispatchCommand(name string) tea.Cmd {
 	return nil
 }
 
-// View delegates to the active sub-model, overlaying the slash command dropdown
-// at the bottom when active in running mode.
+// View delegates to the active sub-model, overlaying command results.
 func (a App) View() string {
 	switch a.mode {
 	case modeSetup:
 		return a.wizard.View()
 	default:
 		base := a.running.View()
-		if a.cmdResult != "" && a.cmdResultT > 0 && !a.slashCmd.Active() {
+		if a.cmdResult != "" && a.cmdResultT > 0 {
 			base += "\n" + lipgloss.NewStyle().
 				Foreground(lipgloss.Color("10")).
 				Render("  "+a.cmdResult)
 		}
-		if !a.slashCmd.Active() {
-			return base
-		}
-		// Overlay the dropdown at the bottom of the base view.
-		overlay := a.slashCmd.View()
-		if overlay == "" {
-			return base
-		}
-		lines := strings.Split(base, "\n")
-		drop := strings.Split(overlay, "\n")
-		// Replace last len(drop) lines with the overlay.
-		start := len(lines) - len(drop)
-		if start < 0 {
-			start = 0
-		}
-		result := make([]string, len(lines))
-		copy(result, lines)
-		for i, l := range drop {
-			if start+i < len(result) {
-				result[start+i] = lipgloss.NewStyle().Render(l)
+
+		// Slash command overlay (if the running model's slash cmd is active).
+		if a.running.slashCmd.Active() {
+			overlay := a.running.slashCmd.View()
+			if overlay != "" {
+				lines := strings.Split(base, "\n")
+				drop := strings.Split(overlay, "\n")
+				start := len(lines) - len(drop)
+				if start < 0 {
+					start = 0
+				}
+				result := make([]string, len(lines))
+				copy(result, lines)
+				for i, l := range drop {
+					if start+i < len(result) {
+						result[start+i] = lipgloss.NewStyle().Render(l)
+					}
+				}
+				return strings.Join(result, "\n")
 			}
 		}
-		return strings.Join(result, "\n")
+		return base
 	}
 }

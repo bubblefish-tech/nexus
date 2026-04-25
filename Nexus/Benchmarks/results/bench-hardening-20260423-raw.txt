@@ -1,0 +1,162 @@
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/wal
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkWAL_Append_SmallEntry-16     	    1344	    932109 ns/op	    2150 B/op	      12 allocs/op
+BenchmarkWAL_Append_SmallEntry-16     	    1333	    912583 ns/op	    2148 B/op	      12 allocs/op
+BenchmarkWAL_Append_SmallEntry-16     	    1310	    905570 ns/op	    2144 B/op	      12 allocs/op
+BenchmarkWAL_Append_LargeEntry-16     	    1353	    899199 ns/op	   15200 B/op	      12 allocs/op
+BenchmarkWAL_Append_LargeEntry-16     	    1340	    897020 ns/op	   15181 B/op	      12 allocs/op
+BenchmarkWAL_Append_LargeEntry-16     	    1353	    905442 ns/op	   15206 B/op	      12 allocs/op
+BenchmarkWAL_Append_Batch100-16       	      13	  89095785 ns/op	  212997 B/op	    1103 allocs/op
+BenchmarkWAL_Append_Batch100-16       	      13	  89931146 ns/op	  213122 B/op	    1104 allocs/op
+BenchmarkWAL_Append_Batch100-16       	      13	  88962431 ns/op	  212695 B/op	    1103 allocs/op
+BenchmarkWAL_Replay_1000Entries-16    	     188	   6196446 ns/op	13081150 B/op	   20068 allocs/op
+BenchmarkWAL_Replay_1000Entries-16    	     186	   6363465 ns/op	13086838 B/op	   20068 allocs/op
+BenchmarkWAL_Replay_1000Entries-16    	     188	   6427573 ns/op	13083281 B/op	   20068 allocs/op
+BenchmarkWAL_MarkStatus-16            	      96	  12773815 ns/op	10751063 B/op	    1879 allocs/op
+BenchmarkWAL_MarkStatus-16            	      96	  12893272 ns/op	10755353 B/op	    1880 allocs/op
+BenchmarkWAL_MarkStatus-16            	      96	  13375550 ns/op	10760072 B/op	    1880 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/wal	32.028s
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/queue
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkQueue_Enqueue_Single-16       	 9903873	       125.3 ns/op	      70 B/op	       2 allocs/op
+BenchmarkQueue_Enqueue_Single-16       	 9316024	       184.6 ns/op	      72 B/op	       2 allocs/op
+BenchmarkQueue_Enqueue_Single-16       	 9912038	       116.7 ns/op	      69 B/op	       2 allocs/op
+BenchmarkQueue_Dequeue_Single-16       	 1829508	       647.1 ns/op	     556 B/op	       5 allocs/op
+BenchmarkQueue_Dequeue_Single-16       	 1822288	       646.0 ns/op	     554 B/op	       5 allocs/op
+BenchmarkQueue_Dequeue_Single-16       	 1845639	       653.4 ns/op	     563 B/op	       5 allocs/op
+BenchmarkQueue_DrainToSQLite_100-16    	    8432	    154755 ns/op	  130993 B/op	    1143 allocs/op
+BenchmarkQueue_DrainToSQLite_100-16    	    8907	    218037 ns/op	  131099 B/op	    1143 allocs/op
+BenchmarkQueue_DrainToSQLite_100-16    	    6360	    248332 ns/op	  131329 B/op	    1141 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/queue	74.348s
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/cache
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkCache_Hit-16     	31176847	        37.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCache_Hit-16     	33364380	        37.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCache_Hit-16     	32888786	        44.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCache_Miss-16    	43692289	        28.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCache_Miss-16    	39263289	        26.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCache_Miss-16    	47631711	        24.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCache_Set-16     	 1000000	      1062 ns/op	     608 B/op	      11 allocs/op
+BenchmarkCache_Set-16     	 1000000	      1016 ns/op	     608 B/op	      11 allocs/op
+BenchmarkCache_Set-16     	 1326385	       986.7 ns/op	     559 B/op	      11 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/cache	12.299s
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/embedding
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkEmbedding_Generate_ShortText-16        	    8444	    137954 ns/op	   18950 B/op	     132 allocs/op
+BenchmarkEmbedding_Generate_ShortText-16        	    8246	    164546 ns/op	   19081 B/op	     132 allocs/op
+BenchmarkEmbedding_Generate_ShortText-16        	    6555	    183983 ns/op	   18995 B/op	     132 allocs/op
+BenchmarkEmbedding_Generate_ParagraphText-16    	    6603	    172577 ns/op	   19726 B/op	     133 allocs/op
+BenchmarkEmbedding_Generate_ParagraphText-16    	    6718	    170114 ns/op	   19566 B/op	     133 allocs/op
+BenchmarkEmbedding_Generate_ParagraphText-16    	    7173	    170928 ns/op	   19696 B/op	     133 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/embedding	8.513s
+2026/04/23 00:36:00 INFO mcp: server started component=mcp addr=127.0.0.1:56860
+2026/04/23 00:36:00 INFO mcp: server stopped component=mcp
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/mcp
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkMCP_NexusStatus-16               	2026/04/23 00:36:00 INFO mcp: server started component=mcp addr=127.0.0.1:56862
+2026/04/23 00:36:00 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:00 INFO mcp: server started component=mcp addr=127.0.0.1:56864
+2026/04/23 00:36:01 INFO mcp: server stopped component=mcp
+   10000	    101439 ns/op	   13567 B/op	     164 allocs/op
+BenchmarkMCP_NexusStatus-16               	2026/04/23 00:36:01 INFO mcp: server started component=mcp addr=127.0.0.1:57192
+2026/04/23 00:36:01 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:01 INFO mcp: server started component=mcp addr=127.0.0.1:57194
+2026/04/23 00:36:01 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:01 INFO mcp: server started component=mcp addr=127.0.0.1:57196
+2026/04/23 00:36:02 INFO mcp: server stopped component=mcp
+   10000	    100306 ns/op	   13731 B/op	     164 allocs/op
+BenchmarkMCP_NexusStatus-16               	2026/04/23 00:36:02 INFO mcp: server started component=mcp addr=127.0.0.1:57198
+2026/04/23 00:36:02 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:02 INFO mcp: server started component=mcp addr=127.0.0.1:57200
+2026/04/23 00:36:02 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:02 INFO mcp: server started component=mcp addr=127.0.0.1:57202
+2026/04/23 00:36:03 INFO mcp: server stopped component=mcp
+   10000	    116400 ns/op	   13836 B/op	     164 allocs/op
+2026/04/23 00:36:03 INFO mcp: server started component=mcp addr=127.0.0.1:57204
+2026/04/23 00:36:03 INFO mcp: server stopped component=mcp
+BenchmarkMCP_NexusWrite_SmallMemory-16    	2026/04/23 00:36:03 INFO mcp: server started component=mcp addr=127.0.0.1:57206
+2026/04/23 00:36:03 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:03 INFO mcp: server started component=mcp addr=127.0.0.1:57208
+2026/04/23 00:36:05 INFO mcp: server stopped component=mcp
+    7154	    162636 ns/op	   15626 B/op	     180 allocs/op
+BenchmarkMCP_NexusWrite_SmallMemory-16    	2026/04/23 00:36:05 INFO mcp: server started component=mcp addr=127.0.0.1:61420
+2026/04/23 00:36:05 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:05 INFO mcp: server started component=mcp addr=127.0.0.1:61422
+2026/04/23 00:36:05 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:05 INFO mcp: server started component=mcp addr=127.0.0.1:61425
+2026/04/23 00:36:06 INFO mcp: server stopped component=mcp
+    7516	    155949 ns/op	   15529 B/op	     180 allocs/op
+BenchmarkMCP_NexusWrite_SmallMemory-16    	2026/04/23 00:36:06 INFO mcp: server started component=mcp addr=127.0.0.1:51965
+2026/04/23 00:36:06 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:06 INFO mcp: server started component=mcp addr=127.0.0.1:51967
+2026/04/23 00:36:06 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:06 INFO mcp: server started component=mcp addr=127.0.0.1:51969
+2026/04/23 00:36:07 INFO mcp: server stopped component=mcp
+    7743	    150926 ns/op	   15573 B/op	     180 allocs/op
+2026/04/23 00:36:07 INFO mcp: server started component=mcp addr=127.0.0.1:51971
+2026/04/23 00:36:07 INFO mcp: server stopped component=mcp
+BenchmarkMCP_NexusSearch_10Results-16     	2026/04/23 00:36:07 INFO mcp: server started component=mcp addr=127.0.0.1:51973
+2026/04/23 00:36:07 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:07 INFO mcp: server started component=mcp addr=127.0.0.1:51975
+2026/04/23 00:36:08 INFO mcp: server stopped component=mcp
+    6159	    184895 ns/op	   40435 B/op	     218 allocs/op
+BenchmarkMCP_NexusSearch_10Results-16     	2026/04/23 00:36:08 INFO mcp: server started component=mcp addr=127.0.0.1:51977
+2026/04/23 00:36:08 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:08 INFO mcp: server started component=mcp addr=127.0.0.1:51979
+2026/04/23 00:36:08 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:08 INFO mcp: server started component=mcp addr=127.0.0.1:51981
+2026/04/23 00:36:09 INFO mcp: server stopped component=mcp
+    6836	    188356 ns/op	   40986 B/op	     218 allocs/op
+BenchmarkMCP_NexusSearch_10Results-16     	2026/04/23 00:36:09 INFO mcp: server started component=mcp addr=127.0.0.1:51983
+2026/04/23 00:36:09 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:09 INFO mcp: server started component=mcp addr=127.0.0.1:51985
+2026/04/23 00:36:09 INFO mcp: server stopped component=mcp
+2026/04/23 00:36:09 INFO mcp: server started component=mcp addr=127.0.0.1:51987
+2026/04/23 00:36:11 INFO mcp: server stopped component=mcp
+    5838	    202327 ns/op	   41017 B/op	     218 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/mcp	10.644s
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/projection
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkProjection_Stage_End2End-16       	    1454	    866324 ns/op	  411415 B/op	    7003 allocs/op
+BenchmarkProjection_Stage_End2End-16       	    1383	    847456 ns/op	  411402 B/op	    7003 allocs/op
+BenchmarkProjection_Stage_End2End-16       	    1420	   1097525 ns/op	  411462 B/op	    7004 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/projection	4.904s
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/firewall
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkPostFilter_1000Records-16    	   13460	     84672 ns/op	  425987 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	   13512	    126698 ns/op	  425987 B/op	       1 allocs/op
+BenchmarkPostFilter_1000Records-16    	    9903	    121698 ns/op	  425986 B/op	       1 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/firewall	6.023s
+goos: windows
+goarch: amd64
+pkg: github.com/bubblefish-tech/nexus/internal/jwtauth
+cpu: AMD Ryzen 7 7735HS with Radeon Graphics        
+BenchmarkJWT_Validate_ValidToken-16      	   41145	     29401 ns/op	    3424 B/op	      52 allocs/op
+BenchmarkJWT_Validate_ValidToken-16      	   41166	     31202 ns/op	    3424 B/op	      52 allocs/op
+BenchmarkJWT_Validate_ValidToken-16      	   33460	     31286 ns/op	    3424 B/op	      52 allocs/op
+BenchmarkJWT_Validate_ExpiredToken-16    	   38499	     32571 ns/op	    3416 B/op	      52 allocs/op
+BenchmarkJWT_Validate_ExpiredToken-16    	   39291	     31168 ns/op	    3416 B/op	      52 allocs/op
+BenchmarkJWT_Validate_ExpiredToken-16    	   33076	     31127 ns/op	    3416 B/op	      52 allocs/op
+PASS
+ok  	github.com/bubblefish-tech/nexus/internal/jwtauth	10.901s
