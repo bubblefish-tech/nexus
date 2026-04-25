@@ -133,6 +133,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// In running mode: handle slash command results.
 	if a.mode == modeRunning {
 		switch m := msg.(type) {
+		case cmdResultMsg:
+			a.cmdResult = string(m)
+			a.cmdResultT = 10
+			return a, nil
 		case commands.DoctorResultMsg:
 			if m.Err != nil {
 				a.cmdResult = "doctor: " + m.Err.Error()
@@ -210,6 +214,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // dispatchCommand finds and executes the named slash command.
 func (a App) dispatchCommand(name string) tea.Cmd {
+	if strings.HasPrefix(name, "theme ") {
+		themeName := strings.TrimPrefix(name, "theme ")
+		if t, ok := ThemeByName(themeName); ok {
+			ActiveTheme = t
+		}
+		return func() tea.Msg { return cmdResultMsg("Theme: " + themeName) }
+	}
 	if a.client == nil {
 		return nil
 	}

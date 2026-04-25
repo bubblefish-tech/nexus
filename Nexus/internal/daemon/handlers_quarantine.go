@@ -87,11 +87,19 @@ func (d *Daemon) handleQuarantineList(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range recs {
 		dtos[i] = quarantineRecordToDTO(rec)
 	}
-	type response struct {
-		Records []quarantineRecordDTO `json:"records"`
-		Count   int                   `json:"count"`
+
+	total, pending := 0, 0
+	if t, p, cErr := d.quarantineStore.Count(); cErr == nil {
+		total, pending = t, p
 	}
-	d.writeJSON(w, http.StatusOK, response{Records: dtos, Count: len(dtos)})
+
+	type response struct {
+		Records  []quarantineRecordDTO `json:"records"`
+		Count    int                   `json:"count"`
+		Total    int                   `json:"total"`
+		Pending  int                   `json:"pending"`
+	}
+	d.writeJSON(w, http.StatusOK, response{Records: dtos, Count: len(dtos), Total: total, Pending: pending})
 }
 
 // handleQuarantineGet returns a single quarantine record by ID.

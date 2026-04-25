@@ -28,15 +28,15 @@ import (
 type AppState int
 
 const (
-	StateSplash          AppState = iota
-	StateDashboard                // Main overview (default landing)
-	StateMemoryBrowser            // Search + inspect memories
-	StateRetrievalTheater         // Watch queries traverse cascade
-	StateAuditWalker              // Step through hash chain
-	StateAgentCanvas              // A2A orchestration flow
-	StateCryptoVault              // Keys, Merkle roots, deletion certs
-	StateGovernance               // Grants, approvals, policy log
-	StateImmuneTheater            // Quarantine + threat signatures
+	StateSplash           AppState = iota
+	StateDashboard                 // Main overview (default landing)
+	StateMemoryBrowser             // Search + inspect memories
+	StateRetrievalTheater          // Watch queries traverse cascade
+	StateAuditWalker               // Step through hash chain
+	StateAgentCanvas               // A2A orchestration flow
+	StateCryptoVault               // Keys, Merkle roots, deletion certs
+	StateGovernance                // Grants, approvals, policy log
+	StateImmuneTheater             // Quarantine + threat signatures
 )
 
 // NavigateMsg requests a screen transition.
@@ -57,21 +57,23 @@ type HealthCheckResultMsg struct {
 // DataTickMsg drives periodic API refresh (5s interval).
 type DataTickMsg time.Time
 
-// DotTickMsg drives the status dot pulse animation (500ms interval).
+// DotTickMsg drives the status dot pulse animation (1s interval).
 type DotTickMsg time.Time
 
 // SplashDoneMsg signals the splash animation has completed.
 type SplashDoneMsg struct{}
 
+// cmdResultMsg is a simple text result from a slash command (e.g. /theme).
+type cmdResultMsg string
 
 // dataTickCmd returns a command that fires DataTickMsg after 5 seconds.
 func dataTickCmd() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return DataTickMsg(t) })
 }
 
-// dotTickCmd returns a command that fires DotTickMsg every 500ms.
+// dotTickCmd returns a command that fires DotTickMsg every 1s.
 func dotTickCmd() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg { return DotTickMsg(t) })
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg { return DotTickMsg(t) })
 }
 
 // healthCheckCmd checks daemon availability via the API client.

@@ -72,4 +72,3 @@ func dotStatusFromString(s string) DotStatus {
 		return DotOffline
 	}
 }
-

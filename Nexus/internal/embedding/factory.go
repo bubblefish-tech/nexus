@@ -18,8 +18,11 @@
 package embedding
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/config"
@@ -109,7 +112,39 @@ func NewClient(cfg config.EmbeddingConfig, resolvedAPIKey string, logger *slog.L
 		}
 		return client, nil
 
+	case ProviderBuiltin:
+		configDir := cfg.URL
+		if configDir == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("embedding: builtin provider requires config dir (set url field or NEXUS_HOME): %w", err)
+			}
+			configDir = filepath.Join(home, ".nexus", "Nexus")
+		}
+		bcfg := DefaultBuiltinConfig(configDir)
+		if cfg.Dimensions > 0 {
+			bcfg.Dimensions = cfg.Dimensions
+		}
+		bcfg.Logger = logger
+		provider, err := NewBuiltinProvider(bcfg)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if err := provider.Start(ctx); err != nil {
+			return nil, fmt.Errorf("builtin embedding start: %w", err)
+		}
+		if logger != nil {
+			logger.Info("embedding: builtin provider started",
+				"component", "embedding",
+				"model", filepath.Base(bcfg.ModelPath),
+				"dimensions", bcfg.Dimensions,
+			)
+		}
+		return provider, nil
+
 	default:
-		return nil, fmt.Errorf("embedding: unknown provider %q; valid values: openai, ollama, compatible", cfg.Provider)
+		return nil, fmt.Errorf("embedding: unknown provider %q; valid values: openai, ollama, compatible, builtin", cfg.Provider)
 	}
 }

@@ -33,13 +33,13 @@ import (
 )
 
 const (
-	headerHeight      = 1
-	tabBarHeight      = 1
+	headerHeight       = 1
+	tabBarHeight       = 1
 	featureFlagsHeight = 1
-	commandBarHeight  = 1
-	chromeHeight      = headerHeight + tabBarHeight + featureFlagsHeight + commandBarHeight
-	minWidth          = 100
-	minHeight         = 30
+	commandBarHeight   = 1
+	chromeHeight       = headerHeight + tabBarHeight + featureFlagsHeight + commandBarHeight
+	minWidth           = 100
+	minHeight          = 30
 )
 
 // screenNames maps each page state to its tab bar label.
@@ -57,28 +57,39 @@ var screenNames = []struct {
 	{StateImmuneTheater, "Immune"},
 }
 
+// authState tracks the authentication status determined by probing /api/status on startup.
+type authState int
+
+const (
+	authNone     authState = iota // no token configured
+	authOK                        // /api/status returned 200 with valid token
+	authRejected                  // /api/status returned 401/403
+)
+
 // RootModel is the top-level model for the running TUI dashboard.
 // It owns the state machine, all screen sub-models, and the global chrome
 // (header bar, tab bar, feature flags bar, command bar).
 type RootModel struct {
-	state       AppState
-	screens     map[AppState]screens.Screen
-	client      *api.Client
-	width       int
-	height      int
-	statusCache *api.StatusResponse
-	dotFrame    int
-	paused      bool
-	daemonUp    bool
-	showHelp    bool
-	retryCount  int
+	state        AppState
+	screens      map[AppState]screens.Screen
+	client       *api.Client
+	width        int
+	height       int
+	statusCache  *api.StatusResponse
+	dotFrame     int
+	paused       bool
+	daemonUp     bool
+	authStatus   authState
+	instanceName string
+	showHelp     bool
+	retryCount   int
 	screenInited map[AppState]bool
-	keys        GlobalKeyMap
-	prefs       *TUIPrefs
-	slashCmd    components.SlashCommandModel
-	palette     PaletteModel
-	splash      SplashModel
-	bubbleField *components.BubbleField
+	keys         GlobalKeyMap
+	prefs        *TUIPrefs
+	slashCmd     components.SlashCommandModel
+	palette      PaletteModel
+	splash SplashModel
+	demo   DemoModel
 }
 
 // NewRootModel creates the root model with the dashboard screen.
@@ -88,14 +99,14 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		prefs = DefaultPrefs()
 	}
 	scr := map[AppState]screens.Screen{
-		StateDashboard:     screens.NewDashboardScreen(),
-		StateMemoryBrowser: screens.NewMemoryBrowserScreen(),
+		StateDashboard:        screens.NewDashboardScreen(),
+		StateMemoryBrowser:    screens.NewMemoryBrowserScreen(),
 		StateRetrievalTheater: screens.NewRetrievalTheaterScreen(),
-		StateAuditWalker:   screens.NewAuditWalkerScreen(),
-		StateAgentCanvas:   screens.NewAgentCanvasScreen(),
-		StateCryptoVault:   screens.NewCryptoVaultScreen(),
-		StateGovernance:    screens.NewGovernanceScreen(),
-		StateImmuneTheater: screens.NewImmuneTheaterScreen(),
+		StateAuditWalker:      screens.NewAuditWalkerScreen(),
+		StateAgentCanvas:      screens.NewAgentCanvasScreen(),
+		StateCryptoVault:      screens.NewCryptoVaultScreen(),
+		StateGovernance:       screens.NewGovernanceScreen(),
+		StateImmuneTheater:    screens.NewImmuneTheaterScreen(),
 	}
 	return &RootModel{
 		state:        StateSplash,
@@ -105,7 +116,7 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 		screenInited: make(map[AppState]bool),
 		keys:         DefaultGlobalKeyMap(),
 		prefs:        prefs,
-		slashCmd: components.NewSlashCommandModel(allSlashCommands()),
+		slashCmd:     components.NewSlashCommandModel(allSlashCommands()),
 		palette: NewPaletteModel([]PaletteCommand{
 			{"/search", "Search memories"},
 			{"/write", "Write a memory"},
@@ -121,7 +132,6 @@ func NewRootModel(client *api.Client, prefs *TUIPrefs) *RootModel {
 			{"/quit", "Quit Nexus"},
 		}),
 		splash: NewSplashModel(),
-		bubbleField:  components.NewBubbleField(120, 40, 12),
 	}
 }
 
@@ -149,7 +159,7 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, scr := range r.screens {
 			scr.SetSize(r.width, contentH)
 		}
-		r.bubbleField.SetSize(r.width, r.height)
+		r.splash.bubbleField.SetSize(r.width, r.height)
 		r.splash.width = r.width
 		r.splash.height = r.height
 		return r, nil
@@ -160,10 +170,18 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StatusRefreshMsg:
 		if msg.Err != nil {
 			dbg("STATUS_REFRESH err=%v", msg.Err)
+			if api.Classify(msg.Err) == api.ErrKindForbidden {
+				if r.client.HasToken() {
+					r.authStatus = authRejected
+				}
+				// If no token was configured, stay at authNone (zero value).
+			}
 			return r, nil
 		}
 		if msg.Data != nil {
 			r.statusCache = msg.Data
+			r.authStatus = authOK
+			r.instanceName = msg.Data.InstanceName
 			dbg("STATUS_REFRESH ok memories=%d writes_1m=%d reads_1m=%d queue=%d",
 				msg.Data.MemoriesTotal, msg.Data.Writes1m, msg.Data.Reads1m, msg.Data.QueueDepth)
 		}
@@ -182,7 +200,30 @@ func (r *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DotTickMsg:
 		r.dotFrame++
+		if r.demo.Active && r.demo.ShouldAdvance() {
+			if r.demo.Advance() {
+				step := r.demo.CurrentStep()
+				if step != nil {
+					r.state = step.Navigate
+				}
+			} else {
+				r.demo.Active = false
+			}
+		}
 		return r, dotTickCmd()
+
+	case DemoAdvanceMsg:
+		if r.demo.Active {
+			if r.demo.Advance() {
+				step := r.demo.CurrentStep()
+				if step != nil {
+					r.state = step.Navigate
+				}
+			} else {
+				r.demo.Active = false
+			}
+		}
+		return r, nil
 
 	case splashTickMsg:
 		if r.state == StateSplash {
@@ -278,7 +319,15 @@ func (r *RootModel) View() string {
 
 	page := lipgloss.NewStyle().Width(r.width).Height(contentH).Render(content)
 
-	base := lipgloss.JoinVertical(lipgloss.Left, header, tabbar, page, flags, cmdbar)
+	var bottom string
+	if r.demo.Active {
+		bottom = r.demo.View()
+	} else {
+		bottom = cmdbar
+	}
+	base := lipgloss.JoinVertical(lipgloss.Left, header, tabbar, page, flags, bottom)
+
+
 
 	// Palette overlay.
 	if r.palette.Active() {
@@ -314,7 +363,20 @@ func (r *RootModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, r.keys.Help):
 		r.showHelp = !r.showHelp
 		return r, nil
+	case msg.String() == "D":
+		if !r.demo.Active {
+			r.demo.StartDemo()
+			r.demo.Width = r.width
+			if step := r.demo.CurrentStep(); step != nil {
+				r.state = step.Navigate
+			}
+		}
+		return r, nil
 	case key.Matches(msg, r.keys.Escape):
+		if r.demo.Active {
+			r.demo.Active = false
+			return r, nil
+		}
 		if r.showHelp {
 			r.showHelp = false
 			return r, nil
@@ -492,8 +554,13 @@ func (r *RootModel) viewHeaderBar() string {
 		statusWord = "OFFLINE"
 	}
 
+	instName := r.instanceName
+	if instName == "" {
+		instName = "default"
+	}
+	authInd := r.viewAuthIndicator()
 	mini := components.MiniLogo{}
-	left := fmt.Sprintf("%s %s NEXUS %s  %s", mini.Inline(), dot.View(), ver, uptime)
+	left := fmt.Sprintf("%s %s NEXUS %s · %s · %s  %s", mini.Inline(), dot.View(), ver, instName, authInd, uptime)
 	center := "The Governed AI Cryptographic Substrate Control Plane"
 	now := time.Now().Format("15:04:05")
 	right := fmt.Sprintf("%s · %s", statusWord, now)
@@ -522,6 +589,17 @@ func (r *RootModel) viewHeaderBar() string {
 		centerStyle.Width(centerW).Align(lipgloss.Center).Render(center),
 		rightStyle.Width(rightW).Align(lipgloss.Right).Render(right),
 	)
+}
+
+func (r *RootModel) viewAuthIndicator() string {
+	switch r.authStatus {
+	case authOK:
+		return lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("\U0001F513 admin")
+	case authRejected:
+		return lipgloss.NewStyle().Foreground(styles.ColorRed).Render("\U0001F512 rejected")
+	default:
+		return lipgloss.NewStyle().Foreground(styles.ColorAmber).Render("\U0001F512 no auth")
+	}
 }
 
 func (r *RootModel) viewTabBar() string {
@@ -624,3 +702,4 @@ func (r *RootModel) viewHelp() string {
 		Screen: activeScreen,
 	}.View()
 }
+

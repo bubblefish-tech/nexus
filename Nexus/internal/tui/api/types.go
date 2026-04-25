@@ -22,32 +22,33 @@ import "time"
 
 // StatusResponse is the shape of GET /api/status.
 type StatusResponse struct {
-	Status              string                       `json:"status"`
-	Version             string                       `json:"version"`
-	QueueDepth          int                          `json:"queue_depth"`
-	ConsistencyScore    float64                      `json:"consistency_score"`
-	MemoriesTotal       int                          `json:"memories_total"`
-	SourcesTotal        int                          `json:"sources_total"`
-	UptimeSeconds       int                          `json:"uptime_seconds"`
-	Goroutines          int                          `json:"goroutines"`
-	MemoryResidentBytes int64                        `json:"memory_resident_bytes"`
-	PID                 int                          `json:"pid"`
-	Bind                string                       `json:"bind"`
-	WebPort             int                          `json:"web_port"`
-	Cache               StatusCache                  `json:"cache"`
-	WAL                 StatusWAL                    `json:"wal"`
-	Destinations        []StatusDest                 `json:"destinations"`
-	WritesTotal         int64                        `json:"writes_total"`
-	Writes1m            int                          `json:"writes_1m"`
-	ReadsTotal          int64                        `json:"reads_total"`
-	Reads1m             int                          `json:"reads_1m"`
-	Errors1m            int                          `json:"errors_1m"`
-	ImmuneScans         int64                        `json:"immune_scans"`
-	QuarantineTotal     int64                        `json:"quarantine_total"`
-	AuditEnabled        bool                         `json:"audit_enabled"`
-	CascadeStages       map[string]StageMetricEntry  `json:"cascade_stages"`
-	WriteStages         map[string]StageMetricEntry  `json:"write_stages"`
-	SourceHealth        []SourceHealthEntry          `json:"source_health"`
+	Status              string                      `json:"status"`
+	InstanceName        string                      `json:"instance_name"`
+	Version             string                      `json:"version"`
+	QueueDepth          int                         `json:"queue_depth"`
+	ConsistencyScore    float64                     `json:"consistency_score"`
+	MemoriesTotal       int                         `json:"memories_total"`
+	SourcesTotal        int                         `json:"sources_total"`
+	UptimeSeconds       int                         `json:"uptime_seconds"`
+	Goroutines          int                         `json:"goroutines"`
+	MemoryResidentBytes int64                       `json:"memory_resident_bytes"`
+	PID                 int                         `json:"pid"`
+	Bind                string                      `json:"bind"`
+	WebPort             int                         `json:"web_port"`
+	Cache               StatusCache                 `json:"cache"`
+	WAL                 StatusWAL                   `json:"wal"`
+	Destinations        []StatusDest                `json:"destinations"`
+	WritesTotal         int64                       `json:"writes_total"`
+	Writes1m            int                         `json:"writes_1m"`
+	ReadsTotal          int64                       `json:"reads_total"`
+	Reads1m             int                         `json:"reads_1m"`
+	Errors1m            int                         `json:"errors_1m"`
+	ImmuneScans         int64                       `json:"immune_scans"`
+	QuarantineTotal     int64                       `json:"quarantine_total"`
+	AuditEnabled        bool                        `json:"audit_enabled"`
+	CascadeStages       map[string]StageMetricEntry `json:"cascade_stages"`
+	WriteStages         map[string]StageMetricEntry `json:"write_stages"`
+	SourceHealth        []SourceHealthEntry         `json:"source_health"`
 }
 
 type StageMetricEntry struct {
@@ -68,11 +69,11 @@ type StatusCache struct {
 }
 
 type StatusWAL struct {
-	Healthy              bool   `json:"healthy"`
-	CurrentSegment       string `json:"current_segment"`
-	IntegrityMode        string `json:"integrity_mode"`
-	PendingEntries       int    `json:"pending_entries"`
-	LastCheckpointSecsAgo int   `json:"last_checkpoint_seconds_ago"`
+	Healthy               bool   `json:"healthy"`
+	CurrentSegment        string `json:"current_segment"`
+	IntegrityMode         string `json:"integrity_mode"`
+	PendingEntries        int    `json:"pending_entries"`
+	LastCheckpointSecsAgo int    `json:"last_checkpoint_seconds_ago"`
 }
 
 type StatusDest struct {
@@ -104,11 +105,11 @@ type LintResponse struct {
 type SecurityEvent struct {
 	EventType string                 `json:"event_type"`
 	Source    string                 `json:"source,omitempty"`
-	Subject  string                 `json:"subject,omitempty"`
-	IP       string                 `json:"ip,omitempty"`
-	Endpoint string                 `json:"endpoint,omitempty"`
-	Timestamp time.Time             `json:"timestamp"`
-	Details  map[string]interface{} `json:"details,omitempty"`
+	Subject   string                 `json:"subject,omitempty"`
+	IP        string                 `json:"ip,omitempty"`
+	Endpoint  string                 `json:"endpoint,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
 // SecurityEventsResponse is the shape of GET /api/security/events.
@@ -141,8 +142,8 @@ type ConflictEntry struct {
 type ConflictMemory struct {
 	Source    string `json:"source"`
 	ActorType string `json:"actor_type"`
-	Ts       string `json:"ts"`
-	Content  string `json:"content"`
+	Ts        string `json:"ts"`
+	Content   string `json:"content"`
 }
 
 // ConflictsResponse is the shape of GET /api/conflicts.
@@ -211,6 +212,10 @@ type AuditRecord struct {
 	PolicyDecision string    `json:"policy_decision"`
 	PolicyReason   string    `json:"policy_reason,omitempty"`
 	LatencyMs      float64   `json:"latency_ms"`
+	PrevHash       string    `json:"prev_hash,omitempty"`
+	Hash           string    `json:"hash,omitempty"`
+	Signature      string    `json:"signature,omitempty"`
+	SignatureValid bool      `json:"signature_valid,omitempty"`
 }
 
 // AuditResponse is the shape of GET /api/audit/log.
@@ -225,17 +230,17 @@ type AuditResponse struct {
 // ConfigResponse is the shape of GET /api/config.
 // Contains sanitized config — NEVER includes secrets.
 type ConfigResponse struct {
-	Daemon       ConfigDaemon       `json:"daemon"`
-	WAL          ConfigWAL          `json:"wal"`
-	MCP          ConfigMCP          `json:"mcp"`
-	Web          ConfigWeb          `json:"web"`
-	Embedding    ConfigEmbedding    `json:"embedding"`
-	TLS          ConfigTLS          `json:"tls"`
-	RateLimit    ConfigRateLimit    `json:"rate_limit"`
-	Retrieval    ConfigRetrieval    `json:"retrieval"`
-	Audit        ConfigAudit        `json:"audit"`
-	Sources      []string           `json:"sources"`
-	Destinations []string           `json:"destinations"`
+	Daemon       ConfigDaemon    `json:"daemon"`
+	WAL          ConfigWAL       `json:"wal"`
+	MCP          ConfigMCP       `json:"mcp"`
+	Web          ConfigWeb       `json:"web"`
+	Embedding    ConfigEmbedding `json:"embedding"`
+	TLS          ConfigTLS       `json:"tls"`
+	RateLimit    ConfigRateLimit `json:"rate_limit"`
+	Retrieval    ConfigRetrieval `json:"retrieval"`
+	Audit        ConfigAudit     `json:"audit"`
+	Sources      []string        `json:"sources"`
+	Destinations []string        `json:"destinations"`
 }
 
 // ConfigDaemon holds sanitized daemon settings.
@@ -249,12 +254,12 @@ type ConfigDaemon struct {
 
 // ConfigWAL holds sanitized WAL settings.
 type ConfigWAL struct {
-	Path               string `json:"path"`
-	MaxSegmentSizeMB   int64  `json:"max_segment_size_mb"`
-	IntegrityMode      string `json:"integrity_mode"`
-	EncryptionEnabled  bool   `json:"encryption_enabled"`
-	WatchdogIntervalS  int    `json:"watchdog_interval_s"`
-	WatchdogMinDisk    int64  `json:"watchdog_min_disk"`
+	Path              string `json:"path"`
+	MaxSegmentSizeMB  int64  `json:"max_segment_size_mb"`
+	IntegrityMode     string `json:"integrity_mode"`
+	EncryptionEnabled bool   `json:"encryption_enabled"`
+	WatchdogIntervalS int    `json:"watchdog_interval_s"`
+	WatchdogMinDisk   int64  `json:"watchdog_min_disk"`
 }
 
 // ConfigMCP holds sanitized MCP settings.
@@ -338,9 +343,13 @@ type QuarantineRecord struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// QuarantineResponse is the shape of GET /api/quarantine.
+// QuarantineResponse is the unified shape of GET /api/quarantine.
+// Contains records AND total/pending counts in a single payload.
 type QuarantineResponse struct {
-	Items []QuarantineRecord `json:"items"`
+	Records []QuarantineRecord `json:"records"`
+	Count   int                `json:"count"`
+	Total   int                `json:"total"`
+	Pending int                `json:"pending"`
 }
 
 // QuarantineCountResponse is the shape of GET /api/quarantine/count.
@@ -393,4 +402,98 @@ type Task struct {
 // TasksResponse is the shape of GET /api/control/tasks.
 type TasksResponse struct {
 	Tasks []Task `json:"tasks"`
+}
+
+// Memory represents a single memory row returned by GET /api/memories.
+type Memory struct {
+	ID          string  `json:"payload_id"`
+	Content     string  `json:"content,omitempty"`
+	Source      string  `json:"source"`
+	Actor       string  `json:"actor,omitempty"`
+	ActorType   string  `json:"actor_type,omitempty"`
+	Namespace   string  `json:"namespace,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	Destination string  `json:"destination,omitempty"`
+	Preview     string  `json:"preview,omitempty"`
+	Score       float64 `json:"score,omitempty"`
+}
+
+// MemoryDetail extends Memory with provenance and scoring details.
+type MemoryDetail struct {
+	Memory
+	ProvenanceEntry int    `json:"provenance_entry"`
+	PrevHash        string `json:"prev_hash"`
+	Hash            string `json:"hash"`
+	Signature       string `json:"signature"`
+	MerkleRoot      string `json:"merkle_root"`
+	Scores          struct {
+		BM25  float64 `json:"bm25"`
+		Dense float64 `json:"dense"`
+		RRF   float64 `json:"rrf"`
+		Decay float64 `json:"decay"`
+	} `json:"scores"`
+}
+
+// MemoryListEnvelope is the pagination metadata from GET /api/memories.
+type MemoryListEnvelope struct {
+	ResultCount int    `json:"result_count"`
+	HasMore     bool   `json:"has_more"`
+	NextCursor  string `json:"next_cursor,omitempty"`
+}
+
+// MemoryListResponse is the shape of GET /api/memories.
+type MemoryListResponse struct {
+	Memories []Memory           `json:"memories"`
+	Admin    MemoryListEnvelope `json:"_admin"`
+}
+
+// SigningStatus is the shape of GET /api/crypto/signing.
+type SigningStatus struct {
+	Enabled        bool   `json:"enabled"`
+	Reason         string `json:"reason,omitempty"`
+	ConfigHint     string `json:"config_hint,omitempty"`
+	PublicKeyHash  string `json:"public_key_hash,omitempty"`
+	SignedCount    int64  `json:"signed_count"`
+	VerifyFailures int64  `json:"verify_failures"`
+}
+
+// CryptoProfile is the shape of GET /api/crypto/profile.
+type CryptoProfile struct {
+	Symmetric string `json:"symmetric"`
+	Signing   string `json:"signing"`
+	KDF       string `json:"kdf"`
+	Hash      string `json:"hash"`
+	Ratchet   string `json:"ratchet"`
+}
+
+// MasterKeyStatus is the shape of GET /api/crypto/master.
+type MasterKeyStatus struct {
+	Derived   bool   `json:"derived"`
+	Algorithm string `json:"algorithm"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// RatchetStatus is the shape of GET /api/crypto/ratchet.
+type RatchetStatus struct {
+	Position       int64  `json:"position"`
+	DestroyedCount int64  `json:"destroyed_count"`
+	Algorithm      string `json:"algorithm"`
+}
+
+// AggregatedStats is the shape of GET /api/stats.
+type AggregatedStats struct {
+	MemoryCount     int64   `json:"memory_count"`
+	SessionWrites   int64   `json:"session_writes"`
+	AuditCount      int64   `json:"audit_count"`
+	QuarantineTotal int64   `json:"quarantine_total"`
+	AgentsConnected int     `json:"agents_connected"`
+	AgentsKnown     int     `json:"agents_known"`
+	WALLagMs        float64 `json:"wal_lag_ms"`
+	WALFsyncOK      bool    `json:"wal_fsync_ok"`
+	CacheHitRate    float64 `json:"cache_hit_rate"`
+	Health          struct {
+		State       string `json:"state"`
+		ChainIntact bool   `json:"chain_intact"`
+	} `json:"health"`
+	FreeEnergyNats float64 `json:"free_energy_nats"`
 }

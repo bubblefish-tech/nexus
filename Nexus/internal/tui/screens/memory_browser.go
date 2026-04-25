@@ -20,8 +20,10 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -30,8 +32,9 @@ import (
 )
 
 type memorySearchMsg struct {
-	records []api.TimeTravelRecord
-	err     error
+	memories []api.Memory
+	errKind  api.ErrorKind
+	hint     string
 }
 
 var memoryKeys = struct {
@@ -51,9 +54,13 @@ type MemoryBrowserScreen struct {
 	width, height int
 	searchInput   textinput.Model
 	searching     bool
-	records       []api.TimeTravelRecord
+	records       []api.Memory
 	selectedIdx   int
-	err           error
+	errKind       api.ErrorKind
+	errHint       string
+	loading       bool
+	lastQuery     string
+	client        *api.Client
 }
 
 // NewMemoryBrowserScreen creates the memory browser.
@@ -66,10 +73,11 @@ func NewMemoryBrowserScreen() *MemoryBrowserScreen {
 	ti.TextStyle = lipgloss.NewStyle().Foreground(styles.TextPrimary)
 	return &MemoryBrowserScreen{
 		searchInput: ti,
+		loading:     true,
 	}
 }
 
-func (m *MemoryBrowserScreen) Name() string    { return "Memory" }
+func (m *MemoryBrowserScreen) Name() string     { return "Memory" }
 func (m *MemoryBrowserScreen) Init() tea.Cmd    { return nil }
 func (m *MemoryBrowserScreen) SetSize(w, h int) { m.width = w; m.height = h }
 
@@ -80,9 +88,11 @@ func (m *MemoryBrowserScreen) ShortHelp() []key.Binding {
 func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case memorySearchMsg:
-		m.err = msg.err
-		if msg.err == nil {
-			m.records = msg.records
+		m.loading = false
+		m.errKind = msg.errKind
+		m.errHint = msg.hint
+		if msg.errKind == api.ErrKindUnknown {
+			m.records = msg.memories
 			m.selectedIdx = 0
 		}
 		return m, nil
@@ -96,7 +106,11 @@ func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 				return m, nil
 			case "enter":
 				m.searching = false
+				m.lastQuery = m.searchInput.Value()
 				m.searchInput.Blur()
+				if m.client != nil && m.lastQuery != "" {
+					return m, m.searchCmd()
+				}
 				return m, nil
 			default:
 				var cmd tea.Cmd
@@ -133,15 +147,29 @@ func (m *MemoryBrowserScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (m *MemoryBrowserScreen) FireRefresh(client *api.Client) tea.Cmd {
+	m.client = client
 	return func() tea.Msg {
-		data, err := client.TimeTravel(api.TimeTravelOpts{
-			AsOf:  "now",
-			Limit: 50,
-		})
+		resp, err := client.ListMemories(50, 0)
 		if err != nil {
-			return memorySearchMsg{err: err}
+			kind := api.Classify(err)
+			sdbg("ListMemories failed kind=%d err=%v", kind, err)
+			return memorySearchMsg{errKind: kind, hint: api.HintForEndpoint("/api/memories", kind)}
 		}
-		return memorySearchMsg{records: data.Records}
+		return memorySearchMsg{memories: resp.Memories}
+	}
+}
+
+func (m *MemoryBrowserScreen) searchCmd() tea.Cmd {
+	query := m.lastQuery
+	client := m.client
+	return func() tea.Msg {
+		resp, err := client.SearchMemories(query, 50)
+		if err != nil {
+			kind := api.Classify(err)
+			sdbg("SearchMemories failed kind=%d err=%v", kind, err)
+			return memorySearchMsg{errKind: kind, hint: api.HintForEndpoint("/api/memories", kind)}
+		}
+		return memorySearchMsg{memories: resp.Memories}
 	}
 }
 
@@ -150,9 +178,16 @@ func (m *MemoryBrowserScreen) View() string {
 		return ""
 	}
 
+	if m.loading {
+		frame := int(time.Now().UnixMilli()/150) % 8
+		return components.Render(loadingOpts(m.width, m.height, frame))
+	}
+	if m.errKind != api.ErrKindUnknown {
+		return components.Render(emptyStateOpts(m.errKind, m.errHint, m.width, m.height))
+	}
+
 	var lines []string
 
-	// Search bar.
 	lines = append(lines, sectionHeader("SEARCH", m.width))
 	if m.searching {
 		lines = append(lines, "  "+m.searchInput.View())
@@ -166,7 +201,6 @@ func (m *MemoryBrowserScreen) View() string {
 	}
 	lines = append(lines, "")
 
-	// Split: results list (left) + detail pane (right).
 	listW := m.width * 35 / 100
 	if listW < 25 {
 		listW = 25
@@ -181,10 +215,6 @@ func (m *MemoryBrowserScreen) View() string {
 		lipgloss.NewStyle().Width(detailW).Render(right),
 	)
 	lines = append(lines, body)
-
-	if m.err != nil {
-		lines = append(lines, styles.ErrorStyle.Render("  error: "+m.err.Error()))
-	}
 
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).
 		Render(strings.Join(lines, "\n"))
@@ -221,6 +251,9 @@ func (m *MemoryBrowserScreen) viewResultsList(w int) string {
 		}
 
 		content := rec.Content
+		if content == "" {
+			content = rec.ID
+		}
 		maxLen := w - 6
 		if maxLen < 10 {
 			maxLen = 10
@@ -236,7 +269,7 @@ func (m *MemoryBrowserScreen) viewResultsList(w int) string {
 		line := prefix + lipgloss.NewStyle().Foreground(nameStyle).Render(content)
 		lines = append(lines, line)
 
-		meta := fmt.Sprintf("    %s · %s", rec.Source, rec.Timestamp.Format("Jan 2"))
+		meta := fmt.Sprintf("    %s · %s", rec.Source, rec.CreatedAt)
 		lines = append(lines, lipgloss.NewStyle().Foreground(styles.TextMuted).Render(meta))
 	}
 
@@ -256,9 +289,16 @@ func (m *MemoryBrowserScreen) viewDetail(w int) string {
 	rec := m.records[m.selectedIdx]
 
 	idStyle := lipgloss.NewStyle().Foreground(styles.ColorTealDim)
-	lines = append(lines, "  "+idStyle.Render(rec.PayloadID))
-	lines = append(lines, fmt.Sprintf("  %s", rec.Timestamp.Format("2006-01-02 15:04:05 UTC")))
-	lines = append(lines, fmt.Sprintf("  source: %s  ·  actor: %s", rec.Source, rec.ActorType))
+	lines = append(lines, "  "+idStyle.Render(rec.ID))
+	lines = append(lines, fmt.Sprintf("  %s", rec.CreatedAt))
+	actor := rec.ActorType
+	if actor == "" {
+		actor = rec.Actor
+	}
+	if actor == "" {
+		actor = "—"
+	}
+	lines = append(lines, fmt.Sprintf("  source: %s  ·  actor: %s", rec.Source, actor))
 	if rec.Namespace != "" {
 		lines = append(lines, fmt.Sprintf("  namespace: %s", rec.Namespace))
 	}
@@ -269,7 +309,6 @@ func (m *MemoryBrowserScreen) viewDetail(w int) string {
 	lines = append(lines, "  "+sep)
 	lines = append(lines, "")
 
-	// Content.
 	content := rec.Content
 	contentW := w - 4
 	if contentW < 20 {
@@ -283,7 +322,16 @@ func (m *MemoryBrowserScreen) viewDetail(w int) string {
 	lines = append(lines, "  "+sep)
 	lines = append(lines, "")
 
-	// Actions.
+	// Provenance section (populated when daemon returns hash/sig fields).
+	if rec.Score > 0 {
+		lines = append(lines, "  "+sep)
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
+			Render("  ◈ RETRIEVAL SCORE"))
+		lines = append(lines, fmt.Sprintf("    rrf:   %.2f", rec.Score))
+	}
+
+	lines = append(lines, "")
 	actions := lipgloss.NewStyle().Foreground(styles.TextMuted).
 		Render("  [e] edit  [d] delete  [p] proof")
 	lines = append(lines, actions)

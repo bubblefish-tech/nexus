@@ -20,12 +20,46 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
+
+const (
+	DefaultAPIURL = "http://localhost:8080"
+	EnvAPIURL     = "NEXUS_API_URL"
+	EnvAdminToken = "NEXUS_ADMIN_TOKEN"
+)
+
+// ResolveBaseURL returns the API base URL using this priority:
+//
+//  1. cliFlag (from --api-url flag)
+//  2. NEXUS_API_URL environment variable
+//  3. DefaultAPIURL
+func ResolveBaseURL(cliFlag string) string {
+	if cliFlag != "" {
+		return cliFlag
+	}
+	if v := os.Getenv(EnvAPIURL); v != "" {
+		return v
+	}
+	return DefaultAPIURL
+}
+
+// ResolveAdminToken returns the admin bearer token using this priority:
+//
+//  1. cliFlag (from --admin-token flag)
+//  2. NEXUS_ADMIN_TOKEN environment variable
+//  3. "" (empty — no token; /api/* calls will 401)
+func ResolveAdminToken(cliFlag string) string {
+	if cliFlag != "" {
+		return cliFlag
+	}
+	return os.Getenv(EnvAdminToken)
+}
 
 // Client is an HTTP client for the Nexus admin API.
 type Client struct {
@@ -53,19 +87,30 @@ func (c *Client) Close() {
 	c.cancel()
 }
 
+// HasToken reports whether the client was configured with a bearer token.
+func (c *Client) HasToken() bool { return c.token != "" }
+
+// addAuth attaches the Bearer token to requests on /api/* paths only.
+// SSE /stream/* and unauthenticated probe endpoints do not receive the header.
+func (c *Client) addAuth(req *http.Request) {
+	if c.token != "" && strings.HasPrefix(req.URL.Path, "/api/") {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+}
+
 func (c *Client) get(path string, out any) error {
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.base+path, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	c.addAuth(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, path)
+		return &HTTPError{Status: resp.StatusCode, Path: path}
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
@@ -195,4 +240,61 @@ func (c *Client) Approvals() (*ApprovalsResponse, error) {
 func (c *Client) Tasks() (*TasksResponse, error) {
 	var r TasksResponse
 	return &r, c.get("/api/control/tasks", &r)
+}
+
+// ListMemories returns the most recent memories via GET /api/memories.
+// This is the default listing endpoint; time-travel uses a separate path.
+func (c *Client) ListMemories(limit, offset int) (*MemoryListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	path := "/api/memories?limit=" + strconv.Itoa(limit)
+	var r MemoryListResponse
+	return &r, c.get(path, &r)
+}
+
+// SearchMemories performs a query across all memories via GET /api/memories?q=...
+func (c *Client) SearchMemories(query string, limit int) (*MemoryListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	path := "/api/memories?q=" + url.QueryEscape(query) + "&limit=" + strconv.Itoa(limit)
+	var r MemoryListResponse
+	return &r, c.get(path, &r)
+}
+
+// GetMemory fetches a single memory by ID via GET /api/memories/{id}.
+func (c *Client) GetMemory(id string) (*MemoryDetail, error) {
+	var r MemoryDetail
+	return &r, c.get("/api/memories/"+url.PathEscape(id), &r)
+}
+
+// Stats fetches GET /api/stats — aggregated dashboard statistics.
+func (c *Client) Stats() (*AggregatedStats, error) {
+	var r AggregatedStats
+	return &r, c.get("/api/stats", &r)
+}
+
+// SigningStatus fetches GET /api/crypto/signing.
+func (c *Client) SigningStatus() (*SigningStatus, error) {
+	var r SigningStatus
+	return &r, c.get("/api/crypto/signing", &r)
+}
+
+// CryptoProfileStatus fetches GET /api/crypto/profile.
+func (c *Client) CryptoProfileStatus() (*CryptoProfile, error) {
+	var r CryptoProfile
+	return &r, c.get("/api/crypto/profile", &r)
+}
+
+// MasterKeyStatusInfo fetches GET /api/crypto/master.
+func (c *Client) MasterKeyStatusInfo() (*MasterKeyStatus, error) {
+	var r MasterKeyStatus
+	return &r, c.get("/api/crypto/master", &r)
+}
+
+// RatchetStatusInfo fetches GET /api/crypto/ratchet.
+func (c *Client) RatchetStatusInfo() (*RatchetStatus, error) {
+	var r RatchetStatus
+	return &r, c.get("/api/crypto/ratchet", &r)
 }

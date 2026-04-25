@@ -12,17 +12,19 @@
 
 Output test.gif
 
-Set Shell "bash"
+Set Shell "cmd"
 Set Width 1200
 Set Height 600
 Set FontSize 14
 Set Padding 10
+Set Theme "Dracula"
 
-# Launch the TUI dashboard.
-# Requires a running daemon (nexus start) or will show "DAEMON NOT RUNNING".
-Type "go run ./cmd/nexus tui"
+# Launch the TUI dashboard using a prebuilt binary (no compile wait).
+# Build first: go build -o nexus-tui-test.exe ./cmd/nexus
+# Without a running daemon, shows "DAEMON NOT RUNNING" screen.
+Type ".\nexus-tui-test.exe tui"
 Enter
-Sleep 3s
+Sleep 2s
 
 # Tab 1: Overview (default)
 Sleep 1s

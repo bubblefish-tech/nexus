@@ -21,24 +21,24 @@ import "github.com/charmbracelet/bubbles/key"
 
 // GlobalKeyMap defines keybindings that are always active.
 type GlobalKeyMap struct {
-	Quit      key.Binding
-	HardQuit  key.Binding
-	Help      key.Binding
-	Palette   key.Binding
-	Slash     key.Binding
-	Escape    key.Binding
-	Refresh   key.Binding
-	Pause     key.Binding
-	NextPage  key.Binding
-	PrevPage  key.Binding
-	Tab1      key.Binding
-	Tab2      key.Binding
-	Tab3      key.Binding
-	Tab4      key.Binding
-	Tab5      key.Binding
-	Tab6      key.Binding
-	Tab7      key.Binding
-	Tab8      key.Binding
+	Quit     key.Binding
+	HardQuit key.Binding
+	Help     key.Binding
+	Palette  key.Binding
+	Slash    key.Binding
+	Escape   key.Binding
+	Refresh  key.Binding
+	Pause    key.Binding
+	NextPage key.Binding
+	PrevPage key.Binding
+	Tab1     key.Binding
+	Tab2     key.Binding
+	Tab3     key.Binding
+	Tab4     key.Binding
+	Tab5     key.Binding
+	Tab6     key.Binding
+	Tab7     key.Binding
+	Tab8     key.Binding
 }
 
 // DefaultGlobalKeyMap returns the global keybindings.

@@ -30,11 +30,11 @@ type stubPage struct {
 	canAdvance bool
 }
 
-func (s stubPage) Init(_ *pages.WizardState) tea.Cmd                         { return nil }
+func (s stubPage) Init(_ *pages.WizardState) tea.Cmd                            { return nil }
 func (s stubPage) Update(_ tea.Msg, _ *pages.WizardState) (pages.Page, tea.Cmd) { return s, nil }
-func (s stubPage) View(_, _ int) string                                       { return s.name }
-func (s stubPage) Name() string                                               { return s.name }
-func (s stubPage) CanAdvance(_ *pages.WizardState) bool                       { return s.canAdvance }
+func (s stubPage) View(_, _ int) string                                         { return s.name }
+func (s stubPage) Name() string                                                 { return s.name }
+func (s stubPage) CanAdvance(_ *pages.WizardState) bool                         { return s.canAdvance }
 
 func makeWizard(canAdvance bool, n int) WizardModel {
 	state := &pages.WizardState{}

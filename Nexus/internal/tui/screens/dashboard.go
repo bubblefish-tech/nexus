@@ -22,6 +22,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	"github.com/bubblefish-tech/nexus/internal/tui/components"
@@ -49,21 +50,29 @@ func sdbg(format string, args ...interface{}) {
 }
 
 type dashAgentsMsg struct {
-	data []api.AgentSummary
-	err  error
+	data    []api.AgentSummary
+	errKind api.ErrorKind
+}
+
+type dashStatsMsg struct {
+	data    *api.AggregatedStats
+	errKind api.ErrorKind
 }
 
 // DashboardScreen is Page 1 — the main overview.
 type DashboardScreen struct {
-	width, height int
-	status        *api.StatusResponse
-	agents        []api.AgentSummary
-	healthy       bool
-	statusErr     error
-	curWrites     int
-	curReads      int
-	maxWrites     int
-	maxReads      int
+	width, height  int
+	status         *api.StatusResponse
+	stats          *api.AggregatedStats
+	agents         []api.AgentSummary
+	healthy        bool
+	curWrites      int
+	curReads       int
+	maxWrites      int
+	maxReads       int
+	cachedArt      string
+	cachedArtWidth int
+	cachedArtMaxH  int
 }
 
 // NewDashboardScreen creates the dashboard with initial state.
@@ -87,7 +96,6 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	case api.StatusBroadcastMsg:
 		if m.Data != nil {
 			d.status = m.Data
-			d.statusErr = nil
 			d.curWrites = m.Data.Writes1m
 			d.curReads = m.Data.Reads1m
 			if m.Data.Writes1m > d.maxWrites {
@@ -103,11 +111,16 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 			sdbg("StatusBroadcast received with nil data")
 		}
 	case dashAgentsMsg:
-		if m.err == nil {
+		if m.errKind == api.ErrKindUnknown {
 			d.agents = m.data
 			sdbg("AgentsMsg received: count=%d", len(m.data))
 		} else {
-			sdbg("AgentsMsg error: %v", m.err)
+			sdbg("AgentsMsg errKind=%d", m.errKind)
+		}
+	case dashStatsMsg:
+		if m.errKind == api.ErrKindUnknown && m.data != nil {
+			d.stats = m.data
+			sdbg("StatsMsg received: memories=%d agents=%d/%d", m.data.MemoryCount, m.data.AgentsConnected, m.data.AgentsKnown)
 		}
 	default:
 		sdbg("unhandled msg type: %T", msg)
@@ -116,10 +129,26 @@ func (d *DashboardScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 }
 
 func (d *DashboardScreen) FireRefresh(client *api.Client) tea.Cmd {
-	return func() tea.Msg {
-		agents, err := client.Agents()
-		return dashAgentsMsg{data: agents, err: err}
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			agents, err := client.Agents()
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("Agents failed kind=%d err=%v", kind, err)
+				return dashAgentsMsg{errKind: kind}
+			}
+			return dashAgentsMsg{data: agents}
+		},
+		func() tea.Msg {
+			stats, err := client.Stats()
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("Stats failed kind=%d err=%v", kind, err)
+				return dashStatsMsg{errKind: kind}
+			}
+			return dashStatsMsg{data: stats}
+		},
+	)
 }
 
 func (d *DashboardScreen) View() string {
@@ -149,10 +178,6 @@ func (d *DashboardScreen) View() string {
 	)
 	sections = append(sections, body)
 
-	if d.statusErr != nil {
-		sections = append(sections, styles.ErrorStyle.Render("  status: "+d.statusErr.Error()))
-	}
-
 	return lipgloss.NewStyle().Width(d.width).Height(d.height).Render(
 		strings.Join(sections, "\n"),
 	)
@@ -161,19 +186,23 @@ func (d *DashboardScreen) View() string {
 func (d *DashboardScreen) viewLeftColumn(w int) string {
 	var lines []string
 
-	// Truncate ANSI art to fit content area, centered above brand text.
 	artMaxLines := d.height - 18
 	if artMaxLines < 10 {
 		artMaxLines = 10
 	}
-	artLines := strings.Split(components.RenderFishEmblem(), "\n")
-	if len(artLines) > artMaxLines {
-		artLines = artLines[:artMaxLines]
+	if d.cachedArt == "" || d.cachedArtWidth != w || d.cachedArtMaxH != artMaxLines {
+		artLines := strings.Split(components.RenderFishEmblem(), "\n")
+		if len(artLines) > artMaxLines {
+			artLines = artLines[:artMaxLines]
+		}
+		for i, al := range artLines {
+			artLines[i] = lipgloss.PlaceHorizontal(w, lipgloss.Center, al+"\033[0m")
+		}
+		d.cachedArt = strings.Join(artLines, "\n")
+		d.cachedArtWidth = w
+		d.cachedArtMaxH = artMaxLines
 	}
-	for i, al := range artLines {
-		artLines[i] = lipgloss.PlaceHorizontal(w, lipgloss.Center, al)
-	}
-	lines = append(lines, strings.Join(artLines, "\n"))
+	lines = append(lines, d.cachedArt)
 	lines = append(lines, "")
 
 	// Brand text
@@ -201,7 +230,7 @@ func (d *DashboardScreen) viewLeftColumn(w int) string {
 	lines = append(lines, sectionHeader("CONNECTED TOOLS", w))
 	if len(d.agents) > 0 {
 		for _, a := range d.agents {
-			dot := agentDot(a.Status)
+			dot := agentDot(a.Status, a.LastSeenAt)
 			name := lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(a.DisplayName)
 			lines = append(lines, fmt.Sprintf("  %s %s", dot, name))
 		}
@@ -216,70 +245,80 @@ func (d *DashboardScreen) viewRightColumn(w int) string {
 	var lines []string
 	s := d.status
 
-	// ── Stat cards row ──
+	// ── 3×2 Stat cards grid ──
 	cardW := (w - 6) / 3
 	if cardW < 14 {
 		cardW = 14
 	}
+	cardH := 7
+	loaded := d.stats != nil || s != nil
 
 	memVal, auditVal, agentVal := "—", "—", "—"
 	memSub, auditSub, agentSub := "total stored", "chain entries", "connected"
 	healthVal, quarVal, walVal := "—", "—", "—"
-	healthSub, quarSub, walSub := "subsystems", "items", "fsync"
+	healthSub, quarSub, walSub := "subsystems", "items held", "fsync verified ✓"
 
-	if s != nil {
-		memVal = fmt.Sprintf("%d", s.MemoriesTotal)
-		if s.AuditEnabled {
-			auditVal = "enabled"
+	if d.stats != nil {
+		memVal = fmt.Sprintf("%d", d.stats.MemoryCount)
+		memSub = fmt.Sprintf("↑ %d this session", d.stats.SessionWrites)
+		auditVal = fmt.Sprintf("%d", d.stats.AuditCount)
+		if d.stats.Health.ChainIntact {
+			auditSub = "chain intact ✓"
 		} else {
-			auditVal = "disabled"
+			auditSub = "⚠ verify pending"
 		}
-		auditSub = "chain ✓"
-		agentSub = "conn/disc"
+		agentVal = fmt.Sprintf("%d / %d", d.stats.AgentsConnected, d.stats.AgentsKnown)
+		agentSub = "connected / discovered"
+		healthVal = strings.ToUpper(d.stats.Health.State)
+		healthSub = "all subsystems"
+		if d.stats.Health.State != "nominal" {
+			healthSub = "degraded"
+		}
+		quarVal = fmt.Sprintf("%d", d.stats.QuarantineTotal)
+		quarSub = "items held"
+		if d.stats.WALLagMs < 1 {
+			walVal = "< 1ms"
+		} else {
+			walVal = fmt.Sprintf("%.0fms", d.stats.WALLagMs)
+		}
+		if d.stats.WALFsyncOK {
+			walSub = "fsync verified ✓"
+		} else {
+			walSub = "⚠ fsync pending"
+		}
+	} else if s != nil {
+		memVal = fmt.Sprintf("%d", s.MemoriesTotal)
+		quarVal = fmt.Sprintf("%d", s.QuarantineTotal)
+		if d.healthy {
+			healthVal = "NOMINAL"
+			healthSub = "all subsystems"
+		}
 	}
-	if len(d.agents) > 0 {
+
+	if len(d.agents) > 0 && d.stats == nil {
 		connected := 0
-		total := len(d.agents)
 		for _, a := range d.agents {
 			if a.Status == "active" || a.Status == "online" {
 				connected++
 			}
 		}
-		agentVal = fmt.Sprintf("%d / %d", connected, total)
-	}
-
-	if d.healthy {
-		healthVal = "NOMINAL"
-		healthSub = "all subsys"
-	} else {
-		healthVal = "DOWN"
-		healthSub = "check daemon"
-	}
-
-	if s != nil {
-		quarVal = fmt.Sprintf("%d", s.QuarantineTotal)
-		quarSub = "quarantined"
-		if s.WAL.PendingEntries == 0 {
-			walVal = "<1ms"
-		} else {
-			walVal = fmt.Sprintf("%d pend", s.WAL.PendingEntries)
-		}
-		walSub = "WAL lag"
+		agentVal = fmt.Sprintf("%d / %d", connected, len(d.agents))
+		agentSub = "connected / discovered"
 	}
 
 	row1 := lipgloss.JoinHorizontal(lipgloss.Top,
-		components.StatCard{Label: "Memories", Value: memVal, Subtitle: memSub, Color: styles.ColorTeal, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "Audit", Value: auditVal, Subtitle: auditSub, Color: styles.ColorPurple, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "Agents", Value: agentVal, Subtitle: agentSub, Color: styles.ColorBlue, Width: cardW}.View(),
+		components.StatCard(components.StatCardProps{Label: "Memories", Value: memVal, SubLabel: memSub, Accent: styles.ColorTeal, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "Audit Events", Value: auditVal, SubLabel: auditSub, Accent: styles.ColorGreen, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "AI Agents", Value: agentVal, SubLabel: agentSub, Accent: styles.ColorPurple, Width: cardW, Height: cardH, Loaded: loaded}),
 	)
 	row2 := lipgloss.JoinHorizontal(lipgloss.Top,
-		components.StatCard{Label: "Health", Value: healthVal, Subtitle: healthSub, Color: styles.ColorGreen, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "Quarantine", Value: quarVal, Subtitle: quarSub, Color: styles.ColorAmber, Width: cardW}.View(),
-		" ",
-		components.StatCard{Label: "WAL Lag", Value: walVal, Subtitle: walSub, Color: styles.ColorGray, Width: cardW}.View(),
+		components.StatCard(components.StatCardProps{Label: "Health", Value: healthVal, SubLabel: healthSub, Accent: styles.ColorGreen, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "Quarantine", Value: quarVal, SubLabel: quarSub, Accent: styles.ColorAmber, Width: cardW, Height: cardH, Loaded: loaded}),
+		"  ",
+		components.StatCard(components.StatCardProps{Label: "WAL Lag", Value: walVal, SubLabel: walSub, Accent: styles.ColorGreen, Width: cardW, Height: cardH, Loaded: loaded}),
 	)
 
 	lines = append(lines, row1, "", row2, "")
@@ -340,14 +379,20 @@ func sectionHeader(title string, _ int) string {
 		Render("◈ " + title)
 }
 
-func agentDot(status string) string {
+const agentStaleThreshold = 2 * time.Minute
+
+func agentDot(status string, lastSeen time.Time) string {
+	stale := !lastSeen.IsZero() && time.Since(lastSeen) > agentStaleThreshold
+	if lastSeen.IsZero() || stale {
+		return lipgloss.NewStyle().Foreground(styles.ColorRed).Render("●")
+	}
 	switch status {
 	case "active", "online":
 		return lipgloss.NewStyle().Foreground(styles.ColorGreen).Render("●")
 	case "idle", "partial":
 		return lipgloss.NewStyle().Foreground(styles.ColorBlue).Render("◑")
 	default:
-		return lipgloss.NewStyle().Foreground(styles.TextMuted).Render("○")
+		return lipgloss.NewStyle().Foreground(styles.ColorRed).Render("●")
 	}
 }
 
@@ -369,7 +414,7 @@ func renderThroughputGauge(current, peak, width int, color lipgloss.Color) strin
 
 	label := fmt.Sprintf(" %d/m", current)
 	bar := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", filled)) +
-		lipgloss.NewStyle().Foreground(styles.BorderBase).Render(strings.Repeat("░", empty))
+		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(strings.Repeat("░", empty))
 	return bar + lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(label)
 }
 

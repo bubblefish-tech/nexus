@@ -30,7 +30,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const splashDuration = 13500 * time.Millisecond
+const splashDuration = 3500 * time.Millisecond
 const splashTickInterval = 50 * time.Millisecond
 const splashCrossFade = 500 * time.Millisecond
 

@@ -945,6 +945,7 @@ func (s *Server) callNexusSearch(w http.ResponseWriter, r *http.Request, req rpc
 		q = a.Query
 	}
 
+	t0 := time.Now()
 	result, err := s.pipeline.Search(r.Context(), SearchParams{
 		Source:      s.sourceName,
 		Q:           q,
@@ -953,11 +954,21 @@ func (s *Server) callNexusSearch(w http.ResponseWriter, r *http.Request, req rpc
 		Limit:       a.Limit,
 		Profile:     a.Profile,
 	})
+	elapsed := time.Since(t0)
 	if err != nil {
 		s.logger.Error("mcp: nexus_search pipeline error", "component", "mcp", "error", err)
 		s.writeToolError(w, r, req.ID, "search failed: "+err.Error())
 		return
 	}
+
+	s.logger.Info("mcp: nexus_search",
+		"component", "mcp",
+		"q_len", len(q),
+		"results", len(result.Records),
+		"stage", result.RetrievalStage,
+		"latency_ms", elapsed.Milliseconds(),
+		"profile", a.Profile,
+	)
 
 	out, _ := json.Marshal(result)
 	s.writeRPCResult(w, r, req.ID, toolCallResult{

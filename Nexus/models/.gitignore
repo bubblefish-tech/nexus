@@ -1,0 +1,4 @@
+*.gguf
+llama-server
+llama-server.exe
+*.zip

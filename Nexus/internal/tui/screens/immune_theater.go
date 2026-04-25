@@ -20,8 +20,10 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,31 +33,33 @@ import (
 type immuneSecurityMsg struct {
 	events  *api.SecurityEventsResponse
 	summary *api.SecuritySummaryResponse
-	err     error
+	errKind api.ErrorKind
+	hint    string
 }
 
 type immuneQuarantineMsg struct {
-	items *api.QuarantineResponse
-	count *api.QuarantineCountResponse
-	err   error
+	data    *api.QuarantineResponse
+	errKind api.ErrorKind
+	hint    string
 }
 
-// ImmuneTheaterScreen is Page 9 — quarantine + threat signatures.
+// ImmuneTheaterScreen is Page 8 — quarantine + threat signatures.
 type ImmuneTheaterScreen struct {
-	width, height    int
-	securityEvents   []api.SecurityEvent
-	securitySummary  *api.SecuritySummaryResponse
-	quarantineItems  []api.QuarantineRecord
-	quarantineCount  *api.QuarantineCountResponse
-	err              error
+	width, height   int
+	securityEvents  []api.SecurityEvent
+	securitySummary *api.SecuritySummaryResponse
+	quarantine      *api.QuarantineResponse
+	errKind         api.ErrorKind
+	errHint         string
+	loading         bool
 }
 
 // NewImmuneTheaterScreen creates the immune theater.
 func NewImmuneTheaterScreen() *ImmuneTheaterScreen {
-	return &ImmuneTheaterScreen{}
+	return &ImmuneTheaterScreen{loading: true}
 }
 
-func (im *ImmuneTheaterScreen) Name() string            { return "Immune" }
+func (im *ImmuneTheaterScreen) Name() string             { return "Immune" }
 func (im *ImmuneTheaterScreen) Init() tea.Cmd            { return nil }
 func (im *ImmuneTheaterScreen) SetSize(w, h int)         { im.width = w; im.height = h }
 func (im *ImmuneTheaterScreen) ShortHelp() []key.Binding { return nil }
@@ -63,26 +67,31 @@ func (im *ImmuneTheaterScreen) ShortHelp() []key.Binding { return nil }
 func (im *ImmuneTheaterScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case immuneSecurityMsg:
-		if m.err == nil {
+		im.loading = false
+		if m.errKind != api.ErrKindUnknown {
+			im.errKind = m.errKind
+			im.errHint = m.hint
+		} else {
+			im.errKind = api.ErrKindUnknown
+			im.errHint = ""
 			if m.events != nil {
 				im.securityEvents = m.events.Events
 			}
 			if m.summary != nil {
 				im.securitySummary = m.summary
 			}
-		} else {
-			im.err = m.err
 		}
 	case immuneQuarantineMsg:
-		if m.err == nil {
-			if m.items != nil {
-				im.quarantineItems = m.items.Items
-			}
-			if m.count != nil {
-				im.quarantineCount = m.count
-			}
+		im.loading = false
+		if m.errKind != api.ErrKindUnknown {
+			im.errKind = m.errKind
+			im.errHint = m.hint
 		} else {
-			im.err = m.err
+			im.errKind = api.ErrKindUnknown
+			im.errHint = ""
+			if m.data != nil {
+				im.quarantine = m.data
+			}
 		}
 	}
 	return im, nil
@@ -93,18 +102,26 @@ func (im *ImmuneTheaterScreen) FireRefresh(client *api.Client) tea.Cmd {
 		func() tea.Msg {
 			events, err := client.SecurityEvents(50)
 			if err != nil {
-				return immuneSecurityMsg{err: err}
+				kind := api.Classify(err)
+				sdbg("SecurityEvents failed kind=%d err=%v", kind, err)
+				return immuneSecurityMsg{errKind: kind, hint: api.HintForEndpoint("/api/security/events", kind)}
 			}
 			summary, err := client.SecuritySummary()
-			return immuneSecurityMsg{events: events, summary: summary, err: err}
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("SecuritySummary failed kind=%d err=%v", kind, err)
+				return immuneSecurityMsg{events: events, errKind: kind, hint: api.HintForEndpoint("/api/security/summary", kind)}
+			}
+			return immuneSecurityMsg{events: events, summary: summary}
 		},
 		func() tea.Msg {
-			items, err := client.QuarantineList(50)
+			data, err := client.QuarantineList(50)
 			if err != nil {
-				return immuneQuarantineMsg{err: err}
+				kind := api.Classify(err)
+				sdbg("Quarantine failed kind=%d err=%v", kind, err)
+				return immuneQuarantineMsg{errKind: kind, hint: api.HintForEndpoint("/api/quarantine", kind)}
 			}
-			count, err := client.QuarantineCount()
-			return immuneQuarantineMsg{items: items, count: count, err: err}
+			return immuneQuarantineMsg{data: data}
 		},
 	)
 }
@@ -112,6 +129,14 @@ func (im *ImmuneTheaterScreen) FireRefresh(client *api.Client) tea.Cmd {
 func (im *ImmuneTheaterScreen) View() string {
 	if im.width < 40 || im.height < 10 {
 		return ""
+	}
+
+	if im.loading {
+		frame := int(time.Now().UnixMilli()/150) % 8
+		return components.Render(loadingOpts(im.width, im.height, frame))
+	}
+	if im.errKind != api.ErrKindUnknown {
+		return components.Render(emptyStateOpts(im.errKind, im.errHint, im.width, im.height))
 	}
 
 	leftW := im.width / 2
@@ -127,12 +152,11 @@ func (im *ImmuneTheaterScreen) View() string {
 		lipgloss.NewStyle().Width(rightW).Render(right),
 	)
 
-	// Footer stats
 	var footer string
-	if im.quarantineCount != nil {
+	if im.quarantine != nil {
 		footer = lipgloss.NewStyle().Foreground(styles.TextMuted).
 			Render(fmt.Sprintf("  Quarantine: %d total · %d pending",
-				im.quarantineCount.Total, im.quarantineCount.Pending))
+				im.quarantine.Total, im.quarantine.Pending))
 	}
 	if im.securitySummary != nil {
 		footer += lipgloss.NewStyle().Foreground(styles.TextMuted).
@@ -143,10 +167,6 @@ func (im *ImmuneTheaterScreen) View() string {
 	}
 
 	result := lipgloss.JoinVertical(lipgloss.Left, body, footer)
-
-	if im.err != nil {
-		result += "\n" + styles.ErrorStyle.Render("  error: "+im.err.Error())
-	}
 
 	return lipgloss.NewStyle().Width(im.width).Height(im.height).Render(result)
 }
@@ -206,12 +226,17 @@ func (im *ImmuneTheaterScreen) viewQuarantine(w int) string {
 	lines = append(lines, sectionHeader("QUARANTINE QUEUE", w))
 	lines = append(lines, "")
 
-	if len(im.quarantineItems) == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No quarantined items"))
+	items := im.quarantineRecords()
+	if len(items) == 0 {
+		hint := "No items in quarantine. Malicious writes will appear here."
+		if im.quarantine != nil && im.quarantine.Pending > 0 {
+			hint = fmt.Sprintf("%d items pending — admin access required to view", im.quarantine.Pending)
+		}
+		lines = append(lines, styles.MutedStyle.Render("  "+hint))
 		return strings.Join(lines, "\n")
 	}
 
-	for _, item := range im.quarantineItems {
+	for _, item := range items {
 		ts := item.CreatedAt.Format("15:04:05")
 		src := lipgloss.NewStyle().Foreground(styles.TextWhiteDim).Render("src=" + item.Source)
 		rule := lipgloss.NewStyle().Foreground(styles.ColorAmber).Render("rule=" + item.Rule)
@@ -238,6 +263,13 @@ func (im *ImmuneTheaterScreen) viewQuarantine(w int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (im *ImmuneTheaterScreen) quarantineRecords() []api.QuarantineRecord {
+	if im.quarantine == nil {
+		return nil
+	}
+	return im.quarantine.Records
 }
 
 var _ Screen = (*ImmuneTheaterScreen)(nil)

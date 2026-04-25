@@ -74,10 +74,10 @@ func TestDashboardScreen_View_ShowsStatCards(t *testing.T) {
 	d := NewDashboardScreen()
 	d.SetSize(140, 40)
 	v := d.View()
-	if !strings.Contains(v, "MEMORIES") {
+	if !strings.Contains(v, "M E M O R I E S") {
 		t.Fatalf("expected MEMORIES stat card in view")
 	}
-	if !strings.Contains(v, "HEALTH") {
+	if !strings.Contains(v, "H E A L T H") {
 		t.Fatalf("expected HEALTH stat card in view")
 	}
 }

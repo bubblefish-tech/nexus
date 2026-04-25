@@ -27,10 +27,10 @@ import (
 
 // InlineBar renders a single-row progress bar with label and value.
 type InlineBar struct {
-	Label   string
-	Value   float64 // 0.0 to 1.0
-	Width   int
-	Color   lipgloss.Color
+	Label string
+	Value float64 // 0.0 to 1.0
+	Width int
+	Color lipgloss.Color
 }
 
 // View renders the inline bar.
@@ -54,7 +54,7 @@ func (b InlineBar) View() string {
 	empty := barWidth - filled
 
 	bar := lipgloss.NewStyle().Foreground(b.Color).Render(strings.Repeat("█", filled)) +
-		lipgloss.NewStyle().Foreground(styles.TextDim).Render(strings.Repeat("░", empty))
+		lipgloss.NewStyle().Foreground(styles.TextMuted).Render(strings.Repeat("░", empty))
 
 	return labelStr + " " + bar + " " + valueStr
 }

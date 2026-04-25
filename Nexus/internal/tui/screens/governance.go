@@ -20,8 +20,10 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
+	"github.com/bubblefish-tech/nexus/internal/tui/components"
 	"github.com/bubblefish-tech/nexus/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,18 +31,21 @@ import (
 )
 
 type govGrantsMsg struct {
-	data *api.GrantsResponse
-	err  error
+	data    *api.GrantsResponse
+	errKind api.ErrorKind
+	hint    string
 }
 
 type govApprovalsMsg struct {
-	data *api.ApprovalsResponse
-	err  error
+	data    *api.ApprovalsResponse
+	errKind api.ErrorKind
+	hint    string
 }
 
 type govTasksMsg struct {
-	data *api.TasksResponse
-	err  error
+	data    *api.TasksResponse
+	errKind api.ErrorKind
+	hint    string
 }
 
 // GovernanceScreen is Page 7 — grants, approvals, policy log.
@@ -49,15 +54,17 @@ type GovernanceScreen struct {
 	grants        []api.Grant
 	approvals     []api.Approval
 	tasks         []api.Task
-	err           error
+	errKind       api.ErrorKind
+	errHint       string
+	loading       bool
 }
 
 // NewGovernanceScreen creates the governance page.
 func NewGovernanceScreen() *GovernanceScreen {
-	return &GovernanceScreen{}
+	return &GovernanceScreen{loading: true}
 }
 
-func (g *GovernanceScreen) Name() string            { return "Gov" }
+func (g *GovernanceScreen) Name() string             { return "Gov" }
 func (g *GovernanceScreen) Init() tea.Cmd            { return nil }
 func (g *GovernanceScreen) SetSize(w, h int)         { g.width = w; g.height = h }
 func (g *GovernanceScreen) ShortHelp() []key.Binding { return nil }
@@ -65,22 +72,40 @@ func (g *GovernanceScreen) ShortHelp() []key.Binding { return nil }
 func (g *GovernanceScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case govGrantsMsg:
-		if m.err == nil && m.data != nil {
-			g.grants = m.data.Grants
+		g.loading = false
+		if m.errKind != api.ErrKindUnknown {
+			g.errKind = m.errKind
+			g.errHint = m.hint
 		} else {
-			g.err = m.err
+			g.errKind = api.ErrKindUnknown
+			g.errHint = ""
+			if m.data != nil {
+				g.grants = m.data.Grants
+			}
 		}
 	case govApprovalsMsg:
-		if m.err == nil && m.data != nil {
-			g.approvals = m.data.Approvals
+		g.loading = false
+		if m.errKind != api.ErrKindUnknown {
+			g.errKind = m.errKind
+			g.errHint = m.hint
 		} else {
-			g.err = m.err
+			g.errKind = api.ErrKindUnknown
+			g.errHint = ""
+			if m.data != nil {
+				g.approvals = m.data.Approvals
+			}
 		}
 	case govTasksMsg:
-		if m.err == nil && m.data != nil {
-			g.tasks = m.data.Tasks
+		g.loading = false
+		if m.errKind != api.ErrKindUnknown {
+			g.errKind = m.errKind
+			g.errHint = m.hint
 		} else {
-			g.err = m.err
+			g.errKind = api.ErrKindUnknown
+			g.errHint = ""
+			if m.data != nil {
+				g.tasks = m.data.Tasks
+			}
 		}
 	}
 	return g, nil
@@ -90,15 +115,30 @@ func (g *GovernanceScreen) FireRefresh(client *api.Client) tea.Cmd {
 	return tea.Batch(
 		func() tea.Msg {
 			data, err := client.Grants()
-			return govGrantsMsg{data: data, err: err}
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("Grants failed kind=%d err=%v", kind, err)
+				return govGrantsMsg{errKind: kind, hint: api.HintForEndpoint("/api/control/grants", kind)}
+			}
+			return govGrantsMsg{data: data}
 		},
 		func() tea.Msg {
 			data, err := client.Approvals()
-			return govApprovalsMsg{data: data, err: err}
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("Approvals failed kind=%d err=%v", kind, err)
+				return govApprovalsMsg{errKind: kind, hint: api.HintForEndpoint("/api/control/approvals", kind)}
+			}
+			return govApprovalsMsg{data: data}
 		},
 		func() tea.Msg {
 			data, err := client.Tasks()
-			return govTasksMsg{data: data, err: err}
+			if err != nil {
+				kind := api.Classify(err)
+				sdbg("Tasks failed kind=%d err=%v", kind, err)
+				return govTasksMsg{errKind: kind, hint: api.HintForEndpoint("/api/control/tasks", kind)}
+			}
+			return govTasksMsg{data: data}
 		},
 	)
 }
@@ -108,14 +148,21 @@ func (g *GovernanceScreen) View() string {
 		return ""
 	}
 
+	if g.loading {
+		frame := int(time.Now().UnixMilli()/150) % 8
+		return components.Render(loadingOpts(g.width, g.height, frame))
+	}
+	if g.errKind != api.ErrKindUnknown {
+		return components.Render(emptyStateOpts(g.errKind, g.errHint, g.width, g.height))
+	}
+
 	var lines []string
 
-	// ── Grants ──
 	lines = append(lines, sectionHeader("GRANTS", g.width))
 	lines = append(lines, "")
 
 	if len(g.grants) == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No active grants"))
+		lines = append(lines, styles.MutedStyle.Render("  No active grants. Grants are issued via CLI: nexus grant ..."))
 	} else {
 		for _, gr := range g.grants {
 			agent := lipgloss.NewStyle().Foreground(styles.TextPrimary).Render(gr.AgentID)
@@ -126,7 +173,6 @@ func (g *GovernanceScreen) View() string {
 	}
 	lines = append(lines, "")
 
-	// ── Pending Approvals ──
 	lines = append(lines, sectionHeader("PENDING APPROVALS", g.width))
 	lines = append(lines, "")
 
@@ -138,7 +184,7 @@ func (g *GovernanceScreen) View() string {
 	}
 
 	if pending == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No pending approvals"))
+		lines = append(lines, styles.MutedStyle.Render("  No pending approvals. Approvals appear here when agents request gated actions."))
 	} else {
 		for _, a := range g.approvals {
 			if a.Decision != "" && a.Decision != "pending" {
@@ -151,7 +197,6 @@ func (g *GovernanceScreen) View() string {
 	}
 	lines = append(lines, "")
 
-	// ── Active Tasks ──
 	lines = append(lines, sectionHeader("ACTIVE TASKS", g.width))
 	lines = append(lines, "")
 
@@ -163,7 +208,7 @@ func (g *GovernanceScreen) View() string {
 	}
 
 	if activeTasks == 0 {
-		lines = append(lines, styles.MutedStyle.Render("  No active tasks"))
+		lines = append(lines, styles.MutedStyle.Render("  No active tasks."))
 	} else {
 		for _, t := range g.tasks {
 			if t.Status != "running" && t.Status != "pending" {
@@ -181,16 +226,10 @@ func (g *GovernanceScreen) View() string {
 	}
 	lines = append(lines, "")
 
-	// ── Summary ──
 	lines = append(lines, sectionHeader("POLICY SUMMARY", g.width))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("  Grants: %d  ·  Pending: %d  ·  Tasks: %d",
 		len(g.grants), pending, len(g.tasks)))
-
-	if g.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, styles.ErrorStyle.Render("  error: "+g.err.Error()))
-	}
 
 	return lipgloss.NewStyle().Width(g.width).Height(g.height).
 		Render(strings.Join(lines, "\n"))

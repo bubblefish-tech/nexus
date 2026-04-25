@@ -20,6 +20,7 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bubblefish-tech/nexus/internal/tui/api"
 	"github.com/bubblefish-tech/nexus/internal/tui/components"
@@ -30,8 +31,9 @@ import (
 )
 
 type auditLogMsg struct {
-	data *api.AuditResponse
-	err  error
+	data    *api.AuditResponse
+	errKind api.ErrorKind
+	hint    string
 }
 
 type auditKeyMap struct {
@@ -53,7 +55,9 @@ type AuditWalkerScreen struct {
 	width, height int
 	table         components.LogTable
 	records       []api.AuditRecord
-	err           error
+	errKind       api.ErrorKind
+	errHint       string
+	loading       bool
 	autoScroll    bool
 	selectedIdx   int
 	count         int
@@ -64,11 +68,11 @@ func NewAuditWalkerScreen() *AuditWalkerScreen {
 	return &AuditWalkerScreen{
 		table:      components.NewLogTable(80, 20),
 		autoScroll: true,
+		loading:    true,
 	}
 }
 
-func (a *AuditWalkerScreen) Name() string { return "Audit" }
-
+func (a *AuditWalkerScreen) Name() string  { return "Audit" }
 func (a *AuditWalkerScreen) Init() tea.Cmd { return nil }
 
 func (a *AuditWalkerScreen) SetSize(w, h int) {
@@ -83,8 +87,10 @@ func (a *AuditWalkerScreen) ShortHelp() []key.Binding {
 func (a *AuditWalkerScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 	switch m := msg.(type) {
 	case auditLogMsg:
-		a.err = m.err
-		if m.data != nil {
+		a.loading = false
+		a.errKind = m.errKind
+		a.errHint = m.hint
+		if m.errKind == api.ErrKindUnknown && m.data != nil {
 			a.records = m.data.Records
 			a.count = len(m.data.Records)
 			a.rebuildRows()
@@ -117,7 +123,12 @@ func (a *AuditWalkerScreen) Update(msg tea.Msg) (Screen, tea.Cmd) {
 func (a *AuditWalkerScreen) FireRefresh(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		data, err := client.AuditLog(200)
-		return auditLogMsg{data: data, err: err}
+		if err != nil {
+			kind := api.Classify(err)
+			sdbg("AuditLog failed kind=%d err=%v", kind, err)
+			return auditLogMsg{errKind: kind, hint: api.HintForEndpoint("/api/audit/log", kind)}
+		}
+		return auditLogMsg{data: data}
 	}
 }
 
@@ -159,9 +170,16 @@ func (a *AuditWalkerScreen) View() string {
 		return ""
 	}
 
+	if a.loading {
+		frame := int(time.Now().UnixMilli()/150) % 8
+		return components.Render(loadingOpts(a.width, a.height, frame))
+	}
+	if a.errKind != api.ErrKindUnknown {
+		return components.Render(emptyStateOpts(a.errKind, a.errHint, a.width, a.height))
+	}
+
 	var sections []string
 
-	// Header with entry count and navigation hint.
 	header := lipgloss.JoinHorizontal(lipgloss.Bottom,
 		sectionHeader("AUDIT CHAIN", a.width),
 		"  ",
@@ -175,14 +193,29 @@ func (a *AuditWalkerScreen) View() string {
 	sections = append(sections, navHint)
 	sections = append(sections, "")
 
-	// Selected entry detail (if available).
 	if len(a.records) > 0 && a.selectedIdx < len(a.records) {
 		rec := a.records[a.selectedIdx]
-		sections = append(sections, a.viewEntryDetail(rec))
+		sections = append(sections, components.RenderEntryCard(components.EntryCardProps{
+			EntryN:    a.selectedIdx + 1,
+			Total:     a.count,
+			Timestamp: rec.Timestamp.Format("2006-01-02  15:04:05 UTC"),
+			RecordID:  rec.RecordID,
+			PrevHash:  rec.PrevHash,
+			ContentID: rec.RecordID,
+			Preview:   rec.OperationType + " " + rec.Endpoint,
+			Hash:      rec.Hash,
+			Signature: rec.Signature,
+			SigValid:  rec.SignatureValid,
+			Width:     a.width,
+		}))
+		sections = append(sections, "")
+
+		sections = append(sections, sectionHeader("MERKLE INCLUSION PROOF", a.width))
+		sections = append(sections, styles.MutedStyle.Render(
+			"  Merkle proof available when provenance endpoint is wired (T5)"))
 		sections = append(sections, "")
 	}
 
-	// Log table.
 	tableH := a.height - len(sections) - 2
 	if tableH < 5 {
 		tableH = 5
@@ -190,7 +223,6 @@ func (a *AuditWalkerScreen) View() string {
 	a.table.SetSize(a.width, tableH)
 	sections = append(sections, a.table.View())
 
-	// Count strip.
 	autoTag := styles.MutedStyle.Render("OFF")
 	if a.autoScroll {
 		autoTag = styles.SuccessStyle.Render("ON")
@@ -199,52 +231,8 @@ func (a *AuditWalkerScreen) View() string {
 		fmt.Sprintf("%d events · auto-scroll: ", a.count)) + autoTag
 	sections = append(sections, countStrip)
 
-	if a.err != nil {
-		sections = append(sections, styles.ErrorStyle.Render("  error: "+a.err.Error()))
-	}
-
 	return lipgloss.NewStyle().Width(a.width).Height(a.height).
 		Render(strings.Join(sections, "\n"))
-}
-
-func (a *AuditWalkerScreen) viewEntryDetail(rec api.AuditRecord) string {
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.BorderStrong).
-		Padding(0, 1).
-		Width(a.width - 4)
-
-	header := lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true).
-		Render(fmt.Sprintf("  Entry #%d", a.selectedIdx+1))
-	ts := lipgloss.NewStyle().Foreground(styles.TextWhiteDim).
-		Render(rec.Timestamp.Format("2006-01-02  15:04:05 UTC"))
-
-	titleLine := lipgloss.JoinHorizontal(lipgloss.Bottom, header, "  ", ts)
-
-	hashStyle := lipgloss.NewStyle().Foreground(styles.ColorTealDim)
-	idLine := fmt.Sprintf("  record_id:  %s", hashStyle.Render(rec.RecordID))
-	reqLine := fmt.Sprintf("  request_id: %s", hashStyle.Render(rec.RequestID))
-	opLine := fmt.Sprintf("  operation:  %s %s → %d",
-		rec.HTTPMethod, rec.Endpoint, rec.HTTPStatusCode)
-	srcLine := fmt.Sprintf("  source:     %s  ·  actor: %s (%s)",
-		rec.Source, rec.ActorType, rec.ActorID)
-
-	policyColor := styles.ColorGreen
-	if rec.PolicyDecision == "denied" {
-		policyColor = styles.ColorRed
-	} else if rec.PolicyDecision == "filtered" {
-		policyColor = styles.ColorAmber
-	}
-	policyLine := fmt.Sprintf("  policy:     %s",
-		lipgloss.NewStyle().Foreground(policyColor).Render(rec.PolicyDecision))
-	if rec.PolicyReason != "" {
-		policyLine += "  (" + rec.PolicyReason + ")"
-	}
-
-	latencyLine := fmt.Sprintf("  latency:    %.1fms", rec.LatencyMs)
-
-	content := strings.Join([]string{titleLine, "", idLine, reqLine, opLine, srcLine, policyLine, latencyLine}, "\n")
-	return box.Render(content)
 }
 
 var _ Screen = (*AuditWalkerScreen)(nil)

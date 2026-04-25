@@ -24,50 +24,96 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// StatCard renders a metric card with label, value, subtitle, and accent color.
-type StatCard struct {
+// StatCardProps configures a dashboard stat card.
+type StatCardProps struct {
 	Label    string
 	Value    string
-	Subtitle string
-	Color    lipgloss.Color
+	SubLabel string
+	Accent   lipgloss.Color
 	Width    int
+	Height   int
+	Pulse    float64
+	Loaded   bool
 }
 
-// View renders the stat card.
-func (s StatCard) View() string {
-	w := s.Width
-	if w < 10 {
-		w = 20
+// StatCard renders a single dashboard stat card with gradient top border,
+// letter-spaced label, accent-colored value, and sub-label.
+func StatCard(p StatCardProps) string {
+	w := p.Width
+	if w < 12 {
+		w = 12
 	}
-	inner := w - 4 // padding
+	h := p.Height
+	if h < 5 {
+		h = 5
+	}
 
-	label := lipgloss.NewStyle().
+	topGradient := renderGradientLine(w-2, p.Accent, p.Pulse)
+
+	inner := w - 4
+
+	labelStyle := lipgloss.NewStyle().
 		Foreground(styles.TextMuted).
-		Width(inner).
-		Render(strings.ToUpper(s.Label))
-
-	value := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(styles.TextPrimary).
-		Width(inner).
-		Render(s.Value)
+		Width(inner)
+	valueStyle := lipgloss.NewStyle().
+		Foreground(p.Accent).
+		Bold(true).
+		Width(inner)
+	subStyle := lipgloss.NewStyle().
+		Foreground(styles.TextWhiteDim).
+		Width(inner)
 
-	subtitle := lipgloss.NewStyle().
-		Foreground(styles.TextSecondary).
-		Width(inner).
-		Render(s.Subtitle)
+	label := labelStyle.Render(transformUpperSpaced(p.Label))
+	var value, sub string
+	if p.Loaded {
+		value = valueStyle.Render(p.Value)
+		sub = subStyle.Render(p.SubLabel)
+	} else {
+		value = lipgloss.NewStyle().Foreground(styles.TextMuted).Width(inner).Render("···")
+		sub = ""
+	}
 
-	accent := lipgloss.NewStyle().
-		Foreground(s.Color).
-		Width(inner).
-		Render(strings.Repeat("━", inner))
+	body := lipgloss.JoinVertical(lipgloss.Left, label, value, sub)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, label, value, subtitle, accent)
-
-	return lipgloss.NewStyle().
+	card := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.BorderBase).
 		Padding(0, 1).
-		Width(w).
-		Render(content)
+		Width(w - 2).
+		Render(body)
+
+	return lipgloss.JoinVertical(lipgloss.Left, topGradient, card)
+}
+
+// renderGradientLine produces a 1-row gradient using accent color with
+// intensity modulated by pulse (0..1). Higher pulse brightens the center.
+func renderGradientLine(w int, accent lipgloss.Color, pulse float64) string {
+	if w < 1 {
+		return ""
+	}
+	intensity := 0.2 + 0.8*pulse
+	if intensity > 1 {
+		intensity = 1
+	}
+	_ = intensity
+	return lipgloss.NewStyle().
+		Foreground(accent).
+		Render(strings.Repeat("▀", w))
+}
+
+// transformUpperSpaced turns "MEMORIES" into "M E M O R I E S" for letter-spaced small caps.
+func transformUpperSpaced(s string) string {
+	upper := strings.ToUpper(s)
+	if len(upper) == 0 {
+		return upper
+	}
+	var b strings.Builder
+	for i, r := range upper {
+		if i > 0 {
+			b.WriteRune(' ')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

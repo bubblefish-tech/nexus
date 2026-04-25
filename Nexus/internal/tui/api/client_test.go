@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -239,5 +240,337 @@ func TestTimeTravel_QueryParams(t *testing.T) {
 	_, _ = c.TimeTravel(TimeTravelOpts{Subject: "test", Limit: 5})
 	if gotPath == "/api/timetravel" {
 		t.Fatal("expected query params in path")
+	}
+}
+
+func TestNewClient_withToken(t *testing.T) {
+	t.Helper()
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(StatusResponse{Status: "ok", Version: "0.1.3"})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "secret-token")
+	defer c.Close()
+	_, _ = c.Status()
+	if gotAuth != "Bearer secret-token" {
+		t.Errorf("expected Authorization: Bearer secret-token, got %q", gotAuth)
+	}
+}
+
+func TestNewClient_withoutToken(t *testing.T) {
+	t.Helper()
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "")
+	defer c.Close()
+	_, _ = c.Health()
+	if gotAuth != "" {
+		t.Errorf("expected no Authorization header, got %q", gotAuth)
+	}
+}
+
+func TestAddAuth_onlyAPIPaths(t *testing.T) {
+	t.Helper()
+	c := NewClient("http://localhost", "tok")
+	defer c.Close()
+
+	tests := []struct {
+		path     string
+		wantAuth bool
+	}{
+		{"/api/status", true},
+		{"/api/config", true},
+		{"/api/security/events", true},
+		{"/health", false},
+		{"/ready", false},
+		{"/stream/retrieval", false},
+		{"/oauth/jwks", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "http://localhost"+tt.path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.addAuth(req)
+			got := req.Header.Get("Authorization")
+			if tt.wantAuth && got == "" {
+				t.Errorf("path %s: expected auth header, got none", tt.path)
+			}
+			if !tt.wantAuth && got != "" {
+				t.Errorf("path %s: expected no auth header, got %q", tt.path, got)
+			}
+		})
+	}
+}
+
+func TestResolveAdminToken_priority(t *testing.T) {
+	t.Helper()
+	tests := []struct {
+		name    string
+		cliFlag string
+		envVal  string
+		want    string
+	}{
+		{"cli beats env", "cli-tok", "env-tok", "cli-tok"},
+		{"env when no cli", "", "env-tok", "env-tok"},
+		{"empty when neither", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvAdminToken, tt.envVal)
+			got := ResolveAdminToken(tt.cliFlag)
+			if got != tt.want {
+				t.Errorf("ResolveAdminToken(%q) = %q, want %q", tt.cliFlag, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveBaseURL_priority(t *testing.T) {
+	t.Helper()
+	tests := []struct {
+		name    string
+		cliFlag string
+		envVal  string
+		want    string
+	}{
+		{"cli beats env", "http://cli:9000", "http://env:9001", "http://cli:9000"},
+		{"env when no cli", "", "http://env:9001", "http://env:9001"},
+		{"default when neither", "", "", DefaultAPIURL},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvAPIURL, tt.envVal)
+			got := ResolveBaseURL(tt.cliFlag)
+			if got != tt.want {
+				t.Errorf("ResolveBaseURL(%q) = %q, want %q", tt.cliFlag, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestListMemories_empty(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"memories":[],"_admin":{"result_count":0,"has_more":false}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.ListMemories(50, 0)
+	if err != nil {
+		t.Fatalf("ListMemories() unexpected error: %v", err)
+	}
+	if len(resp.Memories) != 0 {
+		t.Errorf("expected 0 memories, got %d", len(resp.Memories))
+	}
+}
+
+func TestListMemories_populated(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"memories":[
+			{"payload_id":"m1","source":"claude","created_at":"2026-04-23T10:00:00Z","destination":"sqlite"},
+			{"payload_id":"m2","source":"cursor","created_at":"2026-04-23T10:01:00Z","destination":"sqlite"},
+			{"payload_id":"m3","source":"lm-studio","created_at":"2026-04-23T10:02:00Z","destination":"sqlite"}
+		],"_admin":{"result_count":3,"has_more":false}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.ListMemories(50, 0)
+	if err != nil {
+		t.Fatalf("ListMemories() unexpected error: %v", err)
+	}
+	if len(resp.Memories) != 3 {
+		t.Fatalf("expected 3 memories, got %d", len(resp.Memories))
+	}
+	if resp.Memories[0].ID != "m1" {
+		t.Errorf("first memory ID = %q, want m1", resp.Memories[0].ID)
+	}
+	if resp.Memories[1].Source != "cursor" {
+		t.Errorf("second memory source = %q, want cursor", resp.Memories[1].Source)
+	}
+}
+
+func TestListMemories_404(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.ListMemories(50, 0)
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if Classify(err) != ErrKindNotFound {
+		t.Errorf("Classify(err) = %d, want ErrKindNotFound", Classify(err))
+	}
+}
+
+func TestListMemories_500(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.ListMemories(50, 0)
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	if Classify(err) != ErrKindServer {
+		t.Errorf("Classify(err) = %d, want ErrKindServer", Classify(err))
+	}
+}
+
+func TestListMemories_malformed(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{broken json`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.ListMemories(50, 0)
+	if err == nil {
+		t.Fatal("expected decode error for malformed JSON")
+	}
+}
+
+func TestSearchMemories_queryEncoding(t *testing.T) {
+	t.Helper()
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"memories":[],"_admin":{"result_count":0,"has_more":false}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, _ = c.SearchMemories("budget Q3", 10)
+	if !strings.Contains(gotPath, "q=budget+Q3") && !strings.Contains(gotPath, "q=budget%20Q3") {
+		t.Errorf("expected URL-encoded query, got path %q", gotPath)
+	}
+}
+
+func TestGrants_200(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"grants":[{"agent_id":"a1","capability":"read","scope":"default"}]}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Grants()
+	if err != nil {
+		t.Fatalf("Grants() unexpected error: %v", err)
+	}
+	if len(resp.Grants) != 1 {
+		t.Errorf("expected 1 grant, got %d", len(resp.Grants))
+	}
+}
+
+func TestGrants_404(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.Grants()
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if Classify(err) != ErrKindNotFound {
+		t.Errorf("Classify(err) = %d, want ErrKindNotFound", Classify(err))
+	}
+}
+
+func TestApprovals_200(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"approvals":[{"agent_id":"a1","capability":"write","decision":"pending"}]}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Approvals()
+	if err != nil {
+		t.Fatalf("Approvals() unexpected error: %v", err)
+	}
+	if len(resp.Approvals) != 1 {
+		t.Errorf("expected 1 approval, got %d", len(resp.Approvals))
+	}
+}
+
+func TestApprovals_500(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.Approvals()
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	if Classify(err) != ErrKindServer {
+		t.Errorf("Classify(err) = %d, want ErrKindServer", Classify(err))
+	}
+}
+
+func TestTasks_200(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tasks":[{"agent_id":"a1","capability":"execute","status":"running"}]}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	resp, err := c.Tasks()
+	if err != nil {
+		t.Fatalf("Tasks() unexpected error: %v", err)
+	}
+	if len(resp.Tasks) != 1 {
+		t.Errorf("expected 1 task, got %d", len(resp.Tasks))
+	}
+}
+
+func TestTasks_404(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "tok")
+	defer c.Close()
+	_, err := c.Tasks()
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if Classify(err) != ErrKindNotFound {
+		t.Errorf("Classify(err) = %d, want ErrKindNotFound", Classify(err))
 	}
 }
