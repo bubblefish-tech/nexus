@@ -45,13 +45,13 @@ const (
 	MetricActiveAgents         = "nexus_active_agents"
 )
 
-// MetricType identifies the OTLP metric data type.
-type MetricType int
+// OTLPMetricType identifies the OTLP metric data type.
+type OTLPMetricType int
 
 const (
-	MetricTypeGauge MetricType = iota
-	MetricTypeSum
-	MetricTypeHistogram
+	OTLPMetricGauge OTLPMetricType = iota
+	OTLPMetricSum
+	OTLPMetricHistogram
 )
 
 // MetricDefinition describes a single metric for the exporter.
@@ -59,18 +59,18 @@ type MetricDefinition struct {
 	Name        string
 	Description string
 	Unit        string
-	Type        MetricType
+	Type        OTLPMetricType
 }
 
 // DefaultMetrics defines the 7 Nexus metrics per MT.14.
 var DefaultMetrics = []MetricDefinition{
-	{MetricMemoryWriteDuration, "Duration of memory write operations", "s", MetricTypeHistogram},
-	{MetricCascadeStageDuration, "Duration of each cascade retrieval stage", "s", MetricTypeHistogram},
-	{MetricPolicyEvalDuration, "Duration of policy evaluation", "s", MetricTypeHistogram},
-	{MetricWALPendingEntries, "Number of pending WAL entries", "1", MetricTypeGauge},
-	{MetricWALReplayDuration, "Duration of WAL replay at startup", "s", MetricTypeGauge},
-	{MetricAgentRequestsTotal, "Total number of agent requests", "1", MetricTypeSum},
-	{MetricActiveAgents, "Number of currently active agents", "1", MetricTypeGauge},
+	{MetricMemoryWriteDuration, "Duration of memory write operations", "s", OTLPMetricHistogram},
+	{MetricCascadeStageDuration, "Duration of each cascade retrieval stage", "s", OTLPMetricHistogram},
+	{MetricPolicyEvalDuration, "Duration of policy evaluation", "s", OTLPMetricHistogram},
+	{MetricWALPendingEntries, "Number of pending WAL entries", "1", OTLPMetricGauge},
+	{MetricWALReplayDuration, "Duration of WAL replay at startup", "s", OTLPMetricGauge},
+	{MetricAgentRequestsTotal, "Total number of agent requests", "1", OTLPMetricSum},
+	{MetricActiveAgents, "Number of currently active agents", "1", OTLPMetricGauge},
 }
 
 // DataPoint is a single metric observation.
@@ -361,7 +361,7 @@ func (e *OTLPExporter) buildPayload(points []DataPoint) otlpPayload {
 	for name, dps := range grouped {
 		def, ok := e.metrics[name]
 		if !ok {
-			def = MetricDefinition{Name: name, Type: MetricTypeGauge}
+			def = MetricDefinition{Name: name, Type: OTLPMetricGauge}
 		}
 
 		m := otlpMetric{
@@ -371,15 +371,15 @@ func (e *OTLPExporter) buildPayload(points []DataPoint) otlpPayload {
 		}
 
 		switch def.Type {
-		case MetricTypeGauge:
+		case OTLPMetricGauge:
 			m.Gauge = &otlpGauge{DataPoints: toNumberDPs(dps)}
-		case MetricTypeSum:
+		case OTLPMetricSum:
 			m.Sum = &otlpSum{
 				AggregationTemporality: 2, // CUMULATIVE
 				IsMonotonic:            true,
 				DataPoints:             toNumberDPs(dps),
 			}
-		case MetricTypeHistogram:
+		case OTLPMetricHistogram:
 			m.Histogram = &otlpHisto{
 				AggregationTemporality: 2, // CUMULATIVE
 				DataPoints:             toHistoDPs(dps),
