@@ -2265,3 +2265,46 @@ Branch: feat/tui-alltier-hardening
 - Build: OK
 - Vet: OK
 - Tests: all packages PASS (CGO_ENABLED=1, -race, -count=1) — zero failures
+
+## Branch: v0.1.3-bombproof (continued)
+
+## BP.1: COMPLETE — Sidecar Supervisor with Tiered Degradation (MP5.3)
+- New files: `internal/supervisor/tiers.go`, `pipe.go`, `pipe_unix.go`, `pipe_windows.go`, `sidecar.go`, `sidecar_test.go`
+- Extended: `cmd/nexus-supervisor/main.go` — wired to use `supervisor.Sidecar` with tiered degradation
+- `TierMachine` state machine: TierNormal → TierInstantRestart → TierReducedFeatures → TierReadOnly → TierEmergencyShutdown
+- `Sidecar`: two-process model; monitors daemon via `Pipe` interface; heartbeat watchdog; backoff on failure
+- `Pipe` interface + `pipePair()` in-process test pipe; platform-specific: Unix domain socket (!windows), TCP loopback (windows)
+- `PipeMsg` types: heartbeat, tier_change, shutdown, ready, error
+- Fix: pre-existing race in `TestSupervisor_MultipleGoroutines` (logBuf read before supervisor stopped)
+- 29 new tests (13 tier machine, 4 pipe, 8 sidecar, 4 existing) — 33 total in package
+- Exit gate: Build OK | Vet OK | internal/supervisor PASS (33 tests, -race)
+
+## BP.2: COMPLETE — OS Service Integration (MP5.4)
+- New files: `internal/supervisor/service_common.go`, `service_linux.go`, `service_darwin.go`, `service_windows.go`
+- Test files: `internal/supervisor/service_test.go`, `service_windows_test.go`
+- Linux: systemd unit template (WatchdogSec=30s, Restart=always, Type=notify, security hardening)
+- macOS: launchd plist via howett.net/plist (KeepAlive=true, RunAtLoad=true)
+- Windows: sc.exe install/uninstall batch scripts (delayed-auto, failure recovery: 5s/30s/60s)
+- Template-generation only — no actual service registration in code
+- 13 new tests (11 Windows service template tests + 2 common stringBuffer tests)
+- Exit gate: Build OK | Vet OK | all service tests PASS
+
+## BP.3: COMPLETE — In-Daemon Supervision Tree with Circuit Breakers (MP5.5)
+- New files: `internal/supervisor/tree.go`, `tree_test.go`
+- Uses `sony/gobreaker/v2` (already in go.mod) for per-child circuit breakers
+- `Tree`: Erlang-style supervision; children started in order, stopped in reverse order
+- `ChildSpec`: Name, Start func, RestartPolicy (Always/OnFailure/Never), BreakerConfig
+- Circuit breaker: 5 failures/60s → open 30s (configurable via BreakerConfig)
+- Restart intensity limiter: max restarts in window before tree shuts down (default 10/60s)
+- Deferred restart: when breaker is open, waits for half-open transition before retrying
+- `Status()` returns per-child status including breaker state
+- 18 new tests (lifecycle, restart policies, circuit breaker open/recovery, intensity, context, shutdown order, mixed policies)
+- Exit gate: Build OK | Vet OK | internal/supervisor PASS (62 total tests, -race)
+
+### Combined Exit Gate (BP.1 + BP.2 + BP.3):
+- Build: OK
+- Vet: OK
+- internal/supervisor: 62 tests PASS (CGO_ENABLED=1, -race, -count=1)
+- Full suite: all packages PASS except internal/ingest (pre-existing testdata path issue, unrelated)
+- Total new files: 12
+- Total new tests: 60 (29 sidecar + 13 service + 18 tree)
