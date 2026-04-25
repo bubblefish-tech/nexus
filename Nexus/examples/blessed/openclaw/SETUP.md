@@ -173,7 +173,7 @@ Edit `~/.openclaw/openclaw.json` and add the Nexus environment variables:
 
 **Replace:**
 - `172.28.x.x` with your actual Windows host IP from Step 1.3
-- `bfn_data_YOUR_DATA_KEY_HERE` with your actual data key from Step 1.5
+- `bfn_data_REPLACE_WITH_YOUR_DATA_KEY` with your actual data key from Step 1.5
 
 ### Step 3.4: Enable Plugin Tools in OpenClaw Config
 
