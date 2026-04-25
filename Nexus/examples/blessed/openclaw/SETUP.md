@@ -90,7 +90,7 @@ curl -s http://$NEXUS_HOST:18080/health
 Expected: `{"status":"ok"}` or similar health response.
 
 If this fails:
-- Make sure Nexus is running on Windows: `.\nexus start --home D:\Test\BubbleFish\v010-dogfood\home`
+- Make sure Nexus is running on Windows: `.\nexus start --home C:\Users\YOU\.bubblefish`
 - Check the port proxy was created: `netsh interface portproxy show all`
 - Check Windows Firewall isn't blocking port 18080
 
@@ -98,7 +98,7 @@ If this fails:
 
 On Windows PowerShell:
 ```powershell
-Get-Content "D:\Test\BubbleFish\v010-dogfood\home\sources\default.toml" | Select-String "bfn_data_"
+Get-Content "$env:USERPROFILE\.bubblefish\sources\default.toml" | Select-String "bfn_data_"
 ```
 
 Copy the full `bfn_data_...` key — you'll need it in Part 3.
@@ -257,7 +257,7 @@ The `netsh portproxy` rule survives reboots on Windows — it's stored in the re
 
 Create a Windows startup script that updates the OpenClaw config with the current WSL IP:
 
-**File: `C:\Users\shawn\update-nexus-wsl.ps1`**
+**File: `C:\Users\YOU\update-nexus-wsl.ps1`**
 ```powershell
 # Get current WSL 2 host IP
 $wslIP = (wsl cat /etc/resolv.conf | Select-String "nameserver").ToString().Split(" ")[1].Trim()

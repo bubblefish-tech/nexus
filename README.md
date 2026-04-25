@@ -86,7 +86,7 @@ curl -L https://github.com/bubblefish-tech/nexus/releases/latest/download/bubble
 
 ```powershell
 # Windows
-iwr -useb https://get.bubblefish.ai/install.ps1 | iex
+iwr -useb https://get.bubblefish.sh/install.ps1 | iex
 .\bubblefish install --mode simple
 .\bubblefish start
 ```
@@ -214,7 +214,7 @@ We ship when it works. Dates are not published.
 
 AGPL-3.0. See [LICENSE](LICENSE).
 
-A commercial license is available for SaaS deployment, OEM embedding, or any use that cannot accept AGPL obligations: `licensing@bubblefish.ai`.
+A commercial license is available for SaaS deployment, OEM embedding, or any use that cannot accept AGPL obligations: `licensing@bubblefish.sh`.
 
 Contributions require a signed Contributor License Agreement. See [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md). The CLA lets BubbleFish Technologies, Inc. distribute your contribution under both AGPL and the commercial license. You retain copyright.
 
@@ -239,11 +239,11 @@ Report security issues privately per [SECURITY.md](SECURITY.md). Do not open pub
 - Issues: [github.com/bubblefish-tech/nexus/issues](https://github.com/bubblefish-tech/nexus/issues)
 - Discussions: [github.com/bubblefish-tech/nexus/discussions](https://github.com/bubblefish-tech/nexus/discussions)
 - Security: see [SECURITY.md](SECURITY.md)
-- Commercial and press: `hello@bubblefish.ai`
+- Commercial and press: `hello@bubblefish.sh`
 
 ---
 
 <p align="center">
-Built by <a href="https://bubblefish.ai">BubbleFish Technologies, Inc.</a>, a frontier AI infrastructure company.<br/>
+Built by <a href="https://bubblefish.sh">BubbleFish Technologies, Inc.</a>, a frontier AI infrastructure company.<br/>
 Secure, durable, and governed fabric for AI systems and agents.
 </p>
