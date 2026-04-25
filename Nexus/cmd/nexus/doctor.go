@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -31,6 +32,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/bubblefish-tech/nexus/internal/chaos"
 	"github.com/bubblefish-tech/nexus/internal/config"
 	"github.com/bubblefish-tech/nexus/internal/doctor"
 	"github.com/bubblefish-tech/nexus/internal/health"
@@ -54,6 +56,10 @@ func runDoctor() {
 		}
 		if arg == "--repair" {
 			runDoctorRepair()
+			return
+		}
+		if arg == "--chaos" {
+			runDoctorChaos()
 			return
 		}
 	}
@@ -350,6 +356,38 @@ func runMemoryHealth() {
 		}
 	}
 	fmt.Fprintln(os.Stderr)
+}
+
+// runDoctorChaos executes `nexus doctor --chaos`.
+// Runs a 5-minute chaos engineering drill with 5 fault injection scenarios.
+func runDoctorChaos() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	fmt.Println("nexus doctor --chaos: starting 5-minute reliability drill...")
+
+	ctrl := chaos.NewController(chaos.ControllerConfig{
+		Timeout: 5 * time.Minute,
+		Logger:  logger,
+	})
+	ctrl.RegisterDefaults()
+
+	data, err := ctrl.RunDrillJSON(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "nexus doctor --chaos: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(string(data))
+
+	var report chaos.DrillReport
+	_ = json.Unmarshal(data, &report)
+	if !report.Pass {
+		fmt.Fprintf(os.Stderr, "nexus doctor --chaos: %s\n", report.Verdict)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "nexus doctor --chaos: %s\n", report.Verdict)
 }
 
 // runDoctorRepair attempts to fix common configuration issues.
