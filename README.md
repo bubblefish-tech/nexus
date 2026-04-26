@@ -209,12 +209,6 @@ Report security issues privately per [SECURITY.md](SECURITY.md). Do not open pub
 
 ---
 
-## Patent Pending
-
-The credential gateway architecture, the WAL-based persistence and crash-recovery model, the six-stage retrieval cascade with temporal decay, and the integrated memory-and-credential gateway as a single self-contained daemon are covered by a provisional patent application filed with the United States Patent and Trademark Office.
-
----
-
 ## Community
 
 - Issues: [github.com/bubblefish-tech/nexus/issues](https://github.com/bubblefish-tech/nexus/issues)
