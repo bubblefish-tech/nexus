@@ -27,19 +27,6 @@ That's it. Nexus is now listening on `127.0.0.1:8080` with MCP on `:8082` and th
 6. Non-blocking queue enqueues for async delivery
 7. Worker delivers to destination (SQLite/PostgreSQL/Supabase)
 
-### Query Path (6-Stage Retrieval Cascade)
-
-| Stage | Component | Description |
-|-------|-----------|-------------|
-| 0 | Policy | Auth check, permission validation |
-| 1 | Exact Cache | SHA256-keyed LRU with watermark invalidation |
-| 2 | Semantic Cache | Embedding similarity (configurable threshold) |
-| 3 | Temporal Decay | Exponential or step-mode time scoring |
-| 4 | Embedding + DB | Vector similarity + structured query |
-| 5 | Projection | Field allowlist, metadata stripping, pagination |
-
-Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per source.
-
 ## Features
 
 | Feature | Description |
