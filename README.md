@@ -1,146 +1,204 @@
-# Nexus
+# BubbleFish Nexus
 
-Nexus is a small local memory store for AI coding assistants. It saves what you've talked about with tools like Claude Code, Cursor, and Continue, and lets them search across past conversations.
+**One memory pool for all your AI apps.** Auto-ingests conversations from Claude Code, Cursor, and any JSONL source. Cryptographic provenance on every write. Survives kill -9. Single Go binary.
 
-One Go binary. SQLite by default. Runs on Windows, Linux, and macOS.
+> v0.1.3 (pre-1.0, API subject to change)
 
-> v0.1.3 — early hobby release. APIs will change.
-
----
-
-## Install
+## Quick Start (Simple Mode)
 
 ```bash
-# Linux / macOS
-curl -L https://github.com/bubblefish-tech/nexus/releases/latest/download/nexus_$(uname -s)_$(uname -m).tar.gz | tar xz
-./nexus install --mode simple
-./nexus start
-```
-
-```powershell
-# Windows
-iwr -useb https://get.bubblefish.sh/install.ps1 | iex
+# Install with zero-friction defaults (SQLite, localhost, single API key)
 nexus install --mode simple
+
+# Start the daemon
 nexus start
 ```
 
-After install, Nexus listens on `localhost:8080` for the HTTP API and `localhost:7474` for the MCP endpoint. A small status page is at `localhost:8081`.
+That's it. Nexus is now listening on `127.0.0.1:8080` with MCP on `:8082` and the web dashboard on `:8081`.
 
----
 
-## Try it
+### Write Path
+
+1. Client sends `POST /write` with payload
+2. Auth middleware validates API key (constant-time compare) or JWT
+3. Policy engine checks source permissions, allowed destinations, field visibility
+4. WAL writes entry with CRC32 checksum (+ optional HMAC/encryption), fsyncs
+5. Idempotency store registers the key
+6. Non-blocking queue enqueues for async delivery
+7. Worker delivers to destination (SQLite/PostgreSQL/Supabase)
+
+### Query Path (6-Stage Retrieval Cascade)
+
+| Stage | Component | Description |
+|-------|-----------|-------------|
+| 0 | Policy | Auth check, permission validation |
+| 1 | Exact Cache | SHA256-keyed LRU with watermark invalidation |
+| 2 | Semantic Cache | Embedding similarity (configurable threshold) |
+| 3 | Temporal Decay | Exponential or step-mode time scoring |
+| 4 | Embedding + DB | Vector similarity + structured query |
+| 5 | Projection | Field allowlist, metadata stripping, pagination |
+
+Retrieval profiles (`fast`, `balanced`, `deep`) control which stages run per source.
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| Proactive Ingestion | Watches Claude Code, Cursor, and generic JSONL directories — auto-ingests conversations as memories |
+| Multi-Client Memory Pool | Claude Code, Cursor, ChatGPT, Claude Desktop, LM Studio, Open WebUI, Perplexity all share one memory |
+| Bulk Import | `nexus import` ingests Claude/ChatGPT export ZIPs, Claude Code dirs, Cursor dirs, generic JSONL |
+| Cryptographic Provenance | Per-source Ed25519 signing, hash-chained audit log, Merkle roots, query attestation |
+| Survives kill -9 | WAL with fsync, group commit, dual integrity sentinels, 24-hour chaos testing |
+| Proprietary Retrieval Cascade | Policy, exact cache, semantic cache, structured, semantic, hybrid merge with temporal decay and projection |
+| Retrieval Profiles | `fast`, `balanced`, `deep`, `wake` with per-source stage toggles |
+| Tiered Temporal Decay | Per-destination/collection decay, exponential and step modes |
+| MCP Server | `nexus_write`, `nexus_search`, `nexus_status` for Claude Desktop and Cursor |
+| WAL CRC32 Checksums | 4-byte CRC32 on every entry |
+| WAL HMAC Integrity | Optional HMAC-SHA256 for tamper detection |
+| WAL Encryption | Optional AES-256-GCM with per-entry nonce |
+| Config Signing | `nexus sign-config` for signed-mode deployments |
+| Zero-Dep LRU Cache | Go generics, `map` + `container/list`, no external dependencies |
+| Constant-Time Auth | `subtle.ConstantTimeCompare` for all token validation |
+| Admin vs Data Token Separation | Wrong token class returns 401 |
+| Provenance Fields | `actor_type` (user/agent/system) + `actor_id` on every write |
+| Non-Blocking Queue | `select`-based enqueue, `sync.Once` drain |
+| Simple Mode Install | `nexus install --mode simple` for zero-friction setup |
+| Install Profiles | Open WebUI, PostgreSQL, OpenBrain starter configs |
+| `nexus dev` | Daemon with debug logging and auto-reload |
+| Backup and Restore | `nexus backup create` / `nexus backup restore` |
+| Config Lint | `nexus lint` for dangerous config detection |
+| Consistency Assertions | Background WAL-to-destination consistency checks |
+| WAL Health Watchdog | Background disk/permissions/latency monitoring |
+| `nexus bench` | Throughput, latency, and retrieval evaluation benchmarks |
+| Reliability Demo | `nexus demo` — golden crash-recovery scenario |
+| Structured Security Events | Dedicated security event log for SIEM integration |
+| Security Metrics | Auth failures, policy denials, rate limits, admin calls |
+| Blessed Integration Configs | Pre-built templates for Claude, Open WebUI, Perplexity |
+| Reference Architectures | Dev laptop, home lab, air-gapped deployment docs |
+| TLS/mTLS Support | Optional TLS with configurable cert, key, client CA |
+| Trusted Proxies | CIDR allowlist with forwarded header parsing |
+| Event Sink (Webhooks) | Optional async webhook notifications from WAL |
+| Live Pipeline Visualization | Lossy event channel, never blocks hot paths |
+| Security Tab | Dashboard tab with source policies and auth failure history |
+| Debug Stages | Optional `_nexus.debug` with admin auth |
+| System Tray | Windows tray icon with status and dashboard launch |
+| Sketch Substrate | Optional compact binary sketches with per-memory encryption and forward-secure deletion. See [Docs/substrate.md](Docs/substrate.md) |
+
+## CLI Commands
+
+```
+nexus install        Create config directory and initial configuration
+nexus start          Start daemon + MCP + dashboard + tray + ingest
+nexus stop           Stop the daemon gracefully
+nexus dev            Start daemon with debug logging and auto-reload
+nexus import <path>  Bulk import from Claude/ChatGPT ZIP, Claude Code dir, Cursor dir, JSONL
+nexus ingest status  Show all ingest watchers with state and counts
+nexus ingest pause   Pause a named ingest watcher
+nexus ingest resume  Resume a paused ingest watcher
+nexus ingest reset   Forget file state (re-parse from offset 0)
+nexus chaos          Fault injection durability test with A+B verification
+nexus verify         Cryptographic provenance verification
+nexus timeline       Forensic memory audit history
+nexus backup         Create or restore backups
+nexus bench          Throughput, latency, and retrieval benchmarks
+nexus demo           Reliability demo: crash-recovery with 50 memories
+nexus lint           Check configuration for dangerous settings
+nexus mcp test       Start MCP server and verify nexus_status responds
+nexus version        Print version string
+```
+
+## Crash-Recovery Demo
+
+BubbleFish Nexus is built for durability. The crash demo proves it:
 
 ```bash
-# Save something
-curl -s -X POST http://localhost:8080/write \
-  -H "Authorization: Bearer $NEXUS_DATA_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"content":"Nexus remembers this.","subject":"demo"}'
+# Start the daemon
+nexus start &
 
-# Search for it
-curl -s http://localhost:8080/search?q=remembers \
-  -H "Authorization: Bearer $NEXUS_DATA_KEY"
+# Run the reliability demo — writes 50 memories, simulates crash, verifies recovery
+nexus demo --api-key $NEXUS_API_KEY --admin-key $NEXUS_ADMIN_KEY
 ```
 
-The kill -9 test: write some memories, force-kill the process, restart, and search. Everything comes back. Nexus uses a write-ahead log so nothing is lost if it crashes.
+The demo writes 50 memories through the full pipeline, verifies WAL durability through a simulated crash, and confirms every memory survives recovery. Results are visible in both the CLI and the web dashboard.
 
----
+## MCP Integration
 
-## How it works
-Coding assistant
-│
-▼
-Nexus (local Go binary)
-│
-┌───┴───┐
-▼       ▼
-write    search
-│       │
-WAL    6-stage lookup:
-│       exact cache → semantic →
-▼       
-SQLite     subject → full scan
+BubbleFish Nexus exposes an MCP server (JSON-RPC 2.0, protocol version `2024-11-05`) for native integration with Claude Desktop and Cursor.
 
-Writes go to a write-ahead log first, then to SQLite. Searches run a six-stage cascade and stop at the first stage that returns results. Every response tells you which stage answered the query.
+**Tools available via MCP:**
+- `nexus_write` — store a memory
+- `nexus_search` — query memories with full retrieval cascade
+- `nexus_status` — daemon health and metrics
 
-Postgres and Supabase are also supported as alternative storage backends.
+See `examples/blessed/claude-desktop-mcp.toml` for a ready-to-use configuration.
 
----
+## Configuration
 
-## Connect your tools
+Config lives in `~/.nexus/Nexus/`. Key files:
 
-### Claude Desktop / Claude Code / Cursor
-
-These speak MCP. Add Nexus as an MCP server:
-
-```json
-{
-  "mcpServers": {
-    "nexus": {
-      "url": "http://localhost:7474",
-      "headers": {
-        "Authorization": "Bearer YOUR_BFN_MCP_KEY"
-      }
-    }
-  }
-}
+```
+~/.nexus/Nexus/
+  daemon.toml            # Main daemon config
+  sources/*.toml         # Per-source auth and policy
+  destinations/*.toml    # Database connection configs
+  compiled/*.json        # Compiled policies (nexus build)
+  compiled/*.sig         # Config signatures (nexus sign-config)
 ```
 
-### Open WebUI + Ollama
+Secrets are never stored in plain text — use `env:VARIABLE_NAME` or `file:/path/to/secret` references.
 
-There's an Open WebUI filter pipeline in `examples/integrations/openwebui/` that auto-saves conversations to Nexus and injects relevant past notes back into the prompt.
+Source configs support hot reload without restart. Destination changes require restart.
 
-### Other tools
+## Blessed Configs
 
-Anything that can hit a local HTTP endpoint can use Nexus. There's a TypeScript example in `examples/integrations/openclaw/` showing how a third-party tool can wire it up.
+Pre-built starter configurations in `examples/blessed/`:
 
+| File | Use Case |
+|------|----------|
+| `claude-code-http.toml` | Claude Code via direct HTTP |
+| `claude-desktop-mcp.toml` | Claude Desktop via native MCP |
+| `open-webui.toml` | Open WebUI integration |
+| `perplexity.toml` | Perplexity integration |
 
----
+## Reference Architectures
 
-## Benchmarks
+- [Dev Laptop](Docs/dev-laptop.md) — local development with SQLite
+- [Home Lab](Docs/home-lab.md) — multi-client with PostgreSQL
+- [Air-Gapped](Docs/air-gapped.md) — offline deployment with local embeddings
 
-Run `nexus bench` on your own machine. I haven't published numbers yet — the project is too early and benchmark methodology for memory retrieval is its own rabbit hole.
+## Known Limitations
 
----
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current limitations including the Go 1.26.1 race detector linker bug, SQLite write serialization, and in-memory cache behavior.
 
-## Documentation
+## OAuth 2.1 Support
 
-- [Configuration](Nexus/Docs/CONFIGURATION.md) — `daemon.toml` reference
-- [API Reference](Nexus/Docs/API.md) — HTTP and MCP endpoints
-- [Known Limitations](Nexus/KNOWN_LIMITATIONS.md) — what doesn't work yet
+BubbleFish Nexus v0.1.3 includes an OAuth 2.1 authorization server for
+MCP clients that require OAuth discovery (ChatGPT connectors, Claude Web
+UI custom connectors, etc.). OAuth is **disabled by default**. Clients
+that support Bearer token auth (Claude Desktop, Perplexity Comet, Open
+WebUI, Cursor) continue to use the static `bfn_mcp_` key path with zero
+configuration changes.
 
----
+See [docs/OAUTH_KNOWN_LIMITATIONS.md](docs/OAUTH_KNOWN_LIMITATIONS.md) for
+the current scope and limitations of the OAuth implementation.
+
+## Nexus A2A
+
+Nexus A2A is a governed agent-to-agent protocol that lets any MCP-compatible AI assistant (Claude Desktop, ChatGPT, Perplexity, LM Studio, Open WebUI) invoke registered agents through Nexus without code changes. Every task is governed by capability-scope grants you control, every destructive action requires explicit approval, and every action is recorded in the tamper-evident audit chain. Nexus A2A is wire-compatible with the public A2A v1.0 specification. See [Docs/a2a/overview.md](Docs/a2a/overview.md) for details and the [quickstart guide](Docs/a2a/quickstart.md) to get running in 10 minutes.
 
 ## Roadmap
 
-Rough plans, no timeline:
-
-- Better backup/restore
-- A retrieval firewall so memories can be filtered before they reach an assistant
-- A small inspector for finding conflicting memories
-- Time-travel queries (search the state at a past timestamp)
-
----
+| Version | Codename | Focus |
+|---------|----------|-------|
+| v0.1.3 | Sentinel | Proactive ingestion, cryptographic provenance, bulk import |
+| v0.2 | Substrate | Distributed memory substrate with cross-node sync |
+| v0.3 | Protocol | Open memory protocol specification |
+| v0.4 | Federation | Cross-instance memory federation |
+| v0.5 | Bench | Standardized AI memory benchmarking suite |
 
 ## License
 
-AGPL-3.0. See [LICENSE](Nexus/LICENSE).
+[GNU Affero General Public License v3.0](LICENSE)
 
-Contributions require a signed CLA — see [CONTRIBUTING.md](CONTRIBUTING.md) and [CLA.md](CLA.md).
-
----
-
-## Security
-
-If you find a security issue, please email me privately rather than opening a public issue. See [SECURITY.md](SECURITY.md).
-
----
-
-## Community
-
-- Issues: [github.com/bubblefish-tech/nexus/issues](https://github.com/bubblefish-tech/nexus/issues)
-- Discussions: [github.com/bubblefish-tech/nexus/discussions](https://github.com/bubblefish-tech/nexus/discussions)
-
----
-
-Copyright 2026 Shawn Sammartano. All rights reserved.
+© 2026 Shawn Sammartano. All rights reserved.
+Multiple Patents Pending
