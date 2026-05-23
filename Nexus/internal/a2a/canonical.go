@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -81,9 +82,15 @@ func canonicalWrite(buf *strings.Builder, v interface{}) error {
 		for k := range val {
 			keys = append(keys, k)
 		}
-		// RFC 8785: sort by Unicode code points (Go string comparison is
-		// byte-wise which matches UTF-8 code point order).
-		sort.Strings(keys)
+		// RFC 8785 §3.2.3: sort JSON object members by name in the order
+		// induced by the UTF-16 representation of the name. UTF-16 order
+		// diverges from UTF-8 byte order for any code point above U+FFFF
+		// (because such code points encode as a surrogate pair whose first
+		// unit is in the 0xD800..0xDBFF range, but in UTF-8 they encode to
+		// 4 bytes starting at 0xF0 — past 0xEE, where U+E000 sits).
+		sort.Slice(keys, func(i, j int) bool {
+			return utf16Less(keys[i], keys[j])
+		})
 		buf.WriteByte('{')
 		for i, k := range keys {
 			if i > 0 {
@@ -237,4 +244,31 @@ func canonicalWriteString(buf *strings.Builder, s string) {
 		i += size
 	}
 	buf.WriteByte('"')
+}
+
+// utf16Less reports whether a sorts before b under RFC 8785 §3.2.3 — i.e.,
+// comparing the UTF-16 code-unit sequences of the two strings
+// lexicographically. UTF-16 ordering diverges from UTF-8 byte ordering for
+// code points outside the Basic Multilingual Plane (U+10000 and above),
+// because such code points encode as a high/low surrogate pair in UTF-16
+// (with the first unit in 0xD800..0xDBFF) but as a four-byte sequence
+// starting at 0xF0 in UTF-8 — which sorts past characters in the U+E000+
+// range that are single-unit in UTF-16.
+//
+// Allocates two []uint16 buffers per comparison. JSON object key sets are
+// typically small enough that this is not hot-path sensitive; callers
+// concerned with throughput can cache the encoded form across compares.
+func utf16Less(a, b string) bool {
+	au := utf16.Encode([]rune(a))
+	bu := utf16.Encode([]rune(b))
+	n := len(au)
+	if len(bu) < n {
+		n = len(bu)
+	}
+	for i := 0; i < n; i++ {
+		if au[i] != bu[i] {
+			return au[i] < bu[i]
+		}
+	}
+	return len(au) < len(bu)
 }
