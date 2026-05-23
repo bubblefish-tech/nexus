@@ -112,7 +112,19 @@ func (gc *groupCommitter) run(writeBatch func(batch []*pendingEntry)) {
 		writeBatch(batch)
 		batch = batch[:0]
 		if timer != nil {
-			timer.Stop()
+			// timer.Stop() returns false when the timer has already fired
+			// (its channel holds a value waiting to be consumed). If we
+			// don't drain it here, the next timer.Reset() on a new batch
+			// will be inserted ahead of that stale value — the very next
+			// loop iteration would then receive it and call flush() on an
+			// empty batch (and worse, would also drop the legitimate
+			// per-batch deadline by consuming the channel preemptively).
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			timerC = nil
 		}
 	}
