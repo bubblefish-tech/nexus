@@ -34,6 +34,40 @@ func TestCanonicalizeKeyOrder(t *testing.T) {
 	}
 }
 
+// TestCanonicalizeUTF16KeyOrder exercises RFC 8785 §3.2.3 — JSON object keys
+// must sort by UTF-16 code units, NOT by UTF-8 byte order. The two orderings
+// diverge for any code point above U+FFFF (encoded as a high/low surrogate
+// pair in UTF-16, with the first unit in 0xD800..0xDBFF, but encoded as a
+// four-byte sequence starting at 0xF0 in UTF-8 — past 0xEE where U+E000+
+// single-unit characters sit in UTF-8).
+//
+// Concrete case used here:
+//
+//	"𝐀" (U+1D400, MATHEMATICAL BOLD CAPITAL A)
+//	    UTF-16: 0xD835 0xDC00
+//	    UTF-8 : 0xF0 0x9D 0x90 0x80
+//	"" (U+E000, first code point of the Private Use Area)
+//	    UTF-16: 0xE000
+//	    UTF-8 : 0xEE 0x80 0x80
+//
+// UTF-16 order: 𝐀 < "" (because 0xD835 < 0xE000).
+// UTF-8 byte order: "" < 𝐀 (because 0xEE < 0xF0).
+//
+// A spec-conformant implementation MUST emit "𝐀" before "" — which is
+// what RFC 8785 §3.2.3 mandates and what consumers of the canonical form
+// (Ed25519 signers, hash producers) will expect.
+func TestCanonicalizeUTF16KeyOrder(t *testing.T) {
+	input := "{\"\\uE000\":\"pua\",\"\\uD835\\uDC00\":\"math-A\"}"
+	got, err := Canonicalize([]byte(input))
+	if err != nil {
+		t.Fatalf("Canonicalize: %v", err)
+	}
+	want := "{\"\xF0\x9D\x90\x80\":\"math-A\",\"\xEE\x80\x80\":\"pua\"}"
+	if string(got) != want {
+		t.Errorf("\n got: %q\nwant: %q", string(got), want)
+	}
+}
+
 func TestCanonicalizeNestedObjects(t *testing.T) {
 	input := `{"b":{"z":1,"a":2},"a":{"y":3,"x":4}}`
 	got, err := Canonicalize([]byte(input))
