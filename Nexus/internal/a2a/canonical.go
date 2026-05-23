@@ -18,6 +18,7 @@
 package a2a
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -38,8 +39,12 @@ import (
 //   - Recursive canonicalization of nested structures
 func Canonicalize(data []byte) ([]byte, error) {
 	var v interface{}
-	// Use json.Number to preserve numeric precision.
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	// Use json.Number to preserve numeric precision. bytes.NewReader is
+	// zero-copy on the input slice; the previous strings.NewReader(string(data))
+	// incurred a full string([]byte) copy of the payload (which on signature
+	// hot paths means a heap allocation per canonicalize for the entire JSON
+	// body).
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("a2a: canonicalize: invalid JSON: %w", err)
